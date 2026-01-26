@@ -68,11 +68,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _isLoading = true);
     
     try {
-      print('Loading user data for userId: ${widget.userId}');
+      debugPrint('Loading user data for userId: ${widget.userId}');
       
       // Load user data
       final userData = await UserDataService.getUserProfile(widget.userId);
-      print('User data received: $userData');
+      debugPrint('User data received: $userData');
       
       // Load friendship status
       final currentUser = FirebaseAuthService.instance.currentUser;
@@ -81,7 +81,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       }
       
       final friendshipStatus = await FriendsService.getFriendshipStatus(currentUser.uid, widget.userId);
-      print('Friendship status: $friendshipStatus');
+      debugPrint('Friendship status: $friendshipStatus');
       
       if (mounted) {
         if (userData != null) {
@@ -90,16 +90,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             _friendshipStatus = friendshipStatus;
             _isLoading = false;
           });
-          print('User profile loaded successfully: ${_user?.username}');
+          debugPrint('User profile loaded successfully: ${_user?.username}');
         } else {
           setState(() {
             _isLoading = false;
           });
-          print('No user data found for userId: ${widget.userId}');
+          debugPrint('No user data found for userId: ${widget.userId}');
           
           // Show a more helpful error message
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text('User profile not found. This user may not exist or may not have completed registration.'),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 5),
@@ -108,7 +108,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         }
       }
     } catch (e) {
-      print('Error loading user data: $e');
+      debugPrint('Error loading user data: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;

@@ -36,7 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      print('Error loading profile data: $e');
+      debugPrint('Error loading profile data: $e');
     }
   }
 
