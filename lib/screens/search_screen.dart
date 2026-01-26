@@ -5,7 +5,9 @@ import '../services/rawg_service.dart';
 import 'game_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  final bool isSelectingFavorite;
+  
+  const SearchScreen({super.key, this.isSelectingFavorite = false});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -133,9 +135,9 @@ class _SearchScreenState extends State<SearchScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F2937),
         elevation: 0,
-        title: const Text(
-          'Search Games',
-          style: TextStyle(
+        title: Text(
+          widget.isSelectingFavorite ? 'Select Favorite Game' : 'Search Games',
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 20,
             fontWeight: FontWeight.w600,
@@ -481,14 +483,20 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildGameItem(Game game) {
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => GameDetailScreen(
-              gameId: game.id,
-              initialGame: game,
+        if (widget.isSelectingFavorite) {
+          // Return the selected game for favorite selection
+          Navigator.of(context).pop(game);
+        } else {
+          // Navigate to game detail screen as usual
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => GameDetailScreen(
+                gameId: game.id,
+                initialGame: game,
+              ),
             ),
-          ),
-        );
+          );
+        }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
