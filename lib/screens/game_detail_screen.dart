@@ -60,6 +60,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   List<Game> _similarGames = [];
   bool _isLoadingSimilarGames = false;
   
+  // Description expansion
+  bool _isDescriptionExpanded = false;
+  
   // Event subscription
   StreamSubscription<RatingSubmittedEvent>? _ratingSubmittedSubscription;
 
@@ -383,13 +386,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            _game!.description,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
-          ),
+          _buildCollapsibleDescription(),
           const SizedBox(height: 16),
         ],
         if (_game!.genres.isNotEmpty) ...[
@@ -431,6 +428,85 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               backgroundColor: const Color(0xFF1F2937),
               labelStyle: const TextStyle(color: Colors.white),
             )).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCollapsibleDescription() {
+    const int maxLines = 3;
+    final String description = _game!.description;
+    
+    // Check if description is long enough to need collapsing
+    final TextPainter textPainter = TextPainter(
+      text: TextSpan(
+        text: description,
+        style: const TextStyle(fontSize: 14),
+      ),
+      maxLines: maxLines,
+      textDirection: TextDirection.ltr,
+    );
+    
+    textPainter.layout(maxWidth: MediaQuery.of(context).size.width - 32);
+    final bool isTextOverflowing = textPainter.didExceedMaxLines;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 300),
+          crossFadeState: _isDescriptionExpanded 
+              ? CrossFadeState.showSecond 
+              : CrossFadeState.showFirst,
+          firstChild: Text(
+            description,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+              height: 1.5,
+            ),
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+          ),
+          secondChild: Text(
+            description,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+              height: 1.5,
+            ),
+          ),
+        ),
+        if (isTextOverflowing) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _isDescriptionExpanded = !_isDescriptionExpanded;
+              });
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _isDescriptionExpanded ? 'Show less' : 'Show more',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF6366F1),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _isDescriptionExpanded 
+                      ? Icons.keyboard_arrow_up 
+                      : Icons.keyboard_arrow_down,
+                  color: const Color(0xFF6366F1),
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ],
       ],
