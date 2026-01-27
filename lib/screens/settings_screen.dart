@@ -1,15 +1,43 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/content_filter_service.dart';
+import '../widgets/age_verification_dialog.dart';
 import 'settings/privacy_settings_screen.dart';
 import 'settings/notification_settings_screen.dart';
 import 'settings/theme_settings_screen.dart';
 import 'settings/help_support_screen.dart';
 import 'settings/about_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   final VoidCallback? onNavigateToProfile;
   
   const SettingsScreen({super.key, this.onNavigateToProfile});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _adultContentEnabled = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
+      setState(() {
+        _adultContentEnabled = adultContentEnabled;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,100 +47,109 @@ class SettingsScreen extends StatelessWidget {
           children: [
             _buildHeader(),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  _buildSettingsSection(
-                    title: 'Account',
-                    children: [
-                      _buildSettingsTile(
-                        icon: Icons.person_outline,
-                        title: 'Profile Settings',
-                        subtitle: 'Edit your profile information',
-                        onTap: () {
-                          if (onNavigateToProfile != null) {
-                            onNavigateToProfile!();
-                          }
-                        },
-                      ),
-                      _buildSettingsTile(
-                        icon: Icons.security,
-                        title: 'Privacy & Security',
-                        subtitle: 'Manage your privacy settings',
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const PrivacySettingsScreen(),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: [
+                        _buildSettingsSection(
+                          title: 'Account',
+                          children: [
+                            _buildSettingsTile(
+                              icon: Icons.person_outline,
+                              title: 'Profile Settings',
+                              subtitle: 'Edit your profile information',
+                              onTap: () {
+                                if (widget.onNavigateToProfile != null) {
+                                  widget.onNavigateToProfile!();
+                                }
+                              },
                             ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSettingsSection(
-                    title: 'Preferences',
-                    children: [
-                      _buildSettingsTile(
-                        icon: Icons.notifications_outlined,
-                        title: 'Notifications',
-                        subtitle: 'Configure notification preferences',
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const NotificationSettingsScreen(),
+                            _buildSettingsTile(
+                              icon: Icons.security,
+                              title: 'Privacy & Security',
+                              subtitle: 'Manage your privacy settings',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const PrivacySettingsScreen(),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-                      _buildSettingsTile(
-                        icon: Icons.palette_outlined,
-                        title: 'Theme',
-                        subtitle: 'Customize app appearance',
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const ThemeSettingsScreen(),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSettingsSection(
+                          title: 'Content',
+                          children: [
+                            _buildAdultContentToggle(),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSettingsSection(
+                          title: 'Preferences',
+                          children: [
+                            _buildSettingsTile(
+                              icon: Icons.notifications_outlined,
+                              title: 'Notifications',
+                              subtitle: 'Configure notification preferences',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const NotificationSettingsScreen(),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSettingsSection(
-                    title: 'Support',
-                    children: [
-                      _buildSettingsTile(
-                        icon: Icons.help_outline,
-                        title: 'Help & Support',
-                        subtitle: 'Get help and contact support',
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const HelpSupportScreen(),
+                            _buildSettingsTile(
+                              icon: Icons.palette_outlined,
+                              title: 'Theme',
+                              subtitle: 'Customize app appearance',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const ThemeSettingsScreen(),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-                      _buildSettingsTile(
-                        icon: Icons.info_outline,
-                        title: 'About',
-                        subtitle: 'App version and information',
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => const AboutScreen(),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSettingsSection(
+                          title: 'Support',
+                          children: [
+                            _buildSettingsTile(
+                              icon: Icons.help_outline,
+                              title: 'Help & Support',
+                              subtitle: 'Get help and contact support',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const HelpSupportScreen(),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _buildLogoutButton(context),
-                ],
-              ),
+                            _buildSettingsTile(
+                              icon: Icons.info_outline,
+                              title: 'About',
+                              subtitle: 'App version and information',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const AboutScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        _buildLogoutButton(context),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -145,8 +182,15 @@ class SettingsScreen extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text('Settings content here'),
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
         ),
         Container(
           decoration: BoxDecoration(
@@ -157,6 +201,108 @@ class SettingsScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Widget _buildAdultContentToggle() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: Color(0xFFF59E0B),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '18+ Content',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _adultContentEnabled 
+                      ? 'Adult content is visible' 
+                      : 'Adult content is filtered',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFA1A1AA),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _adultContentEnabled,
+            onChanged: _toggleAdultContent,
+            activeColor: const Color(0xFFF59E0B),
+            inactiveThumbColor: const Color(0xFF6B7280),
+            inactiveTrackColor: const Color(0xFF374151),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleAdultContent(bool value) async {
+    if (value) {
+      // Enabling adult content - require age verification
+      final isAgeVerified = await ContentFilterService.instance.isAgeVerified();
+      
+      if (!isAgeVerified) {
+        // Show age verification dialog
+        final verified = await AgeVerificationDialog.showAgeVerification(
+          context,
+          onVerified: () {
+            setState(() => _adultContentEnabled = true);
+          },
+        );
+        
+        if (verified != true) {
+          return; // User didn't verify age
+        }
+      } else {
+        // Age already verified, just enable
+        await ContentFilterService.instance.enableAdultContent();
+        setState(() => _adultContentEnabled = true);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Adult content enabled'),
+              backgroundColor: Color(0xFFF59E0B),
+            ),
+          );
+        }
+      }
+    } else {
+      // Disabling adult content
+      await ContentFilterService.instance.disableAdultContent();
+      setState(() => _adultContentEnabled = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Adult content disabled'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildSettingsTile({

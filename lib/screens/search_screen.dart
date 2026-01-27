@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
 import '../services/rawg_service.dart';
+import '../services/content_filter_service.dart';
 import 'game_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  final bool isSelectingFavorite;
-  
-  const SearchScreen({super.key, this.isSelectingFavorite = false});
+  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -17,15 +17,25 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
   List<Game> _searchResults = [];
+  List<Game> _popularGames = [];
   bool _isLoading = false;
   bool _showFilters = false;
+  bool _isLoadingPopular = false;
   
   // Filter options
   String _selectedGenre = 'all';
   String _selectedPlatform = 'all';
-  String _selectedOrdering = 'relevance';
+  String _selectedOrdering = '-rating'; // Default to rating for better results
   RangeValues _metacriticRange = const RangeValues(0, 100);
-  RangeValues _releasedYearRange = const RangeValues(1990, 2024);
+  RangeValues _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2); // Focus on recent games including upcoming
+
+  // Quick filter options
+  final List<Map<String, String>> _quickFilters = [
+    {'label': 'Popular', 'ordering': '-rating', 'icon': 'star'},
+    {'label': 'Recent', 'ordering': '-released', 'icon': 'schedule'},
+    {'label': 'Top Rated', 'ordering': '-metacritic', 'icon': 'trending_up'},
+    {'label': 'Most Played', 'ordering': '-added', 'icon': 'people'},
+  ];
 
   final List<Map<String, String>> _genreOptions = [
     {'label': 'All Genres', 'value': 'all'},
@@ -53,19 +63,46 @@ class _SearchScreenState extends State<SearchScreen> {
   ];
 
   final List<Map<String, String>> _orderingOptions = [
-    {'label': 'Relevance', 'value': 'relevance'},
-    {'label': 'Name', 'value': 'name'},
-    {'label': 'Release Date', 'value': '-released'},
-    {'label': 'Rating', 'value': '-rating'},
-    {'label': 'Metacritic Score', 'value': '-metacritic'},
-    {'label': 'Added', 'value': '-added'},
+    {'label': 'Best Match', 'value': '-rating'},
+    {'label': 'Most Popular', 'value': '-added'},
+    {'label': 'Newest First', 'value': '-released'},
+    {'label': 'Highest Rated', 'value': '-metacritic'},
+    {'label': 'Name A-Z', 'value': 'name'},
+    {'label': 'Name Z-A', 'value': '-name'},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPopularGames();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadPopularGames() async {
+    setState(() => _isLoadingPopular = true);
+    try {
+      final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
+      final games = await RAWGService.instance.getPopularGames(
+        limit: 20,
+        includeAdultContent: adultContentEnabled,
+      );
+      if (mounted) {
+        setState(() {
+          _popularGames = games;
+          _isLoadingPopular = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingPopular = false);
+      }
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -87,20 +124,65 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // Get adult content preference
+      final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
+      
+      // Enhanced search with better ordering for popular/recent results
+      String searchOrdering = _selectedOrdering;
+      if (query.isNotEmpty && _selectedOrdering == '-rating') {
+        // For search queries, use a hybrid approach: relevance + popularity
+        searchOrdering = '-rating'; // Prioritize highly rated games in search
+      }
+
       final games = await RAWGService.instance.searchGamesWithFilters(
         query: query,
         genre: _selectedGenre != 'all' ? _selectedGenre : null,
         platform: _selectedPlatform != 'all' ? _selectedPlatform : null,
-        ordering: _selectedOrdering,
+        ordering: searchOrdering,
         metacriticMin: _metacriticRange.start.round(),
         metacriticMax: _metacriticRange.end.round(),
         releasedAfter: '${_releasedYearRange.start.round()}-01-01',
         releasedBefore: '${_releasedYearRange.end.round()}-12-31',
+        limit: 40, // Get more results for better sorting
       );
+      
+      // Apply content filtering
+      List<Game> filteredGames = games;
+      if (!adultContentEnabled) {
+        filteredGames = games.where((game) {
+          // Basic content filtering based on title and description
+          final title = game.title.toLowerCase();
+          final description = game.description.toLowerCase();
+          
+          const adultKeywords = [
+            'adult', 'erotic', 'nsfw', 'mature', 'sexual', 'nude', 'xxx', '18+', 'hentai'
+          ];
+          
+          return !adultKeywords.any((keyword) => 
+            title.contains(keyword) || description.contains(keyword)
+          );
+        }).toList();
+      }
+
+      // Enhanced result prioritization: popular and recent games first
+      filteredGames.sort((a, b) {
+        // First priority: rating (popular games)
+        final ratingDiff = b.averageRating.compareTo(a.averageRating);
+        if (ratingDiff != 0) return ratingDiff;
+        
+        // Second priority: release year (recent games)
+        final yearA = int.tryParse(a.releaseDate) ?? 0;
+        final yearB = int.tryParse(b.releaseDate) ?? 0;
+        final yearDiff = yearB.compareTo(yearA);
+        if (yearDiff != 0) return yearDiff;
+        
+        // Third priority: review count (more reviewed = more popular)
+        return b.totalReviews.compareTo(a.totalReviews);
+      });
       
       if (mounted) {
         setState(() {
-          _searchResults = games;
+          _searchResults = filteredGames.take(20).toList(); // Limit final results
           _isLoading = false;
         });
       }
@@ -121,33 +203,35 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _selectedGenre = 'all';
       _selectedPlatform = 'all';
-      _selectedOrdering = 'relevance';
+      _selectedOrdering = '-rating';
       _metacriticRange = const RangeValues(0, 100);
-      _releasedYearRange = const RangeValues(1990, 2024);
+      _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2);
     });
     _searchGames(_searchController.text);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF111827),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1F2937),
-        elevation: 0,
-        title: Text(
-          widget.isSelectingFavorite ? 'Select Favorite Game' : 'Search Games',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
+  void _applyQuickFilter(String ordering) {
+    setState(() {
+      _selectedOrdering = ordering;
+      _showFilters = false; // Hide filters after applying quick filter
+    });
+    _searchGames(_searchController.text);
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          const Text(
+            'Search Games',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
+          const Spacer(),
           IconButton(
             icon: Icon(
               _showFilters ? Icons.filter_list : Icons.filter_list_outlined,
@@ -161,16 +245,94 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildSearchBar(),
-          if (_showFilters) _buildFilters(),
-          Expanded(
-            child: _buildSearchContent(),
-          ),
-        ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF111827),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            _buildSearchBar(),
+            _buildQuickFilters(),
+            if (_showFilters) _buildFilters(),
+            Expanded(
+              child: _buildSearchContent(),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildQuickFilters() {
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: _quickFilters.length,
+        itemBuilder: (context, index) {
+          final filter = _quickFilters[index];
+          final isSelected = _selectedOrdering == filter['ordering'];
+          
+          return Container(
+            margin: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _getIconData(filter['icon']!),
+                    size: 16,
+                    color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    filter['label']!,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+              selected: isSelected,
+              onSelected: (selected) {
+                if (selected) {
+                  _applyQuickFilter(filter['ordering']!);
+                }
+              },
+              backgroundColor: const Color(0xFF1F2937),
+              selectedColor: const Color(0xFF6366F1),
+              side: BorderSide(
+                color: isSelected ? const Color(0xFF6366F1) : const Color(0xFF374151),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _getIconData(String iconName) {
+    switch (iconName) {
+      case 'star':
+        return Icons.star;
+      case 'schedule':
+        return Icons.schedule;
+      case 'trending_up':
+        return Icons.trending_up;
+      case 'people':
+        return Icons.people;
+      default:
+        return Icons.games;
+    }
   }
 
   Widget _buildSearchBar() {
@@ -304,8 +466,8 @@ class _SearchScreenState extends State<SearchScreen> {
           RangeSlider(
             values: _releasedYearRange,
             min: 1990,
-            max: 2024,
-            divisions: 34,
+            max: (DateTime.now().year + 2).toDouble(), // Dynamic max year (current year + 2 for upcoming games)
+            divisions: (DateTime.now().year + 2 - 1990), // Dynamic division count
             activeColor: const Color(0xFF6366F1),
             inactiveColor: const Color(0xFF374151),
             labels: RangeLabels(
@@ -384,38 +546,83 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search,
-              size: 64,
-              color: Color(0xFF9CA3AF),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Search for Games',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFFE5E7EB),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Enter a game title to start searching',
-              style: TextStyle(
-                fontSize: 14,
+    return Column(
+      children: [
+        // Search prompt section
+        Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.search,
+                size: 64,
                 color: Color(0xFF9CA3AF),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(height: 16),
+              const Text(
+                'Discover Amazing Games',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFFE5E7EB),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Search for your favorite games or explore popular titles below',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF9CA3AF),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
-      ),
+        
+        // Popular games section
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Popular Games',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFE5E7EB),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: _isLoadingPopular
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                        ),
+                      )
+                    : _popularGames.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No popular games available',
+                              style: TextStyle(color: Color(0xFF9CA3AF)),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _popularGames.length,
+                            itemBuilder: (context, index) {
+                              return _buildGameItem(_popularGames[index]);
+                            },
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -426,13 +633,13 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            const Icon(
               Icons.search_off,
               size: 64,
               color: Color(0xFF9CA3AF),
             ),
             const SizedBox(height: 16),
-            Text(
+            const Text(
               'No Games Found',
               style: TextStyle(
                 fontSize: 18,
@@ -441,7 +648,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Try adjusting your search terms or filters',
               style: TextStyle(
                 fontSize: 14,
@@ -483,20 +690,15 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildGameItem(Game game) {
     return GestureDetector(
       onTap: () {
-        if (widget.isSelectingFavorite) {
-          // Return the selected game for favorite selection
-          Navigator.of(context).pop(game);
-        } else {
-          // Navigate to game detail screen as usual
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => GameDetailScreen(
-                gameId: game.id,
-                initialGame: game,
-              ),
+        // Navigate to game detail screen
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => GameDetailScreen(
+              gameId: game.id,
+              initialGame: game,
             ),
-          );
-        }
+          ),
+        );
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -511,22 +713,29 @@ class _SearchScreenState extends State<SearchScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: game.coverImage.isNotEmpty
-                  ? Image.network(
-                      game.coverImage,
+                  ? CachedNetworkImage(
+                      imageUrl: game.coverImage,
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[700],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.games, color: Colors.white, size: 24),
-                        );
-                      },
+                      placeholder: (context, url) => Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.games, color: Colors.white, size: 24),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.games, color: Colors.white, size: 24),
+                      ),
                     )
                   : Container(
                       width: 60,
@@ -567,10 +776,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   Row(
                     children: [
                       if (game.averageRating > 0) ...[
-                        Icon(
+                        const Icon(
                           Icons.star,
                           size: 16,
-                          color: const Color(0xFFFBBF24),
+                          color: Color(0xFFFBBF24),
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -583,7 +792,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         const SizedBox(width: 12),
                       ],
                       if (game.releaseDate.isNotEmpty) ...[
-                        Icon(
+                        const Icon(
                           Icons.calendar_today,
                           size: 14,
                           color: Colors.grey,

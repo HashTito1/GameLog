@@ -258,22 +258,15 @@ class FirebaseAuthService extends ChangeNotifier {
         await StorageService.saveUser(user);
         
         // Save to Firestore for other users to see
-        await UserDataService.saveUserProfile(credential.user!.uid, {
-          'id': credential.user!.uid,
-          'username': username,
-          'displayName': displayName,
-          'email': email,
-          'bio': '',
-          'profileImage': '',
-          'gamesPlayed': 0,
-          'reviewsWritten': 0,
-          'followers': 0,
-          'following': 0,
-          'joinDate': DateTime.now().millisecondsSinceEpoch,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'lastActiveAt': DateTime.now().millisecondsSinceEpoch,
-          'isOnline': true,
-        });
+        await UserDataService.createOrUpdateUserProfile(
+          userId: credential.user!.uid,
+          username: username,
+          displayName: displayName,
+          email: email,
+          bio: '',
+          profileImageUrl: '',
+          bannerImageUrl: '',
+        );
         
         _currentUser = user;
         notifyListeners();
@@ -479,14 +472,14 @@ class FirebaseAuthService extends ChangeNotifier {
         };
       }
 
-      final profileData = <String, dynamic>{};
-      if (displayName != null) profileData['displayName'] = displayName;
-      if (bio != null) profileData['bio'] = bio;
-      if (profileImage != null) profileData['profileImage'] = profileImage;
-      if (bannerImage != null) profileData['bannerImage'] = bannerImage;
-      if (favoriteGameData != null) profileData['favoriteGame'] = favoriteGameData;
-      if (playlists != null) {
-        profileData['playlists'] = playlists.map((playlist) => {
+      await UserDataService.createOrUpdateUserProfile(
+        userId: updatedUser.id,
+        displayName: displayName,
+        bio: bio,
+        profileImageUrl: profileImage,
+        bannerImageUrl: bannerImage,
+        favoriteGame: favoriteGameData,
+        playlists: playlists?.map((playlist) => {
           'id': playlist.id,
           'name': playlist.name,
           'description': playlist.description,
@@ -498,10 +491,8 @@ class FirebaseAuthService extends ChangeNotifier {
           }).toList(),
           'createdAt': playlist.createdAt.toIso8601String(),
           'updatedAt': playlist.updatedAt.toIso8601String(),
-        }).toList();
-      }
-
-      await UserDataService.saveUserProfile(updatedUser.id, profileData);
+        }).toList(),
+      );
 
       // Save to local storage for backward compatibility
       await StorageService.saveUser(updatedUser);

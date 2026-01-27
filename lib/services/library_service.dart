@@ -62,30 +62,91 @@ class LibraryService {
     }
   }
 
-  // Get user's library
+  // Get user's library (updated to use new data structure)
   Future<List<Map<String, dynamic>>> getUserLibrary(String userId, {int limit = 50}) async {
     try {
-            final querySnapshot = await _firestore
-          .collection(_libraryCollection)
-          .where('userId', isEqualTo: userId)
+      // Get data from user's library subcollection (new structure)
+      final librarySnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('library')
           .orderBy('dateUpdated', descending: true)
           .limit(limit)
           .get();
 
-            final libraryGames = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-                return data;
-      }).toList();
+      // Get ratings to merge with library data
+      final ratingsSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('ratings')
+          .get();
+
+      final libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
+      final ratingsMap = <String, Map<String, dynamic>>{};
       
-      // Force debug: Check for games with ratings
-      final ratedGames = libraryGames.where((game) => (game['userRating'] ?? 0.0) > 0).toList();
-            for (final _ in ratedGames) {
-        // Process game: ${game['gameTitle'] ?? 'Unknown'}
+      // Create a map of ratings by gameId
+      for (final ratingDoc in ratingsSnapshot.docs) {
+        final ratingData = ratingDoc.data();
+        final gameId = ratingData['gameId'] ?? ratingDoc.id;
+        ratingsMap[gameId] = ratingData;
+      }
+
+      // Merge library and rating data
+      final mergedGames = <Map<String, dynamic>>[];
+      
+      // Add library games with their ratings
+      for (final game in libraryGames) {
+        final gameId = game['gameId'] ?? '';
+        final rating = ratingsMap[gameId];
+        
+        final mergedGame = Map<String, dynamic>.from(game);
+        if (rating != null) {
+          mergedGame['userRating'] = rating['rating'] ?? 0.0;
+          mergedGame['userReview'] = rating['review'];
+        }
+        mergedGames.add(mergedGame);
       }
       
-      return libraryGames;
+      // Add rated games that aren't in library yet
+      for (final entry in ratingsMap.entries) {
+        final gameId = entry.key;
+        final rating = entry.value;
+        
+        // Check if this game is already in library
+        final existsInLibrary = mergedGames.any((game) => game['gameId'] == gameId);
+        if (!existsInLibrary) {
+          // Add as a rated game
+          mergedGames.add({
+            'id': '${userId}_$gameId',
+            'userId': userId,
+            'gameId': gameId,
+            'gameTitle': rating['gameTitle'] ?? 'Unknown Game',
+            'gameCoverImage': '',
+            'gameDeveloper': 'Unknown Developer',
+            'gameReleaseDate': '',
+            'gameGenres': <String>[],
+            'gamePlatforms': <String>[],
+            'userRating': rating['rating'] ?? 0.0,
+            'userReview': rating['review'],
+            'status': 'rated',
+            'dateAdded': rating['lastModified'] ?? DateTime.now().millisecondsSinceEpoch,
+            'dateUpdated': rating['lastModified'] ?? DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+      }
+      
+      // Sort by dateUpdated
+      mergedGames.sort((a, b) {
+        final aDate = a['dateUpdated'] ?? 0;
+        final bDate = b['dateUpdated'] ?? 0;
+        return bDate.compareTo(aDate);
+      });
+      
+      debugPrint('Loaded ${mergedGames.length} games from user library (${libraryGames.length} library + ${ratingsMap.length} ratings)');
+      
+      return mergedGames.take(limit).toList();
     } catch (e) {
-      print('Error loading user library: $e');
+      debugPrint('Error loading user library: $e');
       return [];
     }
   }
@@ -171,32 +232,43 @@ class LibraryService {
     }
   }
 
-  // Get user's library stats
+  // Get user's library stats (updated to use new data structure)
   Future<Map<String, dynamic>> getUserLibraryStats(String userId) async {
     try {
-      final querySnapshot = await _firestore
-          .collection(_libraryCollection)
-          .where('userId', isEqualTo: userId)
+      // Get data from user's subcollections (new structure)
+      final librarySnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('library')
           .get();
 
-      final games = querySnapshot.docs.map((doc) => doc.data()).toList();
+      final ratingsSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('ratings')
+          .get();
+
+      final libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
+      final ratings = ratingsSnapshot.docs.map((doc) => doc.data()).toList();
       
-      int totalGames = games.length;
+      int totalGames = libraryGames.length;
       double totalRating = 0.0;
-      int ratedGames = 0;
+      int ratedGames = ratings.length; // Count from ratings collection
       int backlogGames = 0;
       int completedGames = 0;
       Map<String, int> genreCounts = {};
       
-      for (final game in games) {
-        final rating = (game['userRating'] ?? 0.0).toDouble();
-        final status = game['status'] ?? 'rated';
-        
-        // Count games with ratings (both 'rated' and 'completed' status)
-        if (rating > 0 && (status == 'rated' || status == 'completed')) {
-          totalRating += rating;
-          ratedGames++;
+      // Calculate rating stats from ratings collection
+      for (final rating in ratings) {
+        final ratingValue = (rating['rating'] ?? 0.0).toDouble();
+        if (ratingValue > 0) {
+          totalRating += ratingValue;
         }
+      }
+      
+      // Calculate library stats from library collection
+      for (final game in libraryGames) {
+        final status = game['status'] ?? 'rated';
         
         if (status == 'backlog') {
           backlogGames++;
@@ -212,10 +284,15 @@ class LibraryService {
         }
       }
       
+      // If no library games but have ratings, count ratings as total games
+      if (totalGames == 0 && ratedGames > 0) {
+        totalGames = ratedGames;
+      }
+      
       return {
         'totalGames': totalGames,
         'averageRating': ratedGames > 0 ? totalRating / ratedGames : 0.0,
-        'ratedGames': ratedGames, // This includes both 'rated' and 'completed' games
+        'ratedGames': ratedGames, // Count from ratings collection
         'completedGames': completedGames,
         'backlogGames': backlogGames,
         'favoriteGenres': genreCounts.entries
@@ -223,15 +300,15 @@ class LibraryService {
             ..sort((a, b) => b.value.compareTo(a.value)),
       };
     } catch (e) {
-            return {
+      debugPrint('Error getting user library stats: $e');
+      return {
         'totalGames': 0,
         'averageRating': 0.0,
         'ratedGames': 0,
         'completedGames': 0,
         'backlogGames': 0,
         'favoriteGenres': <MapEntry<String, int>>[],
-        // Error handled
-    };
+      };
     }
   }
 

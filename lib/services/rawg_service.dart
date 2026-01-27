@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/game.dart';
 import 'cache_service.dart';
+import 'content_filter_service.dart';
 
 class RAWGService {
   static const String _baseUrl = 'https://api.rawg.io/api';
@@ -124,19 +125,23 @@ class RAWGService {
     }
   }
 
-  // Get popular games with caching
-  Future<List<Game>> getPopularGames({int limit = 20}) async {
+  // Get popular games with caching and pagination
+  Future<List<Game>> getPopularGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
-      // Try to get from cache first
-      final cachedGames = await CacheService.getCachedGameList(CacheService.popularGamesKey);
-      if (cachedGames != null && cachedGames.isNotEmpty) {
-        return cachedGames.take(limit).toList();
+      // For page 1, try to get from cache first
+      if (page == 1) {
+        final cachedGames = await CacheService.getCachedGameList(CacheService.popularGamesKey);
+        if (cachedGames != null && cachedGames.isNotEmpty) {
+          final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
+          return filteredGames.take(limit).toList();
+        }
       }
 
       final uri = Uri.parse('$_baseUrl/games').replace(queryParameters: {
         'key': _apiKey,
         'ordering': '-rating',
-        'page_size': '40', // Fetch more to cache
+        'page_size': limit.toString(),
+        'page': page.toString(),
         'metacritic': '80,100',
       });
 
@@ -147,44 +152,58 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          final mockGames = _getMockGames().take(limit).toList();
-          await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-          return mockGames;
+          if (page == 1) {
+            final mockGames = _getMockGames().take(limit).toList();
+            await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
+            return await _filterAdultContent(mockGames, includeAdultContent);
+          }
+          return [];
         }
         
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
         
-        // Cache the results
-        await CacheService.cacheGameList(CacheService.popularGamesKey, games);
+        // Cache the results only for page 1
+        if (page == 1) {
+          await CacheService.cacheGameList(CacheService.popularGamesKey, games);
+        }
         
-        // Also cache individual games
+        // Cache individual games
         for (final game in games) {
           await CacheService.cacheGame(game);
         }
         
-        return games.take(limit).toList();
+        return await _filterAdultContent(games, includeAdultContent);
       } else {
-                final mockGames = _getMockGames().take(limit).toList();
-        await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-        return mockGames;
+        if (page == 1) {
+          final mockGames = _getMockGames().take(limit).toList();
+          await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
+          return await _filterAdultContent(mockGames, includeAdultContent);
+        }
+        return [];
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting popular games: $e');
       }
-      final mockGames = _getMockGames().take(limit).toList();
-      await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-      return mockGames;
+      if (page == 1) {
+        final mockGames = _getMockGames().take(limit).toList();
+        await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
+        return await _filterAdultContent(mockGames, includeAdultContent);
+      }
+      return [];
     }
   }
 
-  // Get trending games with caching
-  Future<List<Game>> getTrendingGames({int limit = 20}) async {
+  // Get trending games with caching and pagination
+  Future<List<Game>> getTrendingGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
-      // Try to get from cache first
-      final cachedGames = await CacheService.getCachedGameList(CacheService.trendingGamesKey);
-      if (cachedGames != null && cachedGames.isNotEmpty) {
-        return cachedGames.take(limit).toList();
+      // For page 1, try to get from cache first
+      if (page == 1) {
+        final cachedGames = await CacheService.getCachedGameList(CacheService.trendingGamesKey);
+        if (cachedGames != null && cachedGames.isNotEmpty) {
+          final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
+          return filteredGames.take(limit).toList();
+        }
       }
 
       final now = DateTime.now();
@@ -195,7 +214,8 @@ class RAWGService {
         'key': _apiKey,
         'dates': '$dateString,${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
         'ordering': '-added',
-        'page_size': '40', // Fetch more to cache
+        'page_size': limit.toString(),
+        'page': page.toString(),
       });
 
       final response = await http.get(uri, headers: _headers);
@@ -205,36 +225,48 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          final mockGames = _getMockGames().take(limit).toList();
-          await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-          return mockGames;
+          if (page == 1) {
+            final mockGames = _getMockGames().take(limit).toList();
+            await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
+            return await _filterAdultContent(mockGames, includeAdultContent);
+          }
+          return [];
         }
         
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
         
-        // Cache the results
-        await CacheService.cacheGameList(CacheService.trendingGamesKey, games);
+        // Cache the results only for page 1
+        if (page == 1) {
+          await CacheService.cacheGameList(CacheService.trendingGamesKey, games);
+        }
         
-        // Also cache individual games
+        // Cache individual games
         for (final game in games) {
           await CacheService.cacheGame(game);
         }
         
-        return games.take(limit).toList();
+        return await _filterAdultContent(games, includeAdultContent);
       } else {
         if (kDebugMode) {
-                  }
-        final mockGames = _getMockGames().take(limit).toList();
-        await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-        return mockGames;
+          print('RAWG API failed with status: ${response.statusCode}');
+        }
+        if (page == 1) {
+          final mockGames = _getMockGames().take(limit).toList();
+          await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
+          return await _filterAdultContent(mockGames, includeAdultContent);
+        }
+        return [];
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting trending games: $e');
       }
-      final mockGames = _getMockGames().take(limit).toList();
-      await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-      return mockGames;
+      if (page == 1) {
+        final mockGames = _getMockGames().take(limit).toList();
+        await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
+        return await _filterAdultContent(mockGames, includeAdultContent);
+      }
+      return [];
     }
   }
 
@@ -262,43 +294,61 @@ class RAWGService {
         
         return game;
       } else {
-        // Return mock game if API fails
-        final mockGames = _getMockGames();
-        final mockGame = mockGames.firstWhere(
-          (game) => game.id == gameId,
-          orElse: () => mockGames.first,
+        // Return a placeholder game if API fails
+        debugPrint('RAWG API failed with status: ${response.statusCode}');
+        return Game(
+          id: gameId,
+          title: 'Loading Game...',
+          developer: 'Please wait...',
+          publisher: '',
+          releaseDate: '',
+          platforms: [],
+          genres: [],
+          coverImage: '',
+          description: 'Loading game details from RAWG API...',
+          averageRating: 0.0,
+          totalReviews: 0,
         );
-        await CacheService.cacheGame(mockGame);
-        return mockGame;
       }
     } catch (e) {
-      // Return mock game on error
-      final mockGames = _getMockGames();
-      final mockGame = mockGames.firstWhere(
-        (game) => game.id == gameId,
-        orElse: () => mockGames.first,
+      // Return placeholder game on error
+      debugPrint('Error fetching game details: $e');
+      return Game(
+        id: gameId,
+        title: 'Loading Game...',
+        developer: 'Please wait...',
+        publisher: '',
+        releaseDate: '',
+        platforms: [],
+        genres: [],
+        coverImage: '',
+        description: 'Loading game details from RAWG API...',
+        averageRating: 0.0,
+        totalReviews: 0,
       );
-      await CacheService.cacheGame(mockGame);
-      return mockGame;
     }
   }
 
-  // Get games by genre with caching
-  Future<List<Game>> getGamesByGenre(String genre, {int limit = 20}) async {
+  // Get games by genre with caching and pagination
+  Future<List<Game>> getGamesByGenre(String genre, {int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
       final cacheKey = 'genre_$genre';
       
-      // Try to get from cache first
-      final cachedGames = await CacheService.getCachedGameList(cacheKey);
-      if (cachedGames != null && cachedGames.isNotEmpty) {
-        return cachedGames.take(limit).toList();
+      // For page 1, try to get from cache first
+      if (page == 1) {
+        final cachedGames = await CacheService.getCachedGameList(cacheKey);
+        if (cachedGames != null && cachedGames.isNotEmpty) {
+          final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
+          return filteredGames.take(limit).toList();
+        }
       }
 
       final uri = Uri.parse('$_baseUrl/games').replace(queryParameters: {
         'key': _apiKey,
         'genres': genre.toLowerCase(),
         'ordering': '-rating',
-        'page_size': '30', // Fetch more to cache
+        'page_size': limit.toString(),
+        'page': page.toString(),
       });
 
       final response = await http.get(uri, headers: _headers);
@@ -307,33 +357,101 @@ class RAWGService {
         final data = json.decode(response.body);
         final List<dynamic> results = data['results'] ?? [];
         
+        if (results.isEmpty) {
+          if (page == 1) {
+            // Fallback to mock data
+            final mockGames = _getMockGames();
+            final filteredGames = mockGames.where((game) => 
+              game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
+            ).take(limit).toList();
+            
+            await CacheService.cacheGameList(cacheKey, filteredGames);
+            return await _filterAdultContent(filteredGames, includeAdultContent);
+          }
+          return [];
+        }
+        
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
         
-        // Cache the results
-        await CacheService.cacheGameList(cacheKey, games);
+        // Cache the results only for page 1
+        if (page == 1) {
+          await CacheService.cacheGameList(cacheKey, games);
+        }
         
-        // Also cache individual games
+        // Cache individual games
         for (final game in games) {
           await CacheService.cacheGame(game);
         }
         
-        return games.take(limit).toList();
+        return await _filterAdultContent(games, includeAdultContent);
       } else {
-                // Fallback to mock data
-        final mockGames = _getMockGames();
-        final filteredGames = mockGames.where((game) => 
-          game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-        ).take(limit).toList();
-        
-        await CacheService.cacheGameList(cacheKey, filteredGames);
-        return filteredGames;
+        if (page == 1) {
+          // Fallback to mock data
+          final mockGames = _getMockGames();
+          final filteredGames = mockGames.where((game) => 
+            game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
+          ).take(limit).toList();
+          
+          await CacheService.cacheGameList(cacheKey, filteredGames);
+          return await _filterAdultContent(filteredGames, includeAdultContent);
+        }
+        return [];
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting games by genre: $e');
       }
+      if (page == 1) {
+        // Fallback to mock data
+        final mockGames = _getMockGames();
+        final filteredGames = mockGames.where((game) => 
+          game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
+        ).take(limit).toList();
+        return await _filterAdultContent(filteredGames, includeAdultContent);
+      }
       return [];
     }
+  }
+
+  /// Filter adult content based on user preferences
+  Future<List<Game>> _filterAdultContent(List<Game> games, bool includeAdultContent) async {
+    if (includeAdultContent) {
+      return games; // No filtering when adult content is explicitly requested
+    }
+
+    final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
+    if (adultContentEnabled) {
+      return games; // No filtering when user has enabled adult content
+    }
+
+    // Filter out adult content - this is a basic implementation
+    // In a real app, you'd have more sophisticated content rating data
+    return games.where((game) {
+      // Basic filtering based on game title and description
+      final title = game.title.toLowerCase();
+      final description = game.description.toLowerCase();
+      
+      // Filter out games with explicit adult keywords
+      const adultKeywords = [
+        'adult',
+        'erotic',
+        'nsfw',
+        'mature',
+        'sexual',
+        'nude',
+        'xxx',
+        '18+',
+        'hentai',
+      ];
+      
+      for (final keyword in adultKeywords) {
+        if (title.contains(keyword) || description.contains(keyword)) {
+          return false;
+        }
+      }
+      
+      return true;
+    }).toList();
   }
 
   // Get available genres from RAWG with caching
@@ -420,9 +538,45 @@ class RAWGService {
   }
 
   // Parse RAWG response to Game model
+  // Debug method to log image URLs for troubleshooting
+  static void logImageUrl(String gameTitle, String imageUrl) {
+    if (kDebugMode) {
+      if (imageUrl.isEmpty) {
+        debugPrint('⚠️ Empty image URL for game: $gameTitle');
+      } else if (!imageUrl.startsWith('https://')) {
+        debugPrint('⚠️ Non-HTTPS image URL for $gameTitle: $imageUrl');
+      } else {
+        debugPrint('✅ Valid image URL for $gameTitle: $imageUrl');
+      }
+    }
+  }
+
+  // Validate image URL and provide fallback
+  static String _validateImageUrl(String imageUrl) {
+    if (imageUrl.isEmpty) return '';
+    
+    // Ensure HTTPS
+    if (imageUrl.startsWith('http://')) {
+      imageUrl = imageUrl.replaceFirst('http://', 'https://');
+    }
+    
+    // Check for common broken image indicators
+    if (imageUrl.contains('placeholder') || 
+        imageUrl.contains('default') ||
+        imageUrl.contains('noimage')) {
+      return '';
+    }
+    
+    return imageUrl;
+  }
+
   Game _parseGameFromRAWG(Map<String, dynamic> data) {
-    // Extract cover image URL
-    String coverImage = data['background_image'] ?? '';
+    // Extract cover image URL with validation
+    String coverImage = _validateImageUrl(data['background_image'] ?? '');
+    String gameTitle = data['name'] ?? 'Unknown Title';
+    
+    // Log image URL for debugging
+    logImageUrl(gameTitle, coverImage);
     
     // Extract developers
     List<dynamic> developers = data['developers'] ?? [];
@@ -471,7 +625,7 @@ class RAWGService {
 
     return Game(
       id: data['id'].toString(),
-      title: data['name'] ?? 'Unknown Title',
+      title: gameTitle,
       developer: developer,
       publisher: publisher,
       releaseDate: releaseDate,
@@ -523,7 +677,7 @@ class RAWGService {
     }
   }
 
-  // Advanced search with comprehensive filters
+  // Advanced search with comprehensive filters and enhanced prioritization
   Future<List<Game>> searchGamesWithFilters({
     required String query,
     String? genre,
@@ -562,9 +716,15 @@ class RAWGService {
         queryParams['platforms'] = platform;
       }
 
-      if (ordering != null && ordering != 'relevance') {
-        queryParams['ordering'] = ordering;
+      // Enhanced ordering logic for better search results
+      String finalOrdering = ordering ?? '-rating';
+      if (query.isNotEmpty) {
+        // For search queries, prioritize relevance but with popularity boost
+        if (finalOrdering == '-rating') {
+          finalOrdering = '-rating'; // Keep rating-based for popular results
+        }
       }
+      queryParams['ordering'] = finalOrdering;
 
       if (metacriticMin != null && metacriticMax != null) {
         if (metacriticMin > 0 || metacriticMax < 100) {
@@ -603,6 +763,27 @@ class RAWGService {
         }
         
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
+        
+        // Enhanced sorting for better search results
+        games.sort((a, b) {
+          // If it's a search query, prioritize title relevance first
+          if (query.isNotEmpty) {
+            final aRelevance = _calculateRelevanceScore(a, query);
+            final bRelevance = _calculateRelevanceScore(b, query);
+            if (aRelevance != bRelevance) {
+              return bRelevance.compareTo(aRelevance);
+            }
+          }
+          
+          // Then sort by rating (popularity)
+          final ratingDiff = b.averageRating.compareTo(a.averageRating);
+          if (ratingDiff != 0) return ratingDiff;
+          
+          // Then by release year (recency)
+          final yearA = int.tryParse(a.releaseDate) ?? 0;
+          final yearB = int.tryParse(b.releaseDate) ?? 0;
+          return yearB.compareTo(yearA);
+        });
         
         // Cache the search results
         await CacheService.cacheGameList(cacheKey, games);
@@ -645,7 +826,60 @@ class RAWGService {
     }
   }
 
-  // Helper method to filter mock games based on search criteria
+  // Calculate relevance score for search results
+  int _calculateRelevanceScore(Game game, String query) {
+    final queryLower = query.toLowerCase();
+    final titleLower = game.title.toLowerCase();
+    final developerLower = game.developer.toLowerCase();
+    
+    int score = 0;
+    
+    // Exact title match gets highest score
+    if (titleLower == queryLower) {
+      score += 100;
+    }
+    // Title starts with query gets high score
+    else if (titleLower.startsWith(queryLower)) {
+      score += 80;
+    }
+    // Title contains query gets medium score
+    else if (titleLower.contains(queryLower)) {
+      score += 60;
+    }
+    
+    // Developer match gets additional points
+    if (developerLower.contains(queryLower)) {
+      score += 20;
+    }
+    
+    // Genre match gets additional points
+    for (final genre in game.genres) {
+      if (genre.toLowerCase().contains(queryLower)) {
+        score += 10;
+        break;
+      }
+    }
+    
+    // Boost score based on rating (popular games)
+    score += (game.averageRating * 5).round();
+    
+    // Boost score for recent and upcoming games
+    final year = int.tryParse(game.releaseDate) ?? 0;
+    final currentYear = DateTime.now().year;
+    if (year >= currentYear) {
+      score += 25; // Highest boost for upcoming games
+    } else if (year >= 2020) {
+      score += 15;
+    } else if (year >= 2015) {
+      score += 10;
+    } else if (year >= 2010) {
+      score += 5;
+    }
+    
+    return score;
+  }
+
+  // Helper method to filter mock games based on search criteria with enhanced sorting
   List<Game> _getFilteredMockGames({
     required String query,
     String? genre,
@@ -663,6 +897,25 @@ class RAWGService {
         game.developer.toLowerCase().contains(query.toLowerCase()) ||
         game.genres.any((g) => g.toLowerCase().contains(query.toLowerCase()))
       ).toList();
+      
+      // Sort by relevance for search queries
+      filteredGames.sort((a, b) {
+        final aRelevance = _calculateRelevanceScore(a, query);
+        final bRelevance = _calculateRelevanceScore(b, query);
+        return bRelevance.compareTo(aRelevance);
+      });
+    } else {
+      // For non-search queries, sort by popularity and recency
+      filteredGames.sort((a, b) {
+        // First by rating (popularity)
+        final ratingDiff = b.averageRating.compareTo(a.averageRating);
+        if (ratingDiff != 0) return ratingDiff;
+        
+        // Then by release year (recency)
+        final yearA = int.tryParse(a.releaseDate) ?? 0;
+        final yearB = int.tryParse(b.releaseDate) ?? 0;
+        return yearB.compareTo(yearA);
+      });
     }
 
     // Filter by genre
@@ -968,6 +1221,46 @@ List<Game> _getMockGames() {
       description: 'For over two decades, Counter-Strike has offered an elite competitive experience, one shaped by millions of players from across the globe.',
       averageRating: 4.4,
       totalReviews: 5400,
+    ),
+    // Add some 2026 games for testing
+    Game(
+      id: '21',
+      title: 'Grand Theft Auto VI',
+      developer: 'Rockstar North',
+      publisher: 'Rockstar Games',
+      releaseDate: '2026',
+      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S'],
+      genres: ['Action', 'Adventure', 'Open World'],
+      coverImage: 'https://media.rawg.io/media/games/456/456dea5e1c7e3cd07077c14aa176b90d.jpg',
+      description: 'The highly anticipated next installment in the Grand Theft Auto series, featuring a new setting and revolutionary gameplay mechanics.',
+      averageRating: 0.0, // Not yet rated
+      totalReviews: 0,
+    ),
+    Game(
+      id: '22',
+      title: 'The Elder Scrolls VI',
+      developer: 'Bethesda Game Studios',
+      publisher: 'Bethesda Softworks',
+      releaseDate: '2026',
+      platforms: ['PC', 'Xbox Series X/S'],
+      genres: ['RPG', 'Fantasy', 'Open World'],
+      coverImage: 'https://media.rawg.io/media/games/d1a/d1a2e99ade53494c6330a0ed945fe823.jpg',
+      description: 'The next chapter in the Elder Scrolls saga, promising an epic fantasy adventure in a vast, immersive world.',
+      averageRating: 0.0, // Not yet rated
+      totalReviews: 0,
+    ),
+    Game(
+      id: '23',
+      title: 'Wolverine',
+      developer: 'Insomniac Games',
+      publisher: 'Sony Interactive Entertainment',
+      releaseDate: '2026',
+      platforms: ['PlayStation 5'],
+      genres: ['Action', 'Adventure', 'Superhero'],
+      coverImage: 'https://media.rawg.io/media/games/b29/b294fdd866dcdb643e7bab370a552855.jpg',
+      description: 'An intense, mature action-adventure featuring the iconic Marvel character Wolverine in an original story.',
+      averageRating: 0.0, // Not yet rated
+      totalReviews: 0,
     ),
   ];
 }

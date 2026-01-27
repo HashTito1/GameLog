@@ -14,6 +14,10 @@ class AboutScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF1F2937),
         elevation: 0,
         toolbarHeight: 50,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -184,9 +188,9 @@ class AboutScreen extends StatelessWidget {
   }
 
   Widget _buildFooter() {
-    return Column(
+    return const Column(
       children: [
-        const Text(
+        Text(
           '© 2025 GameLog. All rights reserved.',
           style: TextStyle(
             fontSize: 12,
@@ -194,8 +198,8 @@ class AboutScreen extends StatelessWidget {
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
-        const Text(
+        SizedBox(height: 8),
+        Text(
           'Made with ❤️ for gamers',
           style: TextStyle(
             fontSize: 12,
