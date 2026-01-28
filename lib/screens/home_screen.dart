@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
@@ -89,21 +90,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Check if adult content is enabled
       final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
       
-      // Load the most important sections first (trending and popular)
+      // Load the most important sections first with smaller limits for faster initial load
       final trendingGames = await RAWGService.instance.getTrendingGames(
-        limit: 12, 
+        limit: 10, // Reduced from 12 for faster loading
         includeAdultContent: includeAdultContent,
       );
       final popularGames = await RAWGService.instance.getPopularGames(
-        limit: 12,
+        limit: 10, // Reduced from 12 for faster loading
         includeAdultContent: includeAdultContent,
       );
       
-      // Create featured games from trending and popular (first 6)
-      final featuredGames = [
-        ...trendingGames.take(3).toList(),
-        ...popularGames.take(3).toList(),
+      // Create a smaller pool of games for featured section for faster processing
+      final allFeaturedCandidates = [
+        ...trendingGames.take(10), // Limit candidates
+        ...popularGames.take(10),  // Limit candidates
       ];
+      
+      // Remove duplicates based on game ID (more efficient)
+      final Map<String, Game> uniqueGames = {};
+      for (final game in allFeaturedCandidates) {
+        uniqueGames[game.id] = game;
+      }
+      final uniqueGamesList = uniqueGames.values.toList();
+      
+      // Create daily randomized featured games (changes every day)
+      final featuredGames = _getDailyRandomizedGames(uniqueGamesList, 6); // Reduced from 8 to 6
       
       setState(() {
         _trendingGames = trendingGames;
@@ -115,8 +126,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Start animations
       _animationController.forward();
 
-      // Load genre-specific games in the background
-      _loadGenreGamesInBackground();
+      // Load genre-specific games in the background with longer delay for better performance
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        if (mounted) {
+          _loadGenreGamesInBackground();
+        }
+      });
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -132,18 +147,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Generate daily randomized games using date as seed
+  List<Game> _getDailyRandomizedGames(List<Game> games, int count) {
+    if (games.isEmpty) return [];
+    
+    // Create a seed based on current date (changes daily)
+    final now = DateTime.now();
+    final dateString = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final seed = dateString.hashCode;
+    
+    // Create a new Random instance with the daily seed
+    final random = Random(seed);
+    
+    // Create a copy of the games list and shuffle it with the daily seed
+    final shuffledGames = List<Game>.from(games);
+    
+    // Custom shuffle with seeded random
+    for (int i = shuffledGames.length - 1; i > 0; i--) {
+      final j = random.nextInt(i + 1);
+      final temp = shuffledGames[i];
+      shuffledGames[i] = shuffledGames[j];
+      shuffledGames[j] = temp;
+    }
+    
+    // Return the requested number of games
+    return shuffledGames.take(count).toList();
+  }
+
   Future<void> _loadGenreGamesInBackground() async {
     try {
-      // Load genre games with a small delay to prioritize main content
-      await Future.delayed(const Duration(milliseconds: 800));
+      // Load genre games with a longer delay to prioritize main content
+      await Future.delayed(const Duration(milliseconds: 1500));
       
       // Check if adult content is enabled
       final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
       
+      // Load genre games with smaller limits for better performance
       final results = await Future.wait([
-        RAWGService.instance.getGamesByGenre('action', limit: 12, includeAdultContent: includeAdultContent),
-        RAWGService.instance.getGamesByGenre('role-playing-games-rpg', limit: 12, includeAdultContent: includeAdultContent),
-        RAWGService.instance.getGamesByGenre('indie', limit: 12, includeAdultContent: includeAdultContent),
+        RAWGService.instance.getGamesByGenre('action', limit: 8, includeAdultContent: includeAdultContent), // Reduced from 12
+        RAWGService.instance.getGamesByGenre('role-playing-games-rpg', limit: 8, includeAdultContent: includeAdultContent), // Reduced from 12
+        RAWGService.instance.getGamesByGenre('indie', limit: 8, includeAdultContent: includeAdultContent), // Reduced from 12
       ]);
 
       if (mounted) {
@@ -155,6 +198,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } catch (e) {
       // Don't show error to user since this is background loading
+      debugPrint('Error loading genre games: $e');
     }
   }
 
@@ -452,24 +496,45 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Featured Games',
-                style: TextStyle(
-                  fontSize: 18, // Reduced from 20
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Featured Games',
+                    style: TextStyle(
+                      fontSize: 18, // Reduced from 20
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                    ),
+                    child: const Text(
+                      'Daily Picks',
+                      style: TextStyle(
+                        color: Color(0xFF6366F1),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               SizedBox(
-                height: 180, // Increased from 160
+                height: 280, // Increased from 220
                 child: PageView.builder(
-                  controller: PageController(viewportFraction: 0.82),
+                  controller: PageController(viewportFraction: 0.88), // Increased from 0.85
                   itemCount: _featuredGames.length,
                   itemBuilder: (context, index) {
                     final game = _featuredGames[index];
                     return Container(
-                      margin: const EdgeInsets.only(right: 12),
+                      margin: const EdgeInsets.only(right: 16), // Increased from 12
                       child: GestureDetector(
                         onTap: () {
                           Navigator.of(context).push(
@@ -483,17 +548,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         },
                         child: Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(24), // Increased from 20
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.25),
-                                blurRadius: 12,
-                                offset: const Offset(0, 6),
+                                color: Colors.black.withValues(alpha: 0.4), // Increased shadow
+                                blurRadius: 20, // Increased from 16
+                                offset: const Offset(0, 10), // Increased from 8
                               ),
                             ],
                           ),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(24), // Increased from 20
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
@@ -506,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                           child: const Center(
                                             child: CircularProgressIndicator(
                                               valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                                              strokeWidth: 2,
+                                              strokeWidth: 3, // Increased from 2
                                             ),
                                           ),
                                         ),
@@ -515,7 +580,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                           child: const Icon(
                                             Icons.videogame_asset,
                                             color: Colors.white54,
-                                            size: 40,
+                                            size: 64, // Increased from 48
                                           ),
                                         ),
                                       )
@@ -524,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                         child: const Icon(
                                           Icons.videogame_asset,
                                           color: Colors.white54,
-                                          size: 40,
+                                          size: 64, // Increased from 48
                                         ),
                                       ),
                                 Container(
@@ -534,44 +599,65 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                       end: Alignment.bottomCenter,
                                       colors: [
                                         Colors.transparent,
-                                        Colors.black.withValues(alpha: 0.7),
+                                        Colors.black.withValues(alpha: 0.85), // Increased opacity
                                       ],
                                     ),
                                   ),
                                 ),
                                 Positioned(
-                                  bottom: 12,
-                                  left: 12,
-                                  right: 12,
+                                  bottom: 20, // Increased from 16
+                                  left: 20, // Increased from 16
+                                  right: 20, // Increased from 16
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         game.title,
                                         style: const TextStyle(
-                                          fontSize: 16,
+                                          fontSize: 20, // Increased from 18
                                           fontWeight: FontWeight.bold,
                                           color: Colors.white,
                                         ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 8), // Increased from 6
+                                      if (game.developer.isNotEmpty) ...[
+                                        Text(
+                                          game.developer,
+                                          style: const TextStyle(
+                                            fontSize: 14, // Increased from 13
+                                            color: Colors.white70,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 6), // Increased from 4
+                                      ],
                                       if (game.averageRating > 0)
                                         Row(
                                           children: [
                                             const Icon(
                                               Icons.star,
                                               color: Color(0xFFFBBF24),
-                                              size: 14,
+                                              size: 18, // Increased from 16
                                             ),
-                                            const SizedBox(width: 4),
+                                            const SizedBox(width: 6), // Increased from 4
                                             Text(
                                               game.averageRating.toStringAsFixed(1),
                                               style: const TextStyle(
                                                 color: Colors.white,
-                                                fontSize: 12,
+                                                fontSize: 16, // Increased from 14
                                                 fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10), // Increased from 8
+                                            Text(
+                                              '${game.totalReviews} reviews',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13, // Increased from 12
                                               ),
                                             ),
                                           ],
@@ -579,26 +665,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                     ],
                                   ),
                                 ),
-                                if (game.averageRating > 0)
-                                  Positioned(
-                                    top: 12,
-                                    right: 12,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF6366F1),
-                                        borderRadius: BorderRadius.circular(8),
+                                Positioned(
+                                  top: 20, // Increased from 16
+                                  right: 20, // Increased from 16
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Increased padding
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                                       ),
-                                      child: const Text(
-                                        'Featured',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
+                                      borderRadius: BorderRadius.circular(16), // Increased from 12
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFF6366F1).withValues(alpha: 0.5), // Increased opacity
+                                          blurRadius: 12, // Increased from 8
+                                          offset: const Offset(0, 4), // Increased from 2
                                         ),
+                                      ],
+                                    ),
+                                    child: const Text(
+                                      'Featured',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12, // Increased from 11
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
+                                ),
                               ],
                             ),
                           ),
@@ -936,7 +1030,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             Expanded(
               child: Hero(
-                tag: 'game_${game.id}_$index',
+                tag: 'game_${game.id}_${DateTime.now().millisecondsSinceEpoch}_$index', // Make tags unique with timestamp
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),

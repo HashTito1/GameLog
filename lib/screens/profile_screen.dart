@@ -6,7 +6,7 @@ import '../services/user_data_service.dart';
 import '../services/rawg_service.dart';
 import '../services/library_service.dart';
 import '../services/image_picker_service.dart';
-import '../services/image_storage_service.dart';
+import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
 import 'favorite_game_selection_screen.dart';
 import 'friends_screen.dart';
@@ -72,7 +72,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (userData != null && userData['displayName'] == null) {
           // Special case: if displayName is specifically null, set it from username or email
           debugPrint('Setting displayName from username or email...');
-          final email = currentUser.email;
+          final email = currentUser.email!;
           final displayName = currentUser.displayName ?? userData['username'] ?? email.split('@')[0];
           
           await UserDataService.saveUserProfile(currentUser.uid, {
@@ -281,33 +281,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       if (imagePath != null) {
+        // Show loading indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Uploading profile picture...'),
+                ],
+              ),
+              backgroundColor: Color(0xFF6366F1),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+
         // Read image bytes
         final file = File(imagePath);
         final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
-          // Save image to local storage
-          final savedPath = await ImageStorageService.saveImage(
-            imageBytes: imageBytes,
-            userId: currentUser.uid,
-            isProfilePicture: true,
-          );
+          // Get old profile image URL for deletion
+          final oldProfileImageUrl = _userData?['profileImage'] as String?;
           
-          if (savedPath != null) {
-            // Update user profile in Firestore
-            await UserDataService.saveUserProfile(currentUser.uid, {
-              'profileImage': savedPath,
-            });
+          // Upload image using hybrid storage (cloud first, local fallback)
+          try {
+            final downloadUrl = await HybridImageStorageService.uploadProfilePicture(
+              userId: currentUser.uid,
+              imageBytes: imageBytes,
+            );
             
-            // Reload data to reflect changes
-            _loadData();
-            
+            if (downloadUrl != null) {
+              // Update user profile in Firestore with the URL (cloud or local)
+              await UserDataService.saveUserProfile(currentUser.uid, {
+                'profileImage': downloadUrl,
+              });
+              
+              // Delete old profile image if it exists
+              if (oldProfileImageUrl != null && oldProfileImageUrl.isNotEmpty) {
+                HybridImageStorageService.deleteOldProfilePicture(oldProfileImageUrl);
+              }
+              
+              // Reload data to reflect changes
+              _loadData();
+              
+              if (mounted) {
+                final isCloudUrl = HybridImageStorageService.isCloudStorageUrl(downloadUrl);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      isCloudUrl 
+                        ? 'Profile picture uploaded to cloud successfully!'
+                        : 'Profile picture saved successfully!',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to upload profile picture. Please try again.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Profile picture updated successfully!'),
-                  backgroundColor: Colors.green,
+                SnackBar(
+                  content: Text('Upload failed: ${e.toString().replaceAll('Exception: ', '')}'),
+                  backgroundColor: Colors.red,
                 ),
               );
             }
@@ -444,33 +497,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       if (imagePath != null) {
+        // Show loading indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Uploading banner image...'),
+                ],
+              ),
+              backgroundColor: Color(0xFF6366F1),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+
         // Read image bytes
         final file = File(imagePath);
         final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
-          // Save image to local storage
-          final savedPath = await ImageStorageService.saveImage(
-            imageBytes: imageBytes,
-            userId: currentUser.uid,
-            isProfilePicture: false,
-          );
+          // Get old banner image URL for deletion
+          final oldBannerImageUrl = _userData?['bannerImage'] as String?;
           
-          if (savedPath != null) {
-            // Update user profile in Firestore
-            await UserDataService.saveUserProfile(currentUser.uid, {
-              'bannerImage': savedPath,
-            });
+          // Upload image using hybrid storage (cloud first, local fallback)
+          try {
+            final downloadUrl = await HybridImageStorageService.uploadBannerImage(
+              userId: currentUser.uid,
+              imageBytes: imageBytes,
+            );
             
-            // Reload data to reflect changes
-            _loadData();
-            
+            if (downloadUrl != null) {
+              // Update user profile in Firestore with the URL (cloud or local)
+              await UserDataService.saveUserProfile(currentUser.uid, {
+                'bannerImage': downloadUrl,
+              });
+              
+              // Delete old banner image if it exists
+              if (oldBannerImageUrl != null && oldBannerImageUrl.isNotEmpty) {
+                HybridImageStorageService.deleteOldBannerImage(oldBannerImageUrl);
+              }
+              
+              // Reload data to reflect changes
+              _loadData();
+              
+              if (mounted) {
+                final isCloudUrl = HybridImageStorageService.isCloudStorageUrl(downloadUrl);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      isCloudUrl 
+                        ? 'Banner image uploaded to cloud successfully!'
+                        : 'Banner image saved successfully!',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to upload banner image. Please try again.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Banner image updated successfully!'),
-                  backgroundColor: Colors.green,
+                SnackBar(
+                  content: Text('Upload failed: ${e.toString().replaceAll('Exception: ', '')}'),
+                  backgroundColor: Colors.red,
                 ),
               );
             }
@@ -984,9 +1090,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       : null,
                   image: bannerImage.isNotEmpty
                       ? DecorationImage(
-                          image: bannerImage.startsWith('http')
-                              ? NetworkImage(bannerImage)
-                              : FileImage(File(bannerImage)) as ImageProvider,
+                          image: CachedNetworkImageProvider(bannerImage),
                           fit: BoxFit.cover,
                         )
                       : null,
@@ -1056,17 +1160,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           child: ClipOval(
                             child: profileImage.isNotEmpty
-                                ? (profileImage.startsWith('http')
-                                    ? Image.network(
-                                        profileImage,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
-                                      )
-                                    : Image.file(
-                                        File(profileImage),
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
-                                      ))
+                                ? CachedNetworkImage(
+                                    imageUrl: profileImage,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                      ),
+                                    ),
+                                    errorWidget: (context, url, error) => _buildDefaultAvatar(displayName),
+                                  )
                                 : _buildDefaultAvatar(displayName),
                           ),
                         ),

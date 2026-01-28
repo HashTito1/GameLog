@@ -7,11 +7,11 @@ import 'content_filter_service.dart';
 
 class RAWGService {
   static const String _baseUrl = 'https://api.rawg.io/api';
-  // API key removed for security - app will use mock data when no environment variable is set
-  static const String _apiKey = String.fromEnvironment(
-    'RAWG_API_KEY',
-    defaultValue: '', // No fallback key for security
-  );
+  // RAWG API key for game data
+  static const String _apiKey = '4158ece2bc984544b698665ed3052464';
+  
+  // Check if API key is configured
+  static bool get isConfigured => _apiKey.isNotEmpty;
   
   // Singleton pattern
   static final RAWGService _instance = RAWGService._internal();
@@ -35,17 +35,11 @@ class RAWGService {
     double? metacriticMin,
     double? metacriticMax,
   }) async {
-    try {
-      // If no API key is available, use mock data immediately
-      if (_apiKey.isEmpty) {
-        final mockResults = _getMockGames().where((game) => 
-          game.title.toLowerCase().contains(query.toLowerCase()) ||
-          game.developer.toLowerCase().contains(query.toLowerCase()) ||
-          game.genres.any((genre) => genre.toLowerCase().contains(query.toLowerCase()))
-        ).take(limit).toList();
-        return mockResults;
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // Create a cache key based on search parameters
       final cacheKey = 'search_$query${genres?.join(',') ?? ''}_${platforms?.join(',') ?? ''}_${ordering ?? ''}_${metacriticMin ?? 0}_${metacriticMax ?? 100}';
       
@@ -57,7 +51,8 @@ class RAWGService {
 
       final queryParams = <String, String>{
         'key': _apiKey,
-        'page_size': (limit * 2).toString(), // Fetch more for better caching
+        'page_size': '40', // Fetch more to filter better results
+        'search_precise': 'true', // More precise search
       };
 
       if (query.isNotEmpty) {
@@ -74,6 +69,9 @@ class RAWGService {
 
       if (ordering != null && ordering.isNotEmpty) {
         queryParams['ordering'] = ordering;
+      } else {
+        // Default to relevance for search queries
+        queryParams['ordering'] = query.isNotEmpty ? '-relevance' : '-rating';
       }
 
       if (dates != null && dates.isNotEmpty) {
@@ -92,64 +90,169 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          final mockResults = _getMockGames().where((game) => 
-            game.title.toLowerCase().contains(query.toLowerCase()) ||
-            game.developer.toLowerCase().contains(query.toLowerCase()) ||
-            game.genres.any((genre) => genre.toLowerCase().contains(query.toLowerCase()))
-          ).take(limit).toList();
-          
-          // Cache mock results with shorter duration
-          await CacheService.cacheGameList(cacheKey, mockResults);
-          return mockResults;
+          return [];
         }
         
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
         
+        // Enhanced filtering and sorting for better search results
+        List<Game> filteredGames = games;
+        
+        if (query.isNotEmpty) {
+          // Filter out games that don't match the search query well
+          final queryWords = query.toLowerCase().split(' ').where((word) => word.isNotEmpty && word.length >= 2).toList();
+          final queryLower = query.toLowerCase();
+          
+          filteredGames = games.where((game) {
+            final titleLower = game.title.toLowerCase();
+            final developerLower = game.developer.toLowerCase();
+            
+            // First priority: exact phrase match (highest priority for multi-word searches like "Hollow Knight")
+            if (titleLower.contains(queryLower)) {
+              return true;
+            }
+            
+            // Second priority: exact phrase match without punctuation
+            final cleanTitle = titleLower.replaceAll(RegExp(r'[^\w\s]'), '');
+            final cleanQuery = queryLower.replaceAll(RegExp(r'[^\w\s]'), '');
+            if (cleanTitle.contains(cleanQuery)) {
+              return true;
+            }
+            
+            // For single word searches, be more lenient
+            if (queryWords.length == 1) {
+              return titleLower.contains(queryLower) || 
+                     developerLower.contains(queryLower) ||
+                     game.genres.any((genre) => genre.toLowerCase().contains(queryLower));
+            }
+            
+            // For multi-word searches, be much stricter - require ALL words to be present
+            int titleWordMatches = 0;
+            int totalWordMatches = 0;
+            
+            for (final word in queryWords) {
+              if (titleLower.contains(word)) {
+                titleWordMatches++;
+                totalWordMatches++;
+              } else if (developerLower.contains(word) ||
+                        game.genres.any((genre) => genre.toLowerCase().contains(word))) {
+                totalWordMatches++;
+              }
+            }
+            
+            // For multi-word searches, require ALL words to match somewhere
+            // But heavily prefer games where all words match in the title
+            if (queryWords.length >= 2) {
+              // If all words match in title, definitely include
+              if (titleWordMatches == queryWords.length) {
+                return true;
+              }
+              // If all words match somewhere (title, developer, or genre), include
+              if (totalWordMatches == queryWords.length) {
+                return true;
+              }
+              // Otherwise, exclude to avoid irrelevant results
+              return false;
+            }
+            
+            return false;
+          }).toList();
+          
+          // Sort by relevance
+          filteredGames.sort((a, b) {
+            final aRelevance = _calculateRelevanceScore(a, query);
+            final bRelevance = _calculateRelevanceScore(b, query);
+            return bRelevance.compareTo(aRelevance);
+          });
+        }
+        
+        // Take only the most relevant results
+        final finalResults = filteredGames.take(limit).toList();
+        
         // Cache the search results
-        await CacheService.cacheGameList(cacheKey, games);
+        await CacheService.cacheGameList(cacheKey, finalResults);
         
         // Also cache individual games
-        for (final game in games.take(10)) { // Only cache first 10 to avoid too many individual cache entries
+        for (final game in finalResults.take(10)) {
           await CacheService.cacheGame(game);
         }
         
-        return games.take(limit).toList();
+        return finalResults;
       } else {
-        if (kDebugMode) {
-                  }
-        final mockResults = _getMockGames().where((game) => 
-          game.title.toLowerCase().contains(query.toLowerCase()) ||
-          game.developer.toLowerCase().contains(query.toLowerCase()) ||
-          game.genres.any((genre) => genre.toLowerCase().contains(query.toLowerCase()))
-        ).take(limit).toList();
-        
-        await CacheService.cacheGameList(cacheKey, mockResults);
-        return mockResults;
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error searching games: $e');
       }
-      final mockResults = _getMockGames().where((game) => 
-        game.title.toLowerCase().contains(query.toLowerCase()) ||
-        game.developer.toLowerCase().contains(query.toLowerCase()) ||
-        game.genres.any((genre) => genre.toLowerCase().contains(query.toLowerCase()))
-      ).take(limit).toList();
-      return mockResults;
+      rethrow;
     }
   }
 
   // Get popular games with caching and pagination
   Future<List<Game>> getPopularGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
-    try {
-      // If no API key is available, use mock data immediately
-      if (_apiKey.isEmpty) {
-        final mockGames = _getMockGames().take(limit).toList();
-        return await _filterAdultContent(mockGames, includeAdultContent);
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // For page 1, try to get from cache first
       if (page == 1) {
+  // Get popular games with caching and pagination
+  Future<List<Game>> getPopularGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
+
+    try {
+      // For page 1, try to get from cache first
+      if (page == 1) {
+        final cacheKey = 'popular_games_${includeAdultContent ? 'adult' : 'safe'}';
+        final cachedGames = await CacheService.getCachedGameList(cacheKey);
+        if (cachedGames != null && cachedGames.length >= limit) {
+          return cachedGames.take(limit).toList();
+        }
+      }
+
+      final queryParams = <String, String>{
+        'key': _apiKey,
+        'page_size': limit.toString(),
+        'page': page.toString(),
+        'ordering': '-rating,-metacritic,-added', // Multiple ordering criteria for better results
+        'metacritic': '70,100', // Only high-rated games for better performance
+      };
+
+      // Apply content filter
+      if (!includeAdultContent) {
+        queryParams['tags'] = '!adult'; // Exclude adult content
+      }
+
+      final uri = Uri.parse('$_baseUrl/games').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: _headers);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> results = data['results'] ?? [];
+        
+        final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
+        
+        // Cache only the first page for performance
+        if (page == 1) {
+          final cacheKey = 'popular_games_${includeAdultContent ? 'adult' : 'safe'}';
+          await CacheService.cacheGameList(cacheKey, games);
+        }
+        
+        return games;
+      } else {
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching popular games: $e');
+      }
+      rethrow;
+    }
+  }
         final cachedGames = await CacheService.getCachedGameList(CacheService.popularGamesKey);
         if (cachedGames != null && cachedGames.isNotEmpty) {
           final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
@@ -172,11 +275,6 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          if (page == 1) {
-            final mockGames = _getMockGames().take(limit).toList();
-            await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-            return await _filterAdultContent(mockGames, includeAdultContent);
-          }
           return [];
         }
         
@@ -194,35 +292,23 @@ class RAWGService {
         
         return await _filterAdultContent(games, includeAdultContent);
       } else {
-        if (page == 1) {
-          final mockGames = _getMockGames().take(limit).toList();
-          await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-          return await _filterAdultContent(mockGames, includeAdultContent);
-        }
-        return [];
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting popular games: $e');
       }
-      if (page == 1) {
-        final mockGames = _getMockGames().take(limit).toList();
-        await CacheService.cacheGameList(CacheService.popularGamesKey, mockGames);
-        return await _filterAdultContent(mockGames, includeAdultContent);
-      }
-      return [];
+      rethrow;
     }
   }
 
   // Get trending games with caching and pagination
   Future<List<Game>> getTrendingGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
-    try {
-      // If no API key is available, use mock data immediately
-      if (_apiKey.isEmpty) {
-        final mockGames = _getMockGames().take(limit).toList();
-        return await _filterAdultContent(mockGames, includeAdultContent);
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // For page 1, try to get from cache first
       if (page == 1) {
         final cachedGames = await CacheService.getCachedGameList(CacheService.trendingGamesKey);
@@ -251,11 +337,6 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          if (page == 1) {
-            final mockGames = _getMockGames().take(limit).toList();
-            await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-            return await _filterAdultContent(mockGames, includeAdultContent);
-          }
           return [];
         }
         
@@ -273,54 +354,23 @@ class RAWGService {
         
         return await _filterAdultContent(games, includeAdultContent);
       } else {
-        if (kDebugMode) {
-          print('RAWG API failed with status: ${response.statusCode}');
-        }
-        if (page == 1) {
-          final mockGames = _getMockGames().take(limit).toList();
-          await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-          return await _filterAdultContent(mockGames, includeAdultContent);
-        }
-        return [];
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting trending games: $e');
       }
-      if (page == 1) {
-        final mockGames = _getMockGames().take(limit).toList();
-        await CacheService.cacheGameList(CacheService.trendingGamesKey, mockGames);
-        return await _filterAdultContent(mockGames, includeAdultContent);
-      }
-      return [];
+      rethrow;
     }
   }
 
   // Get game details by ID with caching
   Future<Game?> getGameDetails(String gameId) async {
-    try {
-      // If no API key is available, return mock data
-      if (_apiKey.isEmpty) {
-        final mockGames = _getMockGames();
-        final game = mockGames.firstWhere(
-          (g) => g.id == gameId,
-          orElse: () => Game(
-            id: gameId,
-            title: 'Game Not Found',
-            developer: 'Unknown',
-            publisher: 'Unknown',
-            releaseDate: 'TBA',
-            platforms: [],
-            genres: [],
-            coverImage: '',
-            description: 'This game is not available in offline mode.',
-            averageRating: 0.0,
-            totalReviews: 0,
-          ),
-        );
-        return game;
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // Try to get from cache first
       final cachedGame = await CacheService.getCachedGame(gameId);
       if (cachedGame != null) {
@@ -342,53 +392,23 @@ class RAWGService {
         
         return game;
       } else {
-        // Return a placeholder game if API fails
-        debugPrint('RAWG API failed with status: ${response.statusCode}');
-        return Game(
-          id: gameId,
-          title: 'Loading Game...',
-          developer: 'Please wait...',
-          publisher: '',
-          releaseDate: '',
-          platforms: [],
-          genres: [],
-          coverImage: '',
-          description: 'Loading game details from RAWG API...',
-          averageRating: 0.0,
-          totalReviews: 0,
-        );
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
-      // Return placeholder game on error
-      debugPrint('Error fetching game details: $e');
-      return Game(
-        id: gameId,
-        title: 'Loading Game...',
-        developer: 'Please wait...',
-        publisher: '',
-        releaseDate: '',
-        platforms: [],
-        genres: [],
-        coverImage: '',
-        description: 'Loading game details from RAWG API...',
-        averageRating: 0.0,
-        totalReviews: 0,
-      );
+      if (kDebugMode) {
+        print('Error fetching game details: $e');
+      }
+      rethrow;
     }
   }
 
   // Get games by genre with caching and pagination
   Future<List<Game>> getGamesByGenre(String genre, {int limit = 20, int page = 1, bool includeAdultContent = false}) async {
-    try {
-      // If no API key is available, use mock data immediately
-      if (_apiKey.isEmpty) {
-        final mockGames = _getMockGames();
-        final filteredGames = mockGames.where((game) => 
-          game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-        ).take(limit).toList();
-        return await _filterAdultContent(filteredGames, includeAdultContent);
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       final cacheKey = 'genre_$genre';
       
       // For page 1, try to get from cache first
@@ -415,16 +435,6 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          if (page == 1) {
-            // Fallback to mock data
-            final mockGames = _getMockGames();
-            final filteredGames = mockGames.where((game) => 
-              game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-            ).take(limit).toList();
-            
-            await CacheService.cacheGameList(cacheKey, filteredGames);
-            return await _filterAdultContent(filteredGames, includeAdultContent);
-          }
           return [];
         }
         
@@ -442,31 +452,13 @@ class RAWGService {
         
         return await _filterAdultContent(games, includeAdultContent);
       } else {
-        if (page == 1) {
-          // Fallback to mock data
-          final mockGames = _getMockGames();
-          final filteredGames = mockGames.where((game) => 
-            game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-          ).take(limit).toList();
-          
-          await CacheService.cacheGameList(cacheKey, filteredGames);
-          return await _filterAdultContent(filteredGames, includeAdultContent);
-        }
-        return [];
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting games by genre: $e');
       }
-      if (page == 1) {
-        // Fallback to mock data
-        final mockGames = _getMockGames();
-        final filteredGames = mockGames.where((game) => 
-          game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-        ).take(limit).toList();
-        return await _filterAdultContent(filteredGames, includeAdultContent);
-      }
-      return [];
+      rethrow;
     }
   }
 
@@ -513,13 +505,11 @@ class RAWGService {
 
   // Get available genres from RAWG with caching
   Future<List<String>> getGenres() async {
-    try {
-      // If no API key is available, return default genres
-      if (_apiKey.isEmpty) {
-        final defaultGenres = _getDefaultGenres();
-        return defaultGenres;
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // Try to get from cache first
       final cachedGenres = await CacheService.getCachedGenres();
       if (cachedGenres != null && cachedGenres.isNotEmpty) {
@@ -543,29 +533,23 @@ class RAWGService {
         
         return genres;
       } else {
-                final defaultGenres = _getDefaultGenres();
-        await CacheService.cacheGenres(defaultGenres);
-        return defaultGenres;
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting genres: $e');
       }
-      final defaultGenres = _getDefaultGenres();
-      await CacheService.cacheGenres(defaultGenres);
-      return defaultGenres;
+      rethrow;
     }
   }
 
   // Get available platforms from RAWG with caching
   Future<List<Map<String, dynamic>>> getPlatforms() async {
-    try {
-      // If no API key is available, return default platforms
-      if (_apiKey.isEmpty) {
-        final defaultPlatforms = _getDefaultPlatforms();
-        return defaultPlatforms;
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // Try to get from cache first
       final cachedPlatforms = await CacheService.getCachedPlatforms();
       if (cachedPlatforms != null && cachedPlatforms.isNotEmpty) {
@@ -592,21 +576,16 @@ class RAWGService {
         
         return platforms;
       } else {
-                final defaultPlatforms = _getDefaultPlatforms();
-        await CacheService.cachePlatforms(defaultPlatforms);
-        return defaultPlatforms;
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error getting platforms: $e');
       }
-      final defaultPlatforms = _getDefaultPlatforms();
-      await CacheService.cachePlatforms(defaultPlatforms);
-      return defaultPlatforms;
+      rethrow;
     }
   }
 
-  // Parse RAWG response to Game model
   // Debug method to log image URLs for troubleshooting
   static void logImageUrl(String gameTitle, String imageUrl) {
     if (kDebugMode) {
@@ -707,40 +686,13 @@ class RAWGService {
     );
   }
 
-  // Default genres fallback
-  static List<String> _getDefaultGenres() {
-    return [
-      'Action', 'Adventure', 'RPG', 'Strategy', 'Shooter', 'Puzzle',
-      'Racing', 'Sports', 'Simulation', 'Platformer', 'Fighting',
-      'Horror', 'Indie', 'Casual', 'Family', 'Educational'
-    ];
-  }
-
-  // Default platforms fallback
-  static List<Map<String, dynamic>> _getDefaultPlatforms() {
-    return [
-      {'id': '4', 'name': 'PC'},
-      {'id': '187', 'name': 'PlayStation 5'},
-      {'id': '1', 'name': 'Xbox One'},
-      {'id': '18', 'name': 'PlayStation 4'},
-      {'id': '186', 'name': 'Xbox Series S/X'},
-      {'id': '7', 'name': 'Nintendo Switch'},
-      {'id': '3', 'name': 'iOS'},
-      {'id': '21', 'name': 'Android'},
-    ];
-  }
-
-  // Check if service is available
-  static bool get isConfigured => true;
-
   // Test API connection
   Future<bool> testConnection() async {
+    if (!isConfigured) {
+      return false;
+    }
+    
     try {
-      // If no API key is available, return false (offline mode)
-      if (_apiKey.isEmpty) {
-        return false;
-      }
-      
       final games = await searchGames('test', limit: 1);
       return games.isNotEmpty;
     } catch (e) {
@@ -763,19 +715,11 @@ class RAWGService {
     String? releasedBefore,
     int limit = 20,
   }) async {
-    try {
-      // If no API key is available, use filtered mock data
-      if (_apiKey.isEmpty) {
-        return _getFilteredMockGames(
-          query: query,
-          genre: genre,
-          platform: platform,
-          metacriticMin: metacriticMin,
-          metacriticMax: metacriticMax,
-          limit: limit,
-        );
-      }
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
 
+    try {
       // Create a cache key based on all search parameters
       final cacheKey = 'advanced_search_${query}_${genre ?? 'all'}_${platform ?? 'all'}_${ordering ?? 'relevance'}_${metacriticMin ?? 0}_${metacriticMax ?? 100}_${releasedAfter ?? ''}_${releasedBefore ?? ''}';
       
@@ -787,7 +731,8 @@ class RAWGService {
 
       final queryParams = <String, String>{
         'key': _apiKey,
-        'page_size': (limit * 2).toString(),
+        'page_size': '40', // Fetch more to filter better results
+        'search_precise': 'true', // More precise search
       };
 
       if (query.isNotEmpty) {
@@ -805,10 +750,8 @@ class RAWGService {
       // Enhanced ordering logic for better search results
       String finalOrdering = ordering ?? '-rating';
       if (query.isNotEmpty) {
-        // For search queries, prioritize relevance but with popularity boost
-        if (finalOrdering == '-rating') {
-          finalOrdering = '-rating'; // Keep rating-based for popular results
-        }
+        // For search queries, prioritize relevance
+        finalOrdering = '-relevance';
       }
       queryParams['ordering'] = finalOrdering;
 
@@ -834,24 +777,77 @@ class RAWGService {
         final List<dynamic> results = data['results'] ?? [];
         
         if (results.isEmpty) {
-          // Fallback to filtered mock data
-          final mockResults = _getFilteredMockGames(
-            query: query,
-            genre: genre,
-            platform: platform,
-            metacriticMin: metacriticMin,
-            metacriticMax: metacriticMax,
-            limit: limit,
-          );
-          
-          await CacheService.cacheGameList(cacheKey, mockResults);
-          return mockResults;
+          return [];
         }
         
         final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
         
+        // Enhanced filtering and sorting for better search results
+        List<Game> filteredGames = games;
+        
+        if (query.isNotEmpty) {
+          // Filter out games that don't match the search query well
+          final queryWords = query.toLowerCase().split(' ').where((word) => word.isNotEmpty && word.length >= 2).toList();
+          final queryLower = query.toLowerCase();
+          
+          filteredGames = games.where((game) {
+            final titleLower = game.title.toLowerCase();
+            final developerLower = game.developer.toLowerCase();
+            
+            // First priority: exact phrase match (highest priority for multi-word searches like "Hollow Knight")
+            if (titleLower.contains(queryLower)) {
+              return true;
+            }
+            
+            // Second priority: exact phrase match without punctuation
+            final cleanTitle = titleLower.replaceAll(RegExp(r'[^\w\s]'), '');
+            final cleanQuery = queryLower.replaceAll(RegExp(r'[^\w\s]'), '');
+            if (cleanTitle.contains(cleanQuery)) {
+              return true;
+            }
+            
+            // For single word searches, be more lenient
+            if (queryWords.length == 1) {
+              return titleLower.contains(queryLower) || 
+                     developerLower.contains(queryLower) ||
+                     game.genres.any((genre) => genre.toLowerCase().contains(queryLower));
+            }
+            
+            // For multi-word searches, be much stricter - require ALL words to be present
+            int titleWordMatches = 0;
+            int totalWordMatches = 0;
+            
+            for (final word in queryWords) {
+              if (titleLower.contains(word)) {
+                titleWordMatches++;
+                totalWordMatches++;
+              } else if (developerLower.contains(word) ||
+                        game.genres.any((genre) => genre.toLowerCase().contains(word))) {
+                totalWordMatches++;
+              }
+            }
+            
+            // For multi-word searches, require ALL words to match somewhere
+            // But heavily prefer games where all words match in the title
+            if (queryWords.length >= 2) {
+              // If all words match in title, definitely include
+              if (titleWordMatches == queryWords.length) {
+                return true;
+              }
+              // If all words match somewhere (title, developer, or genre), include
+              if (totalWordMatches == queryWords.length) {
+                return true;
+              }
+              // Otherwise, exclude to avoid irrelevant results
+              return false;
+            }
+            
+            return false;
+          }).toList();
+        }
+        
         // Enhanced sorting for better search results
-        games.sort((a, b) {
+        filteredGames.sort((a, b) {
           // If it's a search query, prioritize title relevance first
           if (query.isNotEmpty) {
             final aRelevance = _calculateRelevanceScore(a, query);
@@ -871,482 +867,155 @@ class RAWGService {
           return yearB.compareTo(yearA);
         });
         
+        // Take only the most relevant results
+        final finalResults = filteredGames.take(limit).toList();
+        
         // Cache the search results
-        await CacheService.cacheGameList(cacheKey, games);
+        await CacheService.cacheGameList(cacheKey, finalResults);
         
         // Also cache individual games
-        for (final game in games.take(10)) {
+        for (final game in finalResults.take(10)) {
           await CacheService.cacheGame(game);
         }
         
-        return games.take(limit).toList();
+        return finalResults;
       } else {
-        if (kDebugMode) {
-          print('RAWG API error: ${response.statusCode}');
-        }
-        final mockResults = _getFilteredMockGames(
-          query: query,
-          genre: genre,
-          platform: platform,
-          metacriticMin: metacriticMin,
-          metacriticMax: metacriticMax,
-          limit: limit,
-        );
-        
-        await CacheService.cacheGameList(cacheKey, mockResults);
-        return mockResults;
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error in advanced search: $e');
       }
-      final mockResults = _getFilteredMockGames(
-        query: query,
-        genre: genre,
-        platform: platform,
-        metacriticMin: metacriticMin,
-        metacriticMax: metacriticMax,
-        limit: limit,
-      );
-      return mockResults;
+      rethrow;
     }
   }
 
   // Calculate relevance score for search results
   int _calculateRelevanceScore(Game game, String query) {
-    final queryLower = query.toLowerCase();
+    final queryLower = query.toLowerCase().trim();
     final titleLower = game.title.toLowerCase();
     final developerLower = game.developer.toLowerCase();
     
     int score = 0;
     
-    // Exact title match gets highest score
+    // Handle multi-word queries
+    final queryWords = queryLower.split(' ').where((word) => word.isNotEmpty).toList();
+    
+    // HIGHEST PRIORITY: Exact full phrase match
     if (titleLower == queryLower) {
+      score += 10000; // Massive boost for exact title match
+    }
+    // VERY HIGH PRIORITY: Title contains the exact phrase (critical for "Hollow Knight" searches)
+    else if (titleLower.contains(queryLower)) {
+      score += 8000; // Very high score for exact phrase in title
+    }
+    // HIGH PRIORITY: Title starts with the exact phrase
+    else if (titleLower.startsWith(queryLower)) {
+      score += 7000;
+    }
+    // MEDIUM-HIGH PRIORITY: Remove punctuation and check again
+    else {
+      final cleanTitle = titleLower.replaceAll(RegExp(r'[^\w\s]'), '');
+      final cleanQuery = queryLower.replaceAll(RegExp(r'[^\w\s]'), '');
+      if (cleanTitle.contains(cleanQuery)) {
+        score += 6000;
+      }
+    }
+    
+    // Multi-word scoring (only if no exact phrase match found)
+    if (score < 6000 && queryWords.length > 1) {
+      int wordMatches = 0;
+      int wordScore = 0;
+      int titleWordMatches = 0; // Count matches specifically in title
+      
+      for (final word in queryWords) {
+        if (word.length < 2) continue; // Skip very short words
+        
+        if (titleLower.contains(word)) {
+          wordMatches++;
+          titleWordMatches++;
+          
+          // Higher score for longer words
+          if (word.length >= 5) {
+            wordScore += 300;
+          } else if (word.length >= 4) {
+            wordScore += 200;
+          } else {
+            wordScore += 100;
+          }
+          
+          // Bonus if word appears at start of title or after space
+          if (titleLower.startsWith(word) || titleLower.contains(' $word')) {
+            wordScore += 150;
+          }
+        } else if (developerLower.contains(word)) {
+          wordMatches++;
+          wordScore += 50; // Less points for developer matches
+        }
+      }
+      
+      // CRITICAL: Heavy bonus for matching ALL words in title
+      if (titleWordMatches == queryWords.length) {
+        score += wordScore * 4; // Quadruple the score if all words match in title
+      } else if (wordMatches == queryWords.length) {
+        score += wordScore * 2; // Double if all words match somewhere
+      } else {
+        score += wordScore;
+      }
+      
+      // CRITICAL: Heavy penalty for missing words in multi-word search
+      final missingWords = queryWords.length - wordMatches;
+      score -= missingWords * 1000; // Very heavy penalty for missing words
+      
+    } else if (queryWords.length == 1) {
+      // Single word scoring (original logic but with higher scores)
+      final singleWord = queryWords.isNotEmpty ? queryWords.first : queryLower;
+      
+      if (titleLower.startsWith(singleWord)) {
+        score += 3000;
+      } else if (titleLower.contains(' $singleWord')) {
+        score += 2000;
+      } else if (titleLower.contains(singleWord)) {
+        score += 1500;
+      }
+    }
+    
+    // Developer scoring (much less important)
+    if (developerLower == queryLower) {
+      score += 200;
+    } else if (developerLower.contains(queryLower)) {
       score += 100;
     }
-    // Title starts with query gets high score
-    else if (titleLower.startsWith(queryLower)) {
-      score += 80;
-    }
-    // Title contains query gets medium score
-    else if (titleLower.contains(queryLower)) {
-      score += 60;
-    }
     
-    // Developer match gets additional points
-    if (developerLower.contains(queryLower)) {
-      score += 20;
-    }
-    
-    // Genre match gets additional points
+    // Genre matching (least important)
     for (final genre in game.genres) {
-      if (genre.toLowerCase().contains(queryLower)) {
-        score += 10;
+      final genreLower = genre.toLowerCase();
+      if (genreLower == queryLower) {
+        score += 150;
+        break;
+      } else if (genreLower.contains(queryLower)) {
+        score += 75;
         break;
       }
     }
     
-    // Boost score based on rating (popular games)
-    score += (game.averageRating * 5).round();
+    // Boost score based on rating (but much less important than relevance)
+    score += (game.averageRating * 2).round();
     
-    // Boost score for recent and upcoming games
+    // Boost score for games with more reviews (popularity indicator)
+    if (game.totalReviews > 1000) {
+      score += 10;
+    } else if (game.totalReviews > 100) {
+      score += 5;
+    }
+    
+    // Slight boost for recent games
     final year = int.tryParse(game.releaseDate) ?? 0;
     final currentYear = DateTime.now().year;
-    if (year >= currentYear) {
-      score += 25; // Highest boost for upcoming games
-    } else if (year >= 2020) {
-      score += 15;
-    } else if (year >= 2015) {
-      score += 10;
-    } else if (year >= 2010) {
+    if (year >= currentYear - 2) {
       score += 5;
     }
     
     return score;
   }
-
-  // Helper method to filter mock games based on search criteria with enhanced sorting
-  List<Game> _getFilteredMockGames({
-    required String query,
-    String? genre,
-    String? platform,
-    int? metacriticMin,
-    int? metacriticMax,
-    required int limit,
-  }) {
-    List<Game> filteredGames = _getMockGames();
-
-    // Filter by search query
-    if (query.isNotEmpty) {
-      filteredGames = filteredGames.where((game) =>
-        game.title.toLowerCase().contains(query.toLowerCase()) ||
-        game.developer.toLowerCase().contains(query.toLowerCase()) ||
-        game.genres.any((g) => g.toLowerCase().contains(query.toLowerCase()))
-      ).toList();
-      
-      // Sort by relevance for search queries
-      filteredGames.sort((a, b) {
-        final aRelevance = _calculateRelevanceScore(a, query);
-        final bRelevance = _calculateRelevanceScore(b, query);
-        return bRelevance.compareTo(aRelevance);
-      });
-    } else {
-      // For non-search queries, sort by popularity and recency
-      filteredGames.sort((a, b) {
-        // First by rating (popularity)
-        final ratingDiff = b.averageRating.compareTo(a.averageRating);
-        if (ratingDiff != 0) return ratingDiff;
-        
-        // Then by release year (recency)
-        final yearA = int.tryParse(a.releaseDate) ?? 0;
-        final yearB = int.tryParse(b.releaseDate) ?? 0;
-        return yearB.compareTo(yearA);
-      });
-    }
-
-    // Filter by genre
-    if (genre != null && genre != 'all') {
-      filteredGames = filteredGames.where((game) =>
-        game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
-      ).toList();
-    }
-
-    // Filter by platform
-    if (platform != null && platform != 'all') {
-      final platformNames = {
-        '4': 'pc',
-        '187': 'playstation',
-        '18': 'playstation',
-        '186': 'xbox',
-        '1': 'xbox',
-        '7': 'nintendo',
-        '3': 'ios',
-        '21': 'android',
-      };
-      
-      final platformName = platformNames[platform] ?? platform.toLowerCase();
-      filteredGames = filteredGames.where((game) =>
-        game.platforms.any((p) => p.toLowerCase().contains(platformName))
-      ).toList();
-    }
-
-    // Filter by metacritic score (using averageRating as proxy)
-    if (metacriticMin != null && metacriticMax != null) {
-      final minRating = metacriticMin / 20.0; // Convert 0-100 to 0-5 scale
-      final maxRating = metacriticMax / 20.0;
-      filteredGames = filteredGames.where((game) =>
-        game.averageRating >= minRating && game.averageRating <= maxRating
-      ).toList();
-    }
-
-    return filteredGames.take(limit).toList();
-  }
-}
-
-
-
-// Mock data for fallback when API is unavailable
-List<Game> _getMockGames() {
-  return [
-    Game(
-      id: '1',
-      title: 'The Legend of Zelda: Tears of the Kingdom',
-      developer: 'Nintendo',
-      publisher: 'Nintendo',
-      releaseDate: '2023',
-      platforms: ['Nintendo Switch'],
-      genres: ['Action', 'Adventure', 'Open World'],
-      coverImage: 'https://media.rawg.io/media/games/2fe/2feec1ba840f467a2280061b9ad6a86e.jpg',
-      description: 'An epic adventure in Hyrule continues with new abilities and mysteries to uncover. Build, explore, and discover in this groundbreaking sequel.',
-      averageRating: 4.8,
-      totalReviews: 1250,
-    ),
-    Game(
-      id: '2',
-      title: 'Baldur\'s Gate 3',
-      developer: 'Larian Studios',
-      publisher: 'Larian Studios',
-      releaseDate: '2023',
-      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S'],
-      genres: ['RPG', 'Strategy', 'Turn-Based'],
-      coverImage: 'https://media.rawg.io/media/games/699/69907ecf13f172e9e144069769c3be73.jpg',
-      description: 'A story-rich, party-based RPG set in the universe of Dungeons & Dragons. Make choices that will determine the fate of the Forgotten Realms.',
-      averageRating: 4.9,
-      totalReviews: 2100,
-    ),
-    Game(
-      id: '3',
-      title: 'Spider-Man 2',
-      developer: 'Insomniac Games',
-      publisher: 'Sony Interactive Entertainment',
-      releaseDate: '2023',
-      platforms: ['PlayStation 5'],
-      genres: ['Action', 'Adventure', 'Superhero'],
-      coverImage: 'https://media.rawg.io/media/games/ed5/ed5b55b2c1e5a5e2e3b7d8b7b5b5b5b5.jpg',
-      description: 'Be Greater. Together. Spider-Men Peter Parker and Miles Morales face the ultimate test of strength inside and outside the mask.',
-      averageRating: 4.7,
-      totalReviews: 890,
-    ),
-    Game(
-      id: '4',
-      title: 'Hogwarts Legacy',
-      developer: 'Avalanche Software',
-      publisher: 'Warner Bros. Games',
-      releaseDate: '2023',
-      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S', 'Nintendo Switch'],
-      genres: ['Action', 'RPG', 'Open World'],
-      coverImage: 'https://media.rawg.io/media/games/b29/b294fdd866dcdb643e7bab370a552855.jpg',
-      description: 'Experience Hogwarts in the 1800s. Your character is a student who holds the key to an ancient secret that threatens to tear the wizarding world apart.',
-      averageRating: 4.5,
-      totalReviews: 1580,
-    ),
-    Game(
-      id: '5',
-      title: 'Starfield',
-      developer: 'Bethesda Game Studios',
-      publisher: 'Bethesda Softworks',
-      releaseDate: '2023',
-      platforms: ['PC', 'Xbox Series X/S'],
-      genres: ['RPG', 'Space', 'Exploration'],
-      coverImage: 'https://media.rawg.io/media/games/b34/b3419c2706f8f8dbe40d08e23642ad06.jpg',
-      description: 'Starfield is the first new universe in 25 years from Bethesda Game Studios. Create any character you want and explore with unparalleled freedom.',
-      averageRating: 4.2,
-      totalReviews: 2340,
-    ),
-    Game(
-      id: '6',
-      title: 'Super Mario Bros. Wonder',
-      developer: 'Nintendo',
-      publisher: 'Nintendo',
-      releaseDate: '2023',
-      platforms: ['Nintendo Switch'],
-      genres: ['Platformer', 'Adventure'],
-      coverImage: 'https://media.rawg.io/media/games/a9c/a9c789951de65da545d51f664b4f2ce0.jpg',
-      description: 'Mario and friends\' next adventure has them traveling to the Flower Kingdom where they discover Wonder Flowers that cause surprising transformations.',
-      averageRating: 4.6,
-      totalReviews: 980,
-    ),
-    Game(
-      id: '7',
-      title: 'Alan Wake 2',
-      developer: 'Remedy Entertainment',
-      publisher: 'Epic Games Publishing',
-      releaseDate: '2023',
-      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S'],
-      genres: ['Horror', 'Thriller', 'Action'],
-      coverImage: 'https://media.rawg.io/media/games/b45/b45575f34285f2c4479c9a5f719d972e.jpg',
-      description: 'A sequel 13 years in the making. Alan Wake 2 is a survival horror game with an intense atmosphere and a layered, psychological story.',
-      averageRating: 4.4,
-      totalReviews: 756,
-    ),
-    Game(
-      id: '8',
-      title: 'Cyberpunk 2077: Phantom Liberty',
-      developer: 'CD Projekt RED',
-      publisher: 'CD Projekt',
-      releaseDate: '2023',
-      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S'],
-      genres: ['RPG', 'Action', 'Cyberpunk'],
-      coverImage: 'https://media.rawg.io/media/games/26d/26d4437715bee60138dab4a7c8c59c92.jpg',
-      description: 'Return to Night City in Phantom Liberty, a spy-thriller expansion for Cyberpunk 2077. Become a cyberpunk and live by the code of the street.',
-      averageRating: 4.3,
-      totalReviews: 1120,
-    ),
-    Game(
-      id: '9',
-      title: 'Elden Ring',
-      developer: 'FromSoftware',
-      publisher: 'Bandai Namco Entertainment',
-      releaseDate: '2022',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S'],
-      genres: ['Action', 'RPG', 'Souls-like'],
-      coverImage: 'https://media.rawg.io/media/games/5ec/5ecac5cb026ec26a56efcc546364e348.jpg',
-      description: 'A new fantasy action RPG. Rise, Tarnished, and be guided by grace to brandish the power of the Elden Ring and become an Elden Lord in the Lands Between.',
-      averageRating: 4.8,
-      totalReviews: 3200,
-    ),
-    Game(
-      id: '10',
-      title: 'God of War Ragnarök',
-      developer: 'Santa Monica Studio',
-      publisher: 'Sony Interactive Entertainment',
-      releaseDate: '2022',
-      platforms: ['PlayStation 4', 'PlayStation 5'],
-      genres: ['Action', 'Adventure', 'Mythology'],
-      coverImage: 'https://media.rawg.io/media/games/4be/4be6a6ad0364751a96229c56bf69be59.jpg',
-      description: 'Embark on an epic and heartfelt journey as Kratos and Atreus struggle with holding on and letting go.',
-      averageRating: 4.7,
-      totalReviews: 2800,
-    ),
-    Game(
-      id: '11',
-      title: 'The Witcher 3: Wild Hunt',
-      developer: 'CD Projekt RED',
-      publisher: 'CD Projekt',
-      releaseDate: '2015',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S', 'Nintendo Switch'],
-      genres: ['RPG', 'Open World', 'Fantasy'],
-      coverImage: 'https://media.rawg.io/media/games/618/618c2031a07bbff6b4f611f10b6bcdbc.jpg',
-      description: 'As war rages on throughout the Northern Realms, you take on the greatest contract of your life — tracking down the Child of Prophecy.',
-      averageRating: 4.9,
-      totalReviews: 4500,
-    ),
-    Game(
-      id: '12',
-      title: 'Grand Theft Auto V',
-      developer: 'Rockstar North',
-      publisher: 'Rockstar Games',
-      releaseDate: '2013',
-      platforms: ['PC', 'PlayStation 3', 'PlayStation 4', 'PlayStation 5', 'Xbox 360', 'Xbox One', 'Xbox Series X/S'],
-      genres: ['Action', 'Adventure', 'Open World'],
-      coverImage: 'https://media.rawg.io/media/games/20a/20aa03a10cda45239fe22d035c0ebe64.jpg',
-      description: 'When a young street hustler, a retired bank robber and a terrifying psychopath find themselves entangled with some of the most frightening and deranged elements of the criminal underworld.',
-      averageRating: 4.6,
-      totalReviews: 5200,
-    ),
-    Game(
-      id: '13',
-      title: 'Red Dead Redemption 2',
-      developer: 'Rockstar Studios',
-      publisher: 'Rockstar Games',
-      releaseDate: '2018',
-      platforms: ['PC', 'PlayStation 4', 'Xbox One'],
-      genres: ['Action', 'Adventure', 'Western'],
-      coverImage: 'https://media.rawg.io/media/games/511/5118aff5091cb3efec399c808f8c598f.jpg',
-      description: 'America, 1899. The end of the wild west era has begun as lawmen hunt down the last remaining outlaw gangs.',
-      averageRating: 4.8,
-      totalReviews: 3800,
-    ),
-    Game(
-      id: '14',
-      title: 'Minecraft',
-      developer: 'Mojang Studios',
-      publisher: 'Microsoft Studios',
-      releaseDate: '2011',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S', 'Nintendo Switch', 'Mobile'],
-      genres: ['Sandbox', 'Survival', 'Creative'],
-      coverImage: 'https://media.rawg.io/media/games/b4e/b4e4c73d5aa4ec66bbf75375c4847a2b.jpg',
-      description: 'Minecraft is a game made up of blocks, creatures, and community. You can survive the night or build a work of art – the choice is all yours.',
-      averageRating: 4.4,
-      totalReviews: 6700,
-    ),
-    Game(
-      id: '15',
-      title: 'Call of Duty: Modern Warfare II',
-      developer: 'Infinity Ward',
-      publisher: 'Activision',
-      releaseDate: '2022',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S'],
-      genres: ['FPS', 'Action', 'Military'],
-      coverImage: 'https://media.rawg.io/media/games/d82/d82990b9c67ba0d2d09d4e6fa88885a7.jpg',
-      description: 'Call of Duty: Modern Warfare II drops players into an unprecedented global conflict that features the return of the iconic Operators of Task Force 141.',
-      averageRating: 4.1,
-      totalReviews: 2900,
-    ),
-    Game(
-      id: '16',
-      title: 'Fortnite',
-      developer: 'Epic Games',
-      publisher: 'Epic Games',
-      releaseDate: '2017',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S', 'Nintendo Switch', 'Mobile'],
-      genres: ['Battle Royale', 'Action', 'Shooter'],
-      coverImage: 'https://media.rawg.io/media/games/73e/73eecb8909e0c39fb246f457b5d6cbbe.jpg',
-      description: 'Fortnite is the completely free multiplayer game where you and your friends can jump into Battle Royale or Fortnite Creative.',
-      averageRating: 4.0,
-      totalReviews: 8900,
-    ),
-    Game(
-      id: '17',
-      title: 'Apex Legends',
-      developer: 'Respawn Entertainment',
-      publisher: 'Electronic Arts',
-      releaseDate: '2019',
-      platforms: ['PC', 'PlayStation 4', 'PlayStation 5', 'Xbox One', 'Xbox Series X/S', 'Nintendo Switch'],
-      genres: ['Battle Royale', 'FPS', 'Action'],
-      coverImage: 'https://media.rawg.io/media/games/b72/b7233d5d5b1e75e86bb860ccc7aeca85.jpg',
-      description: 'Conquer with character in Apex Legends, a free-to-play Battle Royale shooter where legendary characters with powerful abilities team up to battle for fame & fortune.',
-      averageRating: 4.2,
-      totalReviews: 4100,
-    ),
-    Game(
-      id: '18',
-      title: 'Valorant',
-      developer: 'Riot Games',
-      publisher: 'Riot Games',
-      releaseDate: '2020',
-      platforms: ['PC'],
-      genres: ['FPS', 'Tactical', 'Competitive'],
-      coverImage: 'https://media.rawg.io/media/games/737/737ea5662211d2e0bbd6f5989189e4f1.jpg',
-      description: 'Blend your style and experience on a global, competitive stage. You have 13 rounds to attack and defend your side using sharp gunplay and tactical abilities.',
-      averageRating: 4.3,
-      totalReviews: 3600,
-    ),
-    Game(
-      id: '19',
-      title: 'League of Legends',
-      developer: 'Riot Games',
-      publisher: 'Riot Games',
-      releaseDate: '2009',
-      platforms: ['PC'],
-      genres: ['MOBA', 'Strategy', 'Competitive'],
-      coverImage: 'https://media.rawg.io/media/games/78d/78dfae12fb8c5b16cd78648553071e0a.jpg',
-      description: 'League of Legends is a team-based game with over 140 champions to make epic plays with. Play now for free.',
-      averageRating: 4.1,
-      totalReviews: 7800,
-    ),
-    Game(
-      id: '20',
-      title: 'Counter-Strike 2',
-      developer: 'Valve',
-      publisher: 'Valve',
-      releaseDate: '2023',
-      platforms: ['PC'],
-      genres: ['FPS', 'Tactical', 'Competitive'],
-      coverImage: 'https://media.rawg.io/media/games/736/73619bd336c894d6941d926bfd563946.jpg',
-      description: 'For over two decades, Counter-Strike has offered an elite competitive experience, one shaped by millions of players from across the globe.',
-      averageRating: 4.4,
-      totalReviews: 5400,
-    ),
-    // Add some 2026 games for testing
-    Game(
-      id: '21',
-      title: 'Grand Theft Auto VI',
-      developer: 'Rockstar North',
-      publisher: 'Rockstar Games',
-      releaseDate: '2026',
-      platforms: ['PC', 'PlayStation 5', 'Xbox Series X/S'],
-      genres: ['Action', 'Adventure', 'Open World'],
-      coverImage: 'https://media.rawg.io/media/games/456/456dea5e1c7e3cd07077c14aa176b90d.jpg',
-      description: 'The highly anticipated next installment in the Grand Theft Auto series, featuring a new setting and revolutionary gameplay mechanics.',
-      averageRating: 0.0, // Not yet rated
-      totalReviews: 0,
-    ),
-    Game(
-      id: '22',
-      title: 'The Elder Scrolls VI',
-      developer: 'Bethesda Game Studios',
-      publisher: 'Bethesda Softworks',
-      releaseDate: '2026',
-      platforms: ['PC', 'Xbox Series X/S'],
-      genres: ['RPG', 'Fantasy', 'Open World'],
-      coverImage: 'https://media.rawg.io/media/games/d1a/d1a2e99ade53494c6330a0ed945fe823.jpg',
-      description: 'The next chapter in the Elder Scrolls saga, promising an epic fantasy adventure in a vast, immersive world.',
-      averageRating: 0.0, // Not yet rated
-      totalReviews: 0,
-    ),
-    Game(
-      id: '23',
-      title: 'Wolverine',
-      developer: 'Insomniac Games',
-      publisher: 'Sony Interactive Entertainment',
-      releaseDate: '2026',
-      platforms: ['PlayStation 5'],
-      genres: ['Action', 'Adventure', 'Superhero'],
-      coverImage: 'https://media.rawg.io/media/games/b29/b294fdd866dcdb643e7bab370a552855.jpg',
-      description: 'An intense, mature action-adventure featuring the iconic Marvel character Wolverine in an original story.',
-      averageRating: 0.0, // Not yet rated
-      totalReviews: 0,
-    ),
-  ];
 }

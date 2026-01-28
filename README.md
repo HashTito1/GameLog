@@ -45,22 +45,13 @@ See [SECURITY.md](SECURITY.md) for detailed security information.
 
 ## API Integration
 
-GameLog is designed with an **offline-first approach**:
+GameLog uses the **RAWG API** for real game data:
 
-- **Works Without API Keys**: Complete functionality using curated mock data
-- **Optional RAWG Integration**: Developers can optionally add RAWG API key for live data
-- **Intelligent Fallbacks**: Automatic fallback to mock data if API is unavailable
-- **Comprehensive Mock Data**: 23+ games covering all genres and platforms
-- **No Hardcoded Keys**: All API keys must be provided via environment variables
-
-See [API_CONFIGURATION.md](API_CONFIGURATION.md) for setup instructions.
-
-### Mock Data Features
-- Popular games from 2009-2026 (including upcoming titles)
-- Diverse genres: Action, RPG, Strategy, Horror, Indie, and more
-- Multiple platforms: PC, PlayStation, Xbox, Nintendo Switch, Mobile
-- Realistic ratings, reviews, and metadata
-- High-quality descriptions and game details
+- **Pre-configured**: RAWG API key is built into the app
+- **Real Game Data**: Fetches live game information, ratings, and metadata
+- **Comprehensive Database**: Access to 500,000+ games from RAWG.io
+- **Automatic Caching**: Intelligent caching for better performance
+- **No Setup Required**: Just run `flutter run` and it works!
 
 ## Getting Started
 
@@ -74,6 +65,8 @@ See [API_CONFIGURATION.md](API_CONFIGURATION.md) for setup instructions.
    ```bash
    flutter run
    ```
+
+The app is pre-configured with a RAWG API key and will automatically fetch real game data.
 
 ## Project Structure
 

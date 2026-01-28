@@ -1,6 +1,7 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rawg_service.dart';
@@ -30,11 +31,45 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isLoadingAction = false;
   bool _isFollowing = false;
   bool _isLoadingFollow = false;
+  
+  // Real-time social data
+  int _realTimeFollowers = 0;
+  int _realTimeFollowing = 0;
+  StreamSubscription? _followersSubscription;
+  StreamSubscription? _followingSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _setupRealTimeListeners();
+  }
+
+  @override
+  void dispose() {
+    _followersSubscription?.cancel();
+    _followingSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _setupRealTimeListeners() {
+    // Listen to followers count changes
+    _followersSubscription = UserDataService.getUserFollowersStream(widget.userId).listen((followers) {
+      if (mounted) {
+        setState(() {
+          _realTimeFollowers = followers.length;
+        });
+      }
+    });
+
+    // Listen to following count changes
+    _followingSubscription = UserDataService.getUserFollowingStream(widget.userId).listen((following) {
+      if (mounted) {
+        setState(() {
+          _realTimeFollowing = following.length;
+        });
+      }
+    });
   }
 
   void _loadData() async {
@@ -86,6 +121,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         } else {
           setState(() {
             _userData = userData;
+            // Initialize real-time counters with current data
+            _realTimeFollowers = userData['followers'] ?? 0;
+            _realTimeFollowing = userData['following'] ?? 0;
           });
           debugPrint('User data loaded successfully');
           debugPrint('Display name: ${userData['displayName']}');
@@ -212,8 +250,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final profileImage = _userData?['profileImage'] ?? '';
     final bannerImage = _userData?['bannerImage'] ?? '';
     final gamesPlayed = _userData?['gamesPlayed'] ?? 0;
-    final followers = _userData?['followers'] ?? 0;
-    final following = _userData?['following'] ?? 0;
+    final followers = _realTimeFollowers; // Use real-time data instead of static data
+    final following = _realTimeFollowing; // Use real-time data instead of static data
 
     debugPrint('Displaying user profile:');
     debugPrint('Username: $username');
@@ -276,9 +314,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     : null,
                 image: bannerImage.isNotEmpty
                     ? DecorationImage(
-                        image: bannerImage.startsWith('http')
-                            ? NetworkImage(bannerImage)
-                            : FileImage(File(bannerImage)) as ImageProvider,
+                        image: CachedNetworkImageProvider(bannerImage),
                         fit: BoxFit.cover,
                         onError: (exception, stackTrace) {
                           debugPrint('Error loading banner image: $exception');
@@ -324,29 +360,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                     child: ClipOval(
                       child: profileImage.isNotEmpty
-                          ? (profileImage.startsWith('http')
-                              ? Image.network(
-                                  profileImage,
-                                  fit: BoxFit.cover,
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return Center(
-                                      child: CircularProgressIndicator(
-                                        value: loadingProgress.expectedTotalBytes != null
-                                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                            : null,
-                                        strokeWidth: 2,
-                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
-                                )
-                              : Image.file(
-                                  File(profileImage),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
-                                ))
+                          ? CachedNetworkImage(
+                              imageUrl: profileImage,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => _buildDefaultAvatar(displayName),
+                            )
                           : _buildDefaultAvatar(displayName),
                     ),
                   ),
@@ -683,7 +707,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 80,
+            height: 100, // Increased from 80 to prevent overflow
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _userPlaylists.length,
@@ -692,7 +716,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 return Container(
                   width: 120,
                   margin: const EdgeInsets.only(right: 12),
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10), // Reduced padding from 12 to 10
                   decoration: BoxDecoration(
                     color: const Color(0xFF374151),
                     borderRadius: BorderRadius.circular(10),
@@ -700,16 +724,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min, // Added to prevent overflow
                     children: [
-                      Text(
-                        playlist['name'] ?? 'Untitled',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      Flexible( // Wrapped in Flexible to prevent overflow
+                        child: Text(
+                          playlist['name'] ?? 'Untitled',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 2, // Increased from 1 to 2 for better text display
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -720,10 +747,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ),
                       ),
                       const Spacer(),
-                      const Icon(
-                        Icons.playlist_play,
-                        color: Color(0xFF10B981),
-                        size: 16,
+                      const Align(
+                        alignment: Alignment.centerRight,
+                        child: Icon(
+                          Icons.playlist_play,
+                          color: Color(0xFF10B981),
+                          size: 16,
+                        ),
                       ),
                     ],
                   ),
@@ -1106,6 +1136,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (_isFollowing) {
         await FollowService.unfollowUser(widget.userId);
         setState(() => _isFollowing = false);
+        // Update real-time counter immediately for better UX
+        setState(() => _realTimeFollowers = _realTimeFollowers - 1);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1117,6 +1149,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       } else {
         await FollowService.followUser(widget.userId);
         setState(() => _isFollowing = true);
+        // Update real-time counter immediately for better UX
+        setState(() => _realTimeFollowers = _realTimeFollowers + 1);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1127,6 +1161,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         }
       }
     } catch (e) {
+      // Revert the optimistic update on error
+      if (_isFollowing) {
+        setState(() => _realTimeFollowers = _realTimeFollowers + 1);
+      } else {
+        setState(() => _realTimeFollowers = _realTimeFollowers - 1);
+      }
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

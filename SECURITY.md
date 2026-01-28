@@ -25,26 +25,19 @@ GameLog takes security seriously and follows industry best practices to protect 
 ## API Keys & External Services
 
 ### RAWG API
-- **Security First**: No API keys are hardcoded in the application
-- **Environment Variables**: API key must be provided via `RAWG_API_KEY` environment variable
-- **Offline Mode**: App functions fully with mock data when no API key is provided
+- **Pre-configured**: RAWG API key is built into the application for convenience
+- **Game Data Only**: API is used exclusively for fetching game information
 - **No User Data**: No sensitive user data is transmitted to RAWG
-- **Fallback Mechanisms**: Comprehensive fallback to local mock data for service interruptions
+- **Rate Limiting**: Respects RAWG API rate limits and implements proper caching
 
 ### Firebase Configuration
 - Configuration values are public identifiers, not secrets
 - Actual security enforced by Firestore security rules
 - API keys are client-side identifiers, not authentication secrets
 
-## Environment Variables
+## API Configuration
 
-For developers who want to use live RAWG data:
-
-1. Obtain a free API key from [RAWG.io](https://rawg.io/apidocs)
-2. Set the environment variable: `RAWG_API_KEY=your_key_here`
-3. Build the app with the environment variable
-
-**Note**: The app works perfectly without any API key using comprehensive mock data.
+The app comes pre-configured with a RAWG API key for immediate functionality. No additional setup is required - just run `flutter run` and the app will automatically fetch real game data from RAWG.io.
 
 ## Security Best Practices Implemented
 

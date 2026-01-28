@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_rating.dart';
 import '../services/rating_service.dart';
 import '../services/user_data_service.dart';
@@ -35,12 +37,32 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
     try {
       debugPrint('🔍 Loading ratings for game: ${widget.gameId}');
-      final ratings = await RatingService.instance.getGameRatings(widget.gameId);
-      debugPrint('📊 Found ${ratings.length} ratings');
+      
+      // Get ratings from both old and new systems (same approach as GameDetailScreen)
+      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
+      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
+      
+      debugPrint('📊 Found ${oldGameRatings.length} old ratings and ${newGameRatings.length} new ratings');
+      
+      // Combine and deduplicate ratings
+      final Map<String, UserRating> allRatingsMap = {};
+      
+      // Add old ratings
+      for (final rating in oldGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      // Add new ratings (will override old ones if same user)
+      for (final rating in newGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      final combinedRatings = allRatingsMap.values.toList();
+      debugPrint('📊 Combined total: ${combinedRatings.length} unique ratings');
       
       // Load user profiles for each rating
       final Map<String, Map<String, dynamic>> profiles = {};
-      for (final rating in ratings) {
+      for (final rating in combinedRatings) {
         if (!profiles.containsKey(rating.userId)) {
           final profile = await UserDataService.getUserProfile(rating.userId);
           if (profile != null) {
@@ -54,7 +76,7 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
       if (mounted) {
         setState(() {
-          _ratings = ratings;
+          _ratings = combinedRatings;
           _userProfiles = profiles;
           _isLoading = false;
         });
@@ -69,6 +91,52 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
           SnackBar(content: Text('Failed to load ratings: $e')),
         );
       }
+    }
+  }
+
+  Future<List<UserRating>> _getAllRatingsForGame(String gameId) async {
+    try {
+      // Get all users who have rated this game from the new structure
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .get();
+      
+      final List<UserRating> ratings = [];
+      
+      for (final userDoc in usersSnapshot.docs) {
+        final ratingsSnapshot = await userDoc.reference
+            .collection('ratings')
+            .where('gameId', isEqualTo: gameId)
+            .get();
+        
+        for (final ratingDoc in ratingsSnapshot.docs) {
+          final data = ratingDoc.data();
+          final rating = UserRating(
+            id: data['id'] ?? '',
+            gameId: data['gameId'] ?? gameId,
+            userId: data['userId'] ?? userDoc.id,
+            username: data['username'] ?? 'user',
+            rating: (data['rating'] ?? 0.0).toDouble(),
+            review: data['review'],
+            createdAt: data['createdAt'] != null 
+                ? (data['createdAt'] is Timestamp 
+                    ? (data['createdAt'] as Timestamp).toDate()
+                    : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
+                : DateTime.now(),
+            updatedAt: data['updatedAt'] != null 
+                ? (data['updatedAt'] is Timestamp 
+                    ? (data['updatedAt'] as Timestamp).toDate()
+                    : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
+                : DateTime.now(),
+          );
+          ratings.add(rating);
+        }
+      }
+      
+      return ratings;
+    } catch (e) {
+      debugPrint('Error getting all ratings for game: $e');
+      return [];
     }
   }
 
@@ -230,10 +298,10 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
                 child: CircleAvatar(
                   radius: 20,
                   backgroundColor: const Color(0xFF6366F1),
-                  backgroundImage: profileImage.isNotEmpty && profileImage.startsWith('http')
-                      ? NetworkImage(profileImage)
+                  backgroundImage: profileImage.isNotEmpty
+                      ? CachedNetworkImageProvider(profileImage)
                       : null,
-                  child: profileImage.isEmpty || !profileImage.startsWith('http')
+                  child: profileImage.isEmpty
                       ? Text(
                           displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
                           style: const TextStyle(
