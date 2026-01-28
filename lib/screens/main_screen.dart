@@ -76,35 +76,43 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) => setState(() => _currentIndex = index),
-        physics: const NeverScrollableScrollPhysics(),
-        children: _screens,
-      ),
-      bottomNavigationBar: Container(
-        height: 58, // Reduced from 65
-        decoration: BoxDecoration(
-          color: const Color(0xFF1F2937),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 10, // Reduced from 12
-              offset: const Offset(0, -2),
-            ),
-          ],
+    return PopScope(
+      canPop: _currentIndex == 0, // Only allow pop if on home tab
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _currentIndex != 0) {
+          _onTabTapped(0); // Navigate to home tab
+        }
+      },
+      child: Scaffold(
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: (index) => setState(() => _currentIndex = index),
+          physics: const NeverScrollableScrollPhysics(),
+          children: _screens,
         ),
-        child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildNavItem(Icons.home_filled, 'Home', 0),
-              _buildNavItem(Icons.explore, 'Discover', 1),
-              _buildNavItem(Icons.search, 'Search', 2),
-              _buildNavItem(Icons.bookmark, 'Library', 3),
-              _buildNavItem(Icons.person, 'Profile', 4),
+        bottomNavigationBar: Container(
+          height: 58, // Reduced from 65
+          decoration: BoxDecoration(
+            color: const Color(0xFF1F2937),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 10, // Reduced from 12
+                offset: const Offset(0, -2),
+              ),
             ],
+          ),
+          child: SafeArea(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildNavItem(Icons.home_filled, 'Home', 0),
+                _buildNavItem(Icons.explore, 'Discover', 1),
+                _buildNavItem(Icons.search, 'Search', 2),
+                _buildNavItem(Icons.bookmark, 'Library', 3),
+                _buildNavItem(Icons.person, 'Profile', 4),
+              ],
+            ),
           ),
         ),
       ),
@@ -140,5 +148,3 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 }
-
-
