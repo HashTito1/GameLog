@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../models/friend.dart';
+import '../services/user_data_service.dart';
+import '../services/friends_service.dart';
+import '../services/firebase_auth_service.dart';
 import 'user_profile_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -12,10 +14,10 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateMixin {
   late TabController _tabController;
-  List<Friend> _friends = [];
-  List<FriendRequest> _pendingRequests = [];
-  List<FriendRequest> _sentRequests = [];
-  List<UserProfile> _searchResults = [];
+  List<Map<String, dynamic>> _friends = [];
+  List<Map<String, dynamic>> _pendingRequests = [];
+  List<Map<String, dynamic>> _sentRequests = [];
+  List<Map<String, dynamic>> _searchResults = [];
   bool _isLoading = true;
   bool _isSearching = false;
   String _selectedTab = 'friends';
@@ -28,7 +30,11 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadData();
+    
+
   }
+
+
 
   @override
   void dispose() {
@@ -53,19 +59,30 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     setState(() => _isLoading = true);
     
     try {
-      // Load friends data - placeholder implementation
-      // TODO: Implement actual service calls when FriendsService is fixed
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      if (mounted) {
-        setState(() {
-          _friends = [];
-          _pendingRequests = [];
-          _sentRequests = [];
-          _isLoading = false;
-        });
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        debugPrint('Loading friends data for user: ${currentUser.uid}');
+        
+        final friends = await FriendsService.instance.getFriends(currentUser.uid);
+        final pendingRequests = await FriendsService.instance.getPendingRequests(currentUser.uid);
+        final sentRequests = await FriendsService.instance.getSentRequests(currentUser.uid);
+        
+        debugPrint('Loaded ${friends.length} friends, ${pendingRequests.length} pending requests, ${sentRequests.length} sent requests');
+        
+        if (mounted) {
+          setState(() {
+            _friends = friends;
+            _pendingRequests = pendingRequests;
+            _sentRequests = sentRequests;
+            _isLoading = false;
+          });
+        }
+      } else {
+        debugPrint('No current user found');
+        setState(() => _isLoading = false);
       }
     } catch (e) {
+      debugPrint('Error loading friends data: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -93,12 +110,11 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     setState(() => _isSearching = true);
     
     try {
-      // TODO: Implement actual user search when service is available
-      await Future.delayed(const Duration(milliseconds: 500));
+      final results = await UserDataService.searchUsers(query);
       
       if (mounted) {
         setState(() {
-          _searchResults = [];
+          _searchResults = results;
           _isSearching = false;
         });
       }
@@ -112,11 +128,18 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _acceptFriendRequest(FriendRequest request) async {
+  Future<void> _acceptFriendRequest(Map<String, dynamic> request) async {
     try {
-      // TODO: Implement when service is available
-      await Future.delayed(const Duration(milliseconds: 300));
+      await FriendsService.acceptFriendRequest(request['fromUserId'], request['toUserId']);
       _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Friend request accepted!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -126,11 +149,18 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _declineFriendRequest(FriendRequest request) async {
+  Future<void> _declineFriendRequest(Map<String, dynamic> request) async {
     try {
-      // TODO: Implement when service is available
-      await Future.delayed(const Duration(milliseconds: 300));
+      await FriendsService.declineFriendRequest(request['fromUserId'], request['toUserId']);
       _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Friend request declined'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -140,11 +170,18 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _cancelFriendRequest(FriendRequest request) async {
+  Future<void> _cancelFriendRequest(Map<String, dynamic> request) async {
     try {
-      // TODO: Implement when service is available
-      await Future.delayed(const Duration(milliseconds: 300));
+      await FriendsService.instance.cancelFriendRequest(request['fromUserId'], request['toUserId']);
       _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Friend request canceled'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -154,11 +191,21 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _removeFriend(Friend friend) async {
+  Future<void> _removeFriend(Map<String, dynamic> friend) async {
     try {
-      // TODO: Implement when service is available
-      await Future.delayed(const Duration(milliseconds: 300));
-      _loadData();
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        await FriendsService.removeFriend(currentUser.uid, friend['id']);
+        _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend removed'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -250,22 +297,22 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
 
   Widget _buildSearchBar() {
     return Container(
-      margin: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
       child: TextField(
         controller: _searchController,
         onChanged: _onSearchChanged,
-        decoration: InputDecoration(
+        decoration: const InputDecoration(
           hintText: 'Search users...',
           hintStyle: TextStyle(color: Colors.grey),
-          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+          prefixIcon: Icon(Icons.search, color: Colors.grey),
           filled: true,
-          fillColor: const Color(0xFF1E293B),
+          fillColor: Color(0xFF1E293B),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
             borderSide: BorderSide.none,
           ),
         ),
-        style: TextStyle(color: Colors.white),
+        style: const TextStyle(color: Colors.white),
       ),
     );
   }
@@ -318,7 +365,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       itemCount: _friends.length,
       itemBuilder: (context, index) {
         final friend = _friends[index];
@@ -352,7 +399,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       itemCount: _pendingRequests.length,
       itemBuilder: (context, index) {
         final request = _pendingRequests[index];
@@ -386,7 +433,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       itemCount: _sentRequests.length,
       itemBuilder: (context, index) {
         final request = _sentRequests[index];
@@ -459,7 +506,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final user = _searchResults[index];
@@ -468,10 +515,10 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildFriendCard(Friend friend) {
+  Widget _buildFriendCard(Map<String, dynamic> friend) {
     return Container(
-      margin: EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
@@ -479,41 +526,63 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF6366F1),
-            child: Text(
-              friend.friendUsername.isNotEmpty ? friend.friendUsername[0].toUpperCase() : 'U',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserProfileScreen(userId: friend['id']),
+                ),
+              );
+            },
+            child: CircleAvatar(
+              radius: 24,
+              backgroundColor: const Color(0xFF6366F1),
+              child: Text(
+                (friend['displayName'] ?? friend['username'] ?? 'U').toString().isNotEmpty 
+                    ? (friend['displayName'] ?? friend['username'] ?? 'U').toString()[0].toUpperCase() 
+                    : 'U',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  friend.friendUsername,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UserProfileScreen(userId: friend['id']),
                   ),
-                ),
-                if (friend.friendDisplayName.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                );
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    friend.friendDisplayName,
+                    friend['displayName'] ?? friend['username'] ?? 'Unknown User',
                     style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
+                  if (friend['username'] != null && friend['username'].toString().isNotEmpty && friend['username'] != friend['displayName']) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '@${friend['username']}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           PopupMenuButton<String>(
@@ -525,7 +594,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => UserProfileScreen(userId: friend.friendId),
+                    builder: (context) => UserProfileScreen(userId: friend['id']),
                   ),
                 );
               }
@@ -533,11 +602,11 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
             itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'profile',
-                child: const Text('View Profile'),
+                child: Text('View Profile'),
               ),
               const PopupMenuItem(
                 value: 'remove',
-                child: const Text('Remove Friend'),
+                child: Text('Remove Friend'),
               ),
             ],
           ),
@@ -546,10 +615,11 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildRequestCard(FriendRequest request) {
+  Widget _buildRequestCard(Map<String, dynamic> request) {
+    final senderProfile = request['senderProfile'] ?? {};
     return Container(
-      margin: EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
@@ -561,7 +631,9 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
             radius: 24,
             backgroundColor: const Color(0xFF6366F1),
             child: Text(
-              request.fromUsername.isNotEmpty ? request.fromUsername[0].toUpperCase() : 'U',
+              (senderProfile['displayName'] ?? senderProfile['username'] ?? 'U').toString().isNotEmpty 
+                  ? (senderProfile['displayName'] ?? senderProfile['username'] ?? 'U').toString()[0].toUpperCase() 
+                  : 'U',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -574,7 +646,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  request.fromUsername,
+                  senderProfile['displayName'] ?? senderProfile['username'] ?? 'Unknown User',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -582,9 +654,9 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Sent ${_formatDate(request.createdAt)}',
-                  style: const TextStyle(
+                const Text(
+                  'Wants to be friends',
+                  style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey,
                   ),
@@ -618,10 +690,11 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildSentRequestCard(FriendRequest request) {
+  Widget _buildSentRequestCard(Map<String, dynamic> request) {
+    final recipientProfile = request['recipientProfile'] ?? {};
     return Container(
-      margin: EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
@@ -633,7 +706,9 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
             radius: 24,
             backgroundColor: const Color(0xFF6366F1),
             child: Text(
-              request.toUsername.isNotEmpty ? request.toUsername[0].toUpperCase() : 'U',
+              (recipientProfile['displayName'] ?? recipientProfile['username'] ?? 'U').toString().isNotEmpty 
+                  ? (recipientProfile['displayName'] ?? recipientProfile['username'] ?? 'U').toString()[0].toUpperCase() 
+                  : 'U',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -646,7 +721,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  request.toUsername,
+                  recipientProfile['displayName'] ?? recipientProfile['username'] ?? 'Unknown User',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -654,9 +729,9 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Sent ${_formatDate(request.createdAt)}',
-                  style: const TextStyle(
+                const Text(
+                  'Request pending',
+                  style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey,
                   ),
@@ -677,10 +752,10 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildUserCard(UserProfile user) {
+  Widget _buildUserCard(Map<String, dynamic> user) {
     return Container(
-      margin: EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
@@ -688,72 +763,215 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF6366F1),
-            child: Text(
-              user.username.isNotEmpty ? user.username[0].toUpperCase() : 'U',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserProfileScreen(userId: user['id']),
+                ),
+              );
+            },
+            child: CircleAvatar(
+              radius: 24,
+              backgroundColor: const Color(0xFF6366F1),
+              child: Text(
+                (user['displayName'] ?? user['username'] ?? 'U').toString().isNotEmpty 
+                    ? (user['displayName'] ?? user['username'] ?? 'U').toString()[0].toUpperCase() 
+                    : 'U',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user.username,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UserProfileScreen(userId: user['id']),
                   ),
-                ),
-                if (user.displayName.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                );
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    user.displayName,
+                    user['displayName'] ?? user['username'] ?? 'Unknown User',
                     style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
+                  if (user['username'] != null && user['username'].toString().isNotEmpty && user['username'] != user['displayName']) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '@${user['username']}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                  if (user['bio'] != null && user['bio'].toString().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      user['bio'],
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-          ElevatedButton(
-            onPressed: () {
-              // TODO: Implement send friend request
+          FutureBuilder<FriendshipStatus>(
+            future: _getFriendshipStatus(user['id']),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  width: 80,
+                  height: 32,
+                  child: Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+              
+              final friendshipStatus = snapshot.data ?? FriendshipStatus.none;
+              return _buildFriendshipButton(user, friendshipStatus);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              minimumSize: const Size(80, 32),
-            ),
-            child: const Text('Add Friend', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
+  Future<FriendshipStatus> _getFriendshipStatus(String userId) async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return FriendshipStatus.none;
     
-    if (difference.inDays > 0) {
-      return '${difference.inDays}d ago';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}m ago';
-    } else {
-      return 'Just now';
+    return await FriendsService.getFriendshipStatus(currentUser.uid, userId);
+  }
+
+  Widget _buildFriendshipButton(Map<String, dynamic> user, FriendshipStatus status) {
+    switch (status) {
+      case FriendshipStatus.none:
+        return ElevatedButton(
+          onPressed: () => _sendFriendRequestFromSearch(user['id']),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF6366F1),
+            minimumSize: const Size(80, 32),
+          ),
+          child: const Text('Add Friend', style: TextStyle(fontSize: 12)),
+        );
+      case FriendshipStatus.friends:
+        return ElevatedButton(
+          onPressed: null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF10B981),
+            minimumSize: const Size(80, 32),
+          ),
+          child: const Text('Friends', style: TextStyle(fontSize: 12)),
+        );
+      case FriendshipStatus.requestSent:
+        return ElevatedButton(
+          onPressed: null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.grey,
+            minimumSize: const Size(80, 32),
+          ),
+          child: const Text('Pending', style: TextStyle(fontSize: 12)),
+        );
+      case FriendshipStatus.requestReceived:
+        return ElevatedButton(
+          onPressed: () => _acceptFriendRequestFromSearch(user['id']),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF10B981),
+            minimumSize: const Size(80, 32),
+          ),
+          child: const Text('Accept', style: TextStyle(fontSize: 12)),
+        );
+      case FriendshipStatus.self:
+        return ElevatedButton(
+          onPressed: null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.grey,
+            minimumSize: const Size(80, 32),
+          ),
+          child: const Text('You', style: TextStyle(fontSize: 12)),
+        );
     }
   }
+
+  Future<void> _sendFriendRequestFromSearch(String userId) async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        await FriendsService.sendFriendRequest(currentUser.uid, userId);
+        if (mounted) {
+          setState(() {}); // Refresh to update button state
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend request sent!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send friend request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _acceptFriendRequestFromSearch(String userId) async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        await FriendsService.acceptFriendRequest(userId, currentUser.uid);
+        if (mounted) {
+          setState(() {}); // Refresh to update button state
+          _loadData(); // Reload friends data
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend request accepted!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to accept friend request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
 }
 
 

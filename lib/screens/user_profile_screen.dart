@@ -1,47 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../models/user.dart';
-import '../services/user_data_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_auth_service.dart';
-
-enum FriendshipStatus {
-  none,
-  friends,
-  requestSent,
-  requestReceived,
-  self,
-}
-
-// Temporary FriendsService stub
-class FriendsService {
-  static final FriendsService _instance = FriendsService._internal();
-  factory FriendsService() => _instance;
-  FriendsService._internal();
-  static FriendsService get instance => _instance;
-
-  static Future<FriendshipStatus> getFriendshipStatus(String currentUserId, String targetUserId) async {
-    return FriendshipStatus.none;
-  }
-
-  static Future<void> sendFriendRequest(String fromUserId, String toUserId) async {
-    // Stub implementation
-  }
-
-  static Future<void> removeFriend(String userId, String friendId) async {
-    // Stub implementation
-  }
-
-  Future<List<Map<String, dynamic>>> getFriends(String userId) async {
-    return [];
-  }
-
-  Future<List<Map<String, dynamic>>> getPendingRequests(String userId) async {
-    return [];
-  }
-
-  Future<void> acceptFriendRequest(String requestId) async {
-    // Stub implementation
-  }
-}
+import '../services/user_data_service.dart';
+import '../services/rawg_service.dart';
+import '../services/library_service.dart';
+import '../services/friends_service.dart';
+import '../services/follow_service.dart';
+import '../models/game.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final String userId;
@@ -53,10 +19,17 @@ class UserProfileScreen extends StatefulWidget {
 }
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
+  bool _isLoading = false;
+  Map<String, dynamic>? _userData;
+  Game? _favoriteGame;
+  List<Map<String, dynamic>> _userPlaylists = [];
+  int _userRatingsCount = 0;
+  double _userAverageRating = 0.0;
+  bool _isCurrentUser = false;
   FriendshipStatus _friendshipStatus = FriendshipStatus.none;
   bool _isLoadingAction = false;
-  bool _isLoading = true;
-  User? _user;
+  bool _isFollowing = false;
+  bool _isLoadingFollow = false;
 
   @override
   void initState() {
@@ -68,305 +41,208 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _isLoading = true);
     
     try {
-      print('Loading user data for userId: ${widget.userId}');
-      
-      // Load user data
-      final userData = await UserDataService.getUserProfile(widget.userId);
-      print('User data received: $userData');
-      
-      // Load friendship status
       final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
-      
-      final friendshipStatus = await FriendsService.getFriendshipStatus(currentUser.uid, widget.userId);
-      print('Friendship status: $friendshipStatus');
-      
-      if (mounted) {
-        if (userData != null) {
-          setState(() {
-            _user = User.fromMap(userData);
-            _friendshipStatus = friendshipStatus;
-            _isLoading = false;
-          });
-          print('User profile loaded successfully: ${_user?.username}');
+      if (currentUser != null) {
+        // Check if this is the current user's profile
+        _isCurrentUser = currentUser.uid == widget.userId;
+        
+        debugPrint('Loading user profile for userId: ${widget.userId}');
+        final userData = await UserDataService.getUserProfile(widget.userId);
+        debugPrint('Raw user data from Firestore: $userData');
+        
+        if (userData == null) {
+          debugPrint('User data is null, user might not exist in Firestore');
+          // Try to get user data from Firebase Auth if it's the current user
+          if (_isCurrentUser) {
+            debugPrint('This is current user, creating profile from Firebase Auth data');
+            final firebaseUser = FirebaseAuth.instance.currentUser;
+            if (firebaseUser != null) {
+              // Create user profile in Firestore from Firebase Auth data
+              final profileData = {
+                'id': firebaseUser.uid,
+                'username': firebaseUser.email?.split('@')[0] ?? 'user',
+                'displayName': firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'User',
+                'email': firebaseUser.email ?? '',
+                'bio': '',
+                'profileImage': '',
+                'bannerImage': '',
+                'gamesPlayed': 0,
+                'reviewsWritten': 0,
+                'followers': 0,
+                'following': 0,
+                'joinDate': firebaseUser.metadata.creationTime?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+                'createdAt': firebaseUser.metadata.creationTime?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+                'lastActiveAt': DateTime.now().millisecondsSinceEpoch,
+                'isOnline': true,
+              };
+              
+              await UserDataService.saveUserProfile(firebaseUser.uid, profileData);
+              setState(() {
+                _userData = profileData;
+              });
+              debugPrint('Created new user profile: $profileData');
+            }
+          }
         } else {
           setState(() {
-            _isLoading = false;
+            _userData = userData;
           });
-          print('No user data found for userId: ${widget.userId}');
-          
-          // Show a more helpful error message
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('User profile not found. This user may not exist or may not have completed registration.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 5),
-            ),
-          );
+          debugPrint('User data loaded successfully');
+          debugPrint('Display name: ${userData['displayName']}');
+          debugPrint('Username: ${userData['username']}');
+        }
+
+        // Load favorite game if exists
+        if (_userData != null && _userData!['favoriteGame'] != null) {
+          final favoriteGameData = _userData!['favoriteGame'] as Map<String, dynamic>;
+          final gameId = favoriteGameData['gameId']?.toString();
+          if (gameId != null) {
+            try {
+              final game = await RAWGService.instance.getGameDetails(gameId);
+              setState(() {
+                _favoriteGame = game;
+              });
+            } catch (e) {
+              debugPrint('Error loading favorite game: $e');
+            }
+          }
+        }
+
+        // Load user playlists
+        if (_userData != null) {
+          final playlists = await UserDataService.getUserPlaylists(widget.userId);
+          setState(() {
+            _userPlaylists = playlists;
+          });
+        }
+
+        // Load user rating stats
+        await _loadUserRatingStats(widget.userId);
+
+        // Load friendship status if not current user
+        if (!_isCurrentUser) {
+          final friendshipStatus = await FriendsService.getFriendshipStatus(currentUser.uid, widget.userId);
+          final isFollowing = await FollowService.isFollowing(widget.userId);
+          setState(() {
+            _friendshipStatus = friendshipStatus;
+            _isFollowing = isFollowing;
+          });
         }
       }
     } catch (e) {
-      print('Error loading user data: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load user profile: $e')),
-        );
-      }
+      debugPrint('Error loading profile data: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _sendFriendRequest() async {
-    setState(() {
-      _isLoadingAction = true;
-    });
-
+  Future<void> _loadUserRatingStats(String userId) async {
     try {
-      final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
+      // Use the same stats loading logic as library screen
+      final stats = await LibraryService.instance.getUserLibraryStats(userId);
       
-      await FriendsService.sendFriendRequest(currentUser.uid, widget.userId);
-      
-      if (mounted) {
-        setState(() {
-          _friendshipStatus = FriendshipStatus.requestSent;
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Friend request sent!')),
-        );
-      }
+      setState(() {
+        // Update the user data with stats from library service
+        if (_userData != null) {
+          _userData!['gamesPlayed'] = stats['totalGames'] ?? 0;
+        }
+        _userRatingsCount = stats['ratedGames'] ?? 0;
+        _userAverageRating = (stats['averageRating'] ?? 0.0).toDouble();
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send friend request: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _removeFriend() async {
-    setState(() {
-      _isLoadingAction = true;
-    });
-
-    try {
-      final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
-      
-      await FriendsService.removeFriend(currentUser.uid, widget.userId);
-      
-      if (mounted) {
-        setState(() {
-          _friendshipStatus = FriendshipStatus.none;
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Friend removed')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to remove friend: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _acceptFriendRequest() async {
-    setState(() {
-      _isLoadingAction = true;
-    });
-
-    try {
-      final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
-      
-      // Find the friend request first
-      final pendingRequests = await FriendsService.instance.getPendingRequests(currentUser.uid);
-      final request = pendingRequests.firstWhere(
-        (req) => req['fromUserId'] == widget.userId,
-        orElse: () => throw Exception('Friend request not found'),
-      );
-      
-      await FriendsService.instance.acceptFriendRequest(request['id']);
-      
-      if (mounted) {
-        setState(() {
-          _friendshipStatus = FriendshipStatus.friends;
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Friend request accepted!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingAction = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to accept friend request: $e')),
-        );
-      }
-    }
-  }
-
-  String _formatJoinDate(DateTime joinDate) {
-    final now = DateTime.now();
-    final difference = now.difference(joinDate);
-    
-    if (difference.inDays < 30) {
-      return 'Joined ${difference.inDays} days ago';
-    } else if (difference.inDays < 365) {
-      final months = (difference.inDays / 30).floor();
-      return 'Joined $months month${months > 1 ? 's' : ''} ago';
-    } else {
-      final years = (difference.inDays / 365).floor();
-      return 'Joined $years year${years > 1 ? 's' : ''} ago';
+      debugPrint('Error loading user rating stats: $e');
+      setState(() {
+        _userRatingsCount = 0;
+        _userAverageRating = 0.0;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF111827),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1F2937),
-        elevation: 0,
-        title: const Text(
-          'User Profile',
-          style: TextStyle(color: Colors.white),
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E293B),
+          elevation: 0,
+          title: const Text(
+            'User Profile',
+            style: TextStyle(color: Colors.white),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-              ),
-            )
-          : _user == null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'User not found',
-                        style: TextStyle(color: Colors.white, fontSize: 18),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'User ID: ${widget.userId}',
-                        style: const TextStyle(color: Colors.grey, fontSize: 14),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () async {
-                          // Test loading current user's profile
-                          final currentUser = FirebaseAuthService.instance.currentUser;
-                          if (currentUser != null) {
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(
-                                builder: (context) => UserProfileScreen(userId: currentUser.uid),
-                              ),
-                            );
-                          }
-                        },
-                        child: const Text('View My Profile (Debug)'),
-                      ),
-                    ],
-                  ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _buildProfileHeader(),
-                      const SizedBox(height: 24),
-                      _buildStatsSection(),
-                      const SizedBox(height: 24),
-                      _buildFriendshipActions(),
-                      const SizedBox(height: 24),
-                      _buildBioSection(),
-                    ],
-                  ),
-                ),
-    );
-  }
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
-  Widget _buildProfileHeader() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF374151)),
-      ),
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: const Color(0xFF6366F1),
-            backgroundImage: _user!.profileImage.isNotEmpty
-                ? NetworkImage(_user!.profileImage)
-                : null,
-            child: _user!.profileImage.isEmpty
-                ? Text(
-                    _user!.displayName.isNotEmpty
-                        ? _user!.displayName[0].toUpperCase()
-                        : _user!.username[0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  )
-                : null,
+    if (_userData == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E293B),
+          elevation: 0,
+          title: const Text(
+            'User Profile',
+            style: TextStyle(color: Colors.white),
           ),
-          const SizedBox(height: 16),
-          Text(
-            _user!.displayName.isNotEmpty ? _user!.displayName : _user!.username,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-          if (_user!.displayName.isNotEmpty && _user!.displayName != _user!.username)
-            Text(
-              '@${_user!.username}',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
-            ),
-          const SizedBox(height: 8),
-          Text(
-            _formatJoinDate(_user!.joinDate),
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
+        ),
+        body: const Center(
+          child: Text(
+            'User not found',
+            style: TextStyle(color: Colors.white, fontSize: 18),
+          ),
+        ),
+      );
+    }
+
+    // Extract user data with better fallback logic
+    final username = _userData?['username'] ?? _userData?['email']?.split('@')[0] ?? 'user';
+    final displayName = _userData?['displayName'] ?? 
+                       _userData?['username'] ?? 
+                       _userData?['email']?.split('@')[0] ?? 
+                       'User';
+    final profileImage = _userData?['profileImage'] ?? '';
+    final bannerImage = _userData?['bannerImage'] ?? '';
+    final gamesPlayed = _userData?['gamesPlayed'] ?? 0;
+    final followers = _userData?['followers'] ?? 0;
+    final following = _userData?['following'] ?? 0;
+
+    debugPrint('Displaying user profile:');
+    debugPrint('Username: $username');
+    debugPrint('Display Name: $displayName');
+    debugPrint('Profile Image: $profileImage');
+    debugPrint('Banner Image: $bannerImage');
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(bannerImage, profileImage, displayName, username),
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                _buildStatsSection(gamesPlayed, _userRatingsCount, _userAverageRating),
+                const SizedBox(height: 16),
+                _buildFavoriteGameSection(),
+                const SizedBox(height: 16),
+                if (_userPlaylists.isNotEmpty) ...[
+                  _buildPlaylistsSection(),
+                  const SizedBox(height: 16),
+                ],
+                if (!_isCurrentUser) _buildFriendActions(),
+                const SizedBox(height: 16),
+                _buildFriendsSection(followers, following),
+                const SizedBox(height: 24),
+              ],
             ),
           ),
         ],
@@ -374,29 +250,214 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildStatsSection() {
+  Widget _buildSliverAppBar(String bannerImage, String profileImage, String displayName, String username) {
+    return SliverAppBar(
+      expandedHeight: 240,
+      floating: false,
+      pinned: true,
+      backgroundColor: const Color(0xFF1E293B),
+      flexibleSpace: FlexibleSpaceBar(
+        background: Stack(
+          children: [
+            // Banner Background
+            Container(
+              decoration: BoxDecoration(
+                gradient: (bannerImage.isEmpty)
+                    ? const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF6366F1),
+                          Color(0xFF8B5CF6),
+                          Color(0xFFEC4899),
+                          Color(0xFFF59E0B),
+                        ],
+                      )
+                    : null,
+                image: bannerImage.isNotEmpty
+                    ? DecorationImage(
+                        image: bannerImage.startsWith('http')
+                            ? NetworkImage(bannerImage)
+                            : FileImage(File(bannerImage)) as ImageProvider,
+                        fit: BoxFit.cover,
+                        onError: (exception, stackTrace) {
+                          debugPrint('Error loading banner image: $exception');
+                        },
+                      )
+                    : null,
+              ),
+            ),
+            // Gradient overlay
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.7),
+                  ],
+                ),
+              ),
+            ),
+            // Profile content
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: Column(
+                children: [
+                  // Profile Picture - Full circle, not cropped
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 15,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(
+                      child: profileImage.isNotEmpty
+                          ? (profileImage.startsWith('http')
+                              ? Image.network(
+                                  profileImage,
+                                  fit: BoxFit.cover,
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Center(
+                                      child: CircularProgressIndicator(
+                                        value: loadingProgress.expectedTotalBytes != null
+                                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                            : null,
+                                        strokeWidth: 2,
+                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
+                                )
+                              : Image.file(
+                                  File(profileImage),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(displayName),
+                                ))
+                          : _buildDefaultAvatar(displayName),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Name and username
+                  Text(
+                    displayName,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black54,
+                          offset: Offset(0, 2),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '@$username',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black54,
+                          offset: Offset(0, 1),
+                          blurRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    );
+  }
+
+  Widget _buildDefaultAvatar(String displayName) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF6366F1),
+            Color(0xFF8B5CF6),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+          style: const TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsSection(int gamesPlayed, int reviewsWritten, double averageRating) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF374151)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildStatItem('Games', _user!.gamesPlayed.toString()),
-          _buildStatItem('Reviews', _user!.reviewsWritten.toString()),
-          _buildStatItem('Followers', _user!.followers.toString()),
-          _buildStatItem('Following', _user!.following.toString()),
+          _buildStatItem('$gamesPlayed', 'Games', Icons.sports_esports),
+          _buildStatDivider(),
+          _buildStatItem('$reviewsWritten', 'Rated', Icons.star),
+          _buildStatDivider(),
+          _buildStatItem(averageRating.toStringAsFixed(1), 'Avg Rating', Icons.trending_up),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
+  Widget _buildStatItem(String value, String label, IconData icon) {
     return Column(
       children: [
+        Icon(
+          icon,
+          color: const Color(0xFF6366F1),
+          size: 20,
+        ),
+        const SizedBox(height: 6),
         Text(
           value,
           style: const TextStyle(
@@ -405,11 +466,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Text(
           label,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: Colors.grey,
           ),
         ),
@@ -417,10 +478,273 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildFriendshipActions() {
-    return SizedBox(
-      width: double.infinity,
-      child: _buildFriendshipButton(),
+  Widget _buildStatDivider() {
+    return Container(
+      height: 32,
+      width: 1,
+      color: const Color(0xFF374151),
+    );
+  }
+
+  Widget _buildFavoriteGameSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF374151)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.favorite,
+                color: Color(0xFFEC4899),
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Favorite Game',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_favoriteGame != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF374151),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF4B5563)),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.network(
+                      _favoriteGame!.coverImage,
+                      width: 50,
+                      height: 66,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 50,
+                        height: 66,
+                        color: const Color(0xFF6B7280),
+                        child: const Icon(
+                          Icons.videogame_asset,
+                          color: Colors.white54,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _favoriteGame!.title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        if (_favoriteGame!.releaseDate.isNotEmpty)
+                          Text(
+                            _favoriteGame!.releaseDate,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Color(0xFFFBBF24),
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _favoriteGame!.averageRating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF374151),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF4B5563)),
+              ),
+              child: const Column(
+                children: [
+                  Icon(
+                    Icons.videogame_asset,
+                    color: Colors.grey,
+                    size: 40,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'No favorite game selected',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlaylistsSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF374151)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.playlist_play,
+                color: Color(0xFF10B981),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Playlists',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_userPlaylists.length}',
+                style: const TextStyle(
+                  color: Color(0xFF10B981),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 80,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _userPlaylists.length,
+              itemBuilder: (context, index) {
+                final playlist = _userPlaylists[index];
+                return Container(
+                  width: 120,
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF374151),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF4B5563)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        playlist['name'] ?? 'Untitled',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${(playlist['games'] as List?)?.length ?? 0} games',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const Spacer(),
+                      const Icon(
+                        Icons.playlist_play,
+                        color: Color(0xFF10B981),
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFriendActions() {
+    if (_isCurrentUser) return const SizedBox.shrink();
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        width: double.infinity,
+        child: _buildFriendshipButton(),
+      ),
     );
   }
 
@@ -433,31 +757,35 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Icon(Icons.person_add),
+              : const Icon(Icons.person_add, size: 18),
           label: const Text('Send Friend Request'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF6366F1),
-            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.1),
+            foregroundColor: const Color(0xFF6366F1),
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
             ),
+            elevation: 0,
           ),
         );
       case FriendshipStatus.requestSent:
         return ElevatedButton.icon(
           onPressed: null,
-          icon: const Icon(Icons.schedule),
+          icon: const Icon(Icons.schedule, size: 18),
           label: const Text('Request Sent'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey,
-            foregroundColor: Colors.white,
+            backgroundColor: Colors.grey.withValues(alpha: 0.1),
+            foregroundColor: Colors.grey,
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
             ),
+            elevation: 0,
           ),
         );
       case FriendshipStatus.requestReceived:
@@ -470,33 +798,37 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Icon(Icons.check),
+                    : const Icon(Icons.check, size: 18),
                 label: const Text('Accept'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.1),
+                  foregroundColor: const Color(0xFF10B981),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
                   ),
+                  elevation: 0,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: ElevatedButton.icon(
-                onPressed: _isLoadingAction ? null : _removeFriend,
-                icon: const Icon(Icons.close),
+                onPressed: _isLoadingAction ? null : _declineFriendRequest,
+                icon: const Icon(Icons.close, size: 18),
                 label: const Text('Decline'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
-                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                  foregroundColor: const Color(0xFFEF4444),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
                   ),
+                  elevation: 0,
                 ),
               ),
             ),
@@ -509,71 +841,302 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Icon(Icons.person_remove),
+              : const Icon(Icons.person_remove, size: 18),
           label: const Text('Remove Friend'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFEF4444),
-            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.1),
+            foregroundColor: const Color(0xFFEF4444),
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
             ),
+            elevation: 0,
           ),
         );
       case FriendshipStatus.self:
-        return ElevatedButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.person),
-          label: const Text('This is you'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
+        return const SizedBox.shrink();
     }
   }
 
-  Widget _buildBioSection() {
-    if (_user!.bio.isEmpty) {
-      return const SizedBox.shrink();
+  Future<void> _sendFriendRequest() async {
+    setState(() => _isLoadingAction = true);
+    
+    try {
+      final currentUser = FirebaseAuthService.instance.currentUser;
+      if (currentUser != null) {
+        await FriendsService.sendFriendRequest(currentUser.uid, widget.userId);
+        setState(() {
+          _friendshipStatus = FriendshipStatus.requestSent;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend request sent!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send friend request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingAction = false);
     }
+  }
 
+  Future<void> _acceptFriendRequest() async {
+    setState(() => _isLoadingAction = true);
+    
+    try {
+      final currentUser = FirebaseAuthService.instance.currentUser;
+      if (currentUser != null) {
+        await FriendsService.acceptFriendRequest(widget.userId, currentUser.uid);
+        setState(() {
+          _friendshipStatus = FriendshipStatus.friends;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend request accepted!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to accept friend request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingAction = false);
+    }
+  }
+
+  Future<void> _declineFriendRequest() async {
+    setState(() => _isLoadingAction = true);
+    
+    try {
+      final currentUser = FirebaseAuthService.instance.currentUser;
+      if (currentUser != null) {
+        await FriendsService.declineFriendRequest(widget.userId, currentUser.uid);
+        setState(() {
+          _friendshipStatus = FriendshipStatus.none;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend request declined'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to decline friend request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingAction = false);
+    }
+  }
+
+  Future<void> _removeFriend() async {
+    setState(() => _isLoadingAction = true);
+    
+    try {
+      final currentUser = FirebaseAuthService.instance.currentUser;
+      if (currentUser != null) {
+        await FriendsService.removeFriend(currentUser.uid, widget.userId);
+        setState(() {
+          _friendshipStatus = FriendshipStatus.none;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Friend removed'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove friend: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingAction = false);
+    }
+  }
+
+  Widget _buildFriendsSection(int followers, int following) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF374151)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'About',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          const Row(
+            children: [
+              Icon(
+                Icons.people,
+                color: Color(0xFF6366F1),
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Social',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          Text(
-            _user!.bio,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-              height: 1.5,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _buildSocialStat('Followers', followers),
+              ),
+              Container(
+                height: 32,
+                width: 1,
+                color: const Color(0xFF374151),
+              ),
+              Expanded(
+                child: _buildSocialStat('Following', following),
+              ),
+            ],
           ),
+          if (!_isCurrentUser) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoadingFollow ? null : _toggleFollow,
+                icon: _isLoadingFollow
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Icon(_isFollowing ? Icons.person_remove : Icons.person_add),
+                label: Text(_isFollowing ? 'Unfollow' : 'Follow'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isFollowing ? Colors.grey[700] : const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  Widget _buildSocialStat(String label, int count) {
+    return Column(
+      children: [
+        Text(
+          count.toString(),
+          style: const TextStyle(
+            fontSize: 18, // Reduced from 20
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _toggleFollow() async {
+    setState(() => _isLoadingFollow = true);
+    
+    try {
+      if (_isFollowing) {
+        await FollowService.unfollowUser(widget.userId);
+        setState(() => _isFollowing = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unfollowed successfully'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        await FollowService.followUser(widget.userId);
+        setState(() => _isFollowing = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Following successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to ${_isFollowing ? 'unfollow' : 'follow'}: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingFollow = false);
+    }
   }
 }

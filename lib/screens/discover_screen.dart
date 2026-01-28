@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_rating.dart';
 import '../models/game.dart';
 import '../services/rawg_service.dart';
@@ -217,13 +218,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
       child: Row(
         children: [
           const Text(
             'Discover',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18, // Reduced from 20
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
@@ -231,8 +232,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           const Spacer(),
           IconButton(
             onPressed: _clearFilters,
-            icon: const Icon(Icons.filter_list_off, color: Colors.white),
+            icon: const Icon(Icons.filter_list_off, color: Colors.white, size: 20), // Smaller icon
             tooltip: 'Clear Filters',
+            padding: const EdgeInsets.all(8), // Reduced padding
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32), // Smaller button
           ),
         ],
       ),
@@ -241,8 +244,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildFilterTabs() {
     return Container(
-      height: 50,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      height: 40, // Reduced from 50
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced margin
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: _filterOptions.map((filter) => 
@@ -254,7 +257,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildAdvancedFilters() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced margin
       child: Column(
         children: [
           Row(
@@ -263,14 +266,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 setState(() => _selectedGenre = value!);
                 _loadRecentReviews();
               })),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6), // Reduced spacing
               Expanded(child: _buildDropdownFilter('Platform', _selectedPlatform, _platformOptions, (value) {
                 setState(() => _selectedPlatform = value!);
                 _loadRecentReviews();
               })),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6), // Reduced spacing
           _buildDropdownFilter('Rating', _selectedRating, _ratingOptions, (value) {
             setState(() => _selectedRating = value!);
             _loadRecentReviews();
@@ -282,10 +285,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildDropdownFilter(String label, String selectedValue, List<Map<String, String>> options, ValueChanged<String?> onChanged) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3), // Reduced padding
       decoration: BoxDecoration(
         color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6), // Smaller radius
         border: Border.all(color: const Color(0xFF374151)),
       ),
       child: DropdownButtonHideUnderline(
@@ -293,12 +296,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           value: selectedValue,
           onChanged: onChanged,
           dropdownColor: const Color(0xFF1F2937),
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-          icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+          style: const TextStyle(color: Colors.white, fontSize: 12), // Smaller text
+          icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18), // Smaller icon
           isExpanded: true,
           items: options.map((option) => DropdownMenuItem<String>(
             value: option['value'],
-            child: Text(option['label']!),
+            child: Text(option['label']!, style: const TextStyle(fontSize: 12)), // Smaller text
           )).toList(),
         ),
       ),
@@ -423,12 +426,31 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 ),
                 Row(
                   children: List.generate(5, (index) {
-                    return Icon(
-                      Icons.star,
-                      size: 16,
-                      color: (index + 1) <= review.rating
-                          ? const Color(0xFFFBBF24)
-                          : const Color(0xFF9CA3AF),
+                    return Stack(
+                      children: [
+                        Icon(
+                          Icons.star,
+                          size: 16,
+                          color: const Color(0xFF374151),
+                        ),
+                        // Full star overlay - only show if rating is >= index + 1
+                        if (review.rating >= index + 1)
+                          Icon(
+                            Icons.star,
+                            size: 16,
+                            color: const Color(0xFF10B981), // Green color like in reference
+                          ),
+                        // Half star overlay - only show if rating is exactly index + 0.5
+                        if (review.rating == index + 0.5)
+                          ClipRect(
+                            clipper: HalfStarClipper(),
+                            child: const Icon(
+                              Icons.star,
+                              size: 16,
+                              color: Color(0xFF10B981), // Green color like in reference
+                            ),
+                          ),
+                      ],
                     );
                   }),
                 ),
@@ -474,23 +496,30 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: game?.coverImage != null
-                  ? Image.network(
-                      game?.coverImage ?? '',
+              child: game?.coverImage != null && game!.coverImage.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: game.coverImage,
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[700],
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Icon(Icons.games, color: Colors.white, size: 20),
-                        );
-                      },
+                      placeholder: (context, url) => Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(Icons.games, color: Colors.white, size: 20),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[700],
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(Icons.games, color: Colors.white, size: 20),
+                      ),
                     )
                   : Container(
                       width: 40,
@@ -609,4 +638,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       return 'Just now';
     }
   }
+}
+// Custom clipper for half stars
+class HalfStarClipper extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) {
+    return Rect.fromLTRB(0, 0, size.width / 2, size.height);
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Rect> oldClipper) => false;
 }
