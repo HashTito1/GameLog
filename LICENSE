@@ -1,0 +1,44 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2025 GameLog Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+ADDITIONAL TERMS FOR GAMELOG:
+
+This project encourages collaborative development. If you use this code:
+
+1. CONTRIBUTE BACK: We strongly encourage contributing improvements back to the original GameLog project
+2. OPEN SOURCE REQUIREMENT: Any derivative work must also be open source under GPL v3
+3. NO PROPRIETARY FORKS: You cannot create closed-source commercial versions
+4. ATTRIBUTION: You must credit the original GameLog project and contributors
+
+For the full GPL v3 license text, visit: https://www.gnu.org/licenses/gpl-3.0.html
+
+---
+
+CONTRIBUTING TO GAMELOG:
+
+We welcome contributions! Here's how to get involved:
+
+• Fork the repository on GitHub
+• Create a feature branch for your changes
+• Submit a pull request with a clear description
+• Follow our coding standards and guidelines
+• Join our community discussions
+
+By contributing to GameLog, you help build a better gaming platform for everyone while ensuring the project remains free and open source.

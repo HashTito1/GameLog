@@ -37,21 +37,21 @@ GameLog prioritizes user security and data protection:
 - ✅ **No Local Password Storage**: Passwords never stored on devices
 - ✅ **Encrypted Data**: All communication uses HTTPS/TLS encryption
 - ✅ **Access Controls**: Firestore security rules protect user data
+- ✅ **No Hardcoded API Keys**: All external API keys via environment variables only
+- ✅ **Offline-First Design**: Full functionality without external dependencies
 - ✅ **Regular Updates**: Automatic security updates through GitHub releases
 
 See [SECURITY.md](SECURITY.md) for detailed security information.
 
 ## API Integration
 
-GameLog integrates with the **RAWG Video Games Database API** to provide:
-- Real game data and metadata
-- High-quality cover images
-- Accurate ratings and review counts
-- Developer/publisher information
-- Genre and platform data
-- Release dates and descriptions
+GameLog uses the **RAWG API** for real game data:
 
-The app includes intelligent caching and fallback to mock data for offline functionality.
+- **Pre-configured**: RAWG API key is built into the app
+- **Real Game Data**: Fetches live game information, ratings, and metadata
+- **Comprehensive Database**: Access to 500,000+ games from RAWG.io
+- **Automatic Caching**: Intelligent caching for better performance
+- **No Setup Required**: Just run `flutter run` and it works!
 
 ## Getting Started
 
@@ -65,6 +65,8 @@ The app includes intelligent caching and fallback to mock data for offline funct
    ```bash
    flutter run
    ```
+
+The app is pre-configured with a RAWG API key and will automatically fetch real game data.
 
 ## Project Structure
 
@@ -113,3 +115,44 @@ lib/
 - Photo sharing for gaming moments
 - Gaming lists and collections
 - Push notifications for new reviews
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+
+**Why GPL v3?** We chose GPL v3 to encourage collaborative development and ensure GameLog remains free and open source. This means:
+- ✅ Anyone can use and modify the code
+- ✅ All improvements must be shared back with the community
+- ✅ No one can create proprietary versions
+- ✅ The project stays open source forever
+
+## Contributing
+
+We **strongly encourage contributions** to the main GameLog project! Here's how:
+
+1. **Fork** the repository on GitHub
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Contribution Guidelines
+- Follow Flutter/Dart best practices
+- Write clear commit messages
+- Test your changes thoroughly
+- Update documentation as needed
+- Be respectful and collaborative
+
+### Types of Contributions Welcome
+- 🐛 Bug fixes
+- ✨ New features
+- 📚 Documentation improvements
+- 🎨 UI/UX enhancements
+- 🔧 Performance optimizations
+- 🌐 Translations/Localization
+
+## Acknowledgments
+
+- [RAWG.io](https://rawg.io/) for providing the video game database API
+- [Firebase](https://firebase.google.com/) for authentication and database services
+- [Flutter](https://flutter.dev/) for the amazing cross-platform framework

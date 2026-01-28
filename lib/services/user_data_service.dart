@@ -1170,6 +1170,58 @@ class UserDataService {
       throw Exception('Failed to update username: $e');
     }
   }
+
+  // ========== REAL-TIME SOCIAL DATA STREAMS ==========
+
+  /// Get real-time stream of user's followers
+  static Stream<List<String>> getUserFollowersStream(String userId) {
+    return _firestore
+        .collection(_usersCollection)
+        .doc(userId)
+        .snapshots()
+        .map((doc) {
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final followersList = data['followersList'] as List<dynamic>?;
+        return followersList?.cast<String>() ?? [];
+      }
+      return <String>[];
+    });
+  }
+
+  /// Get real-time stream of user's following
+  static Stream<List<String>> getUserFollowingStream(String userId) {
+    return _firestore
+        .collection(_usersCollection)
+        .doc(userId)
+        .snapshots()
+        .map((doc) {
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final followingList = data['followingList'] as List<dynamic>?;
+        return followingList?.cast<String>() ?? [];
+      }
+      return <String>[];
+    });
+  }
+
+  /// Get real-time stream of user's social stats (followers and following counts)
+  static Stream<Map<String, int>> getUserSocialStatsStream(String userId) {
+    return _firestore
+        .collection(_usersCollection)
+        .doc(userId)
+        .snapshots()
+        .map((doc) {
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {
+          'followers': data['followers'] ?? 0,
+          'following': data['following'] ?? 0,
+        };
+      }
+      return {'followers': 0, 'following': 0};
+    });
+  }
 }
 
 

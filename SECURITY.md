@@ -25,14 +25,19 @@ GameLog takes security seriously and follows industry best practices to protect 
 ## API Keys & External Services
 
 ### RAWG API
-- Uses public API key with rate limiting
-- No sensitive user data transmitted to RAWG
-- Fallback mechanisms in place for service interruptions
+- **Pre-configured**: RAWG API key is built into the application for convenience
+- **Game Data Only**: API is used exclusively for fetching game information
+- **No User Data**: No sensitive user data is transmitted to RAWG
+- **Rate Limiting**: Respects RAWG API rate limits and implements proper caching
 
 ### Firebase Configuration
 - Configuration values are public identifiers, not secrets
 - Actual security enforced by Firestore security rules
 - API keys are client-side identifiers, not authentication secrets
+
+## API Configuration
+
+The app comes pre-configured with a RAWG API key for immediate functionality. No additional setup is required - just run `flutter run` and the app will automatically fetch real game data from RAWG.io.
 
 ## Security Best Practices Implemented
 

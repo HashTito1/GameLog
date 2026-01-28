@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game.dart';
+import 'rawg_service.dart';
 
 class LibraryService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -11,6 +12,19 @@ class LibraryService {
   factory LibraryService() => _instance;
   LibraryService._internal();
   static LibraryService get instance => _instance;
+
+  // Helper method to convert various timestamp formats to milliseconds
+  int _convertToMilliseconds(dynamic timestamp) {
+    if (timestamp is Timestamp) {
+      return timestamp.millisecondsSinceEpoch;
+    } else if (timestamp is int) {
+      return timestamp;
+    } else if (timestamp is num) {
+      return timestamp.toInt();
+    } else {
+      return DateTime.now().millisecondsSinceEpoch;
+    }
+  }
 
   // Add game to user's library
   Future<void> addGameToLibrary({
@@ -75,7 +89,7 @@ class LibraryService {
     }
   }
 
-  // Get user's library (updated to use new data structure)
+  // Get user's library (updated to use new data structure and fetch missing game data)
   Future<List<Map<String, dynamic>>> getUserLibrary(String userId, {int limit = 50}) async {
     try {
       debugPrint('🔍 Loading library for user: $userId');
@@ -128,51 +142,114 @@ class LibraryService {
 
       // Merge library and rating data
       final mergedGames = <Map<String, dynamic>>[];
+      final processedGameIds = <String>{};
+      final rawgService = RAWGService.instance;
       
-      // Add library games with their ratings
+      // Add library games with their ratings first
       for (final game in libraryGames) {
         final gameId = game['gameId'] ?? '';
-        final rating = ratingsMap[gameId];
-        
-        final mergedGame = Map<String, dynamic>.from(game);
-        if (rating != null) {
-          mergedGame['userRating'] = rating['rating'] ?? 0.0;
-          mergedGame['userReview'] = rating['review'];
+        if (gameId.isNotEmpty && !processedGameIds.contains(gameId)) {
+          final rating = ratingsMap[gameId];
+          
+          final mergedGame = Map<String, dynamic>.from(game);
+          if (rating != null) {
+            mergedGame['userRating'] = rating['rating'] ?? 0.0;
+            mergedGame['userReview'] = rating['review'];
+          }
+          
+          // Check if game details are missing and fetch them
+          final gameTitle = mergedGame['gameTitle'] ?? '';
+          final gameDeveloper = mergedGame['gameDeveloper'] ?? '';
+          
+          if (gameTitle == 'Unknown Game' || gameTitle.isEmpty || 
+              gameDeveloper == 'Unknown Developer' || gameDeveloper.isEmpty) {
+            debugPrint('🎮 Fetching missing details for library game: $gameId');
+            
+            try {
+              final gameDetails = await rawgService.getGameDetails(gameId);
+              if (gameDetails != null) {
+                mergedGame['gameTitle'] = gameDetails.title;
+                mergedGame['gameCoverImage'] = gameDetails.coverImage;
+                mergedGame['gameDeveloper'] = gameDetails.developer;
+                mergedGame['gameReleaseDate'] = gameDetails.releaseDate;
+                mergedGame['gameGenres'] = gameDetails.genres;
+                mergedGame['gamePlatforms'] = gameDetails.platforms;
+              }
+            } catch (e) {
+              debugPrint('❌ Failed to fetch missing details for $gameId: $e');
+            }
+          }
+          
+          mergedGames.add(mergedGame);
+          processedGameIds.add(gameId);
         }
-        mergedGames.add(mergedGame);
       }
       
-      // Add rated games that aren't in library yet
+      // Add rated games that aren't in library yet and fetch their details
       for (final entry in ratingsMap.entries) {
         final gameId = entry.key;
         final rating = entry.value;
         
-        // Check if this game is already in library
-        final existsInLibrary = mergedGames.any((game) => game['gameId'] == gameId);
-        if (!existsInLibrary) {
-          // Add as a rated game
+        // Check if this game is already processed
+        if (!processedGameIds.contains(gameId)) {
+          debugPrint('🎮 Fetching game details for rated game: $gameId');
+          
+          // Fetch full game details from RAWG API
+          Game? gameDetails;
+          try {
+            gameDetails = await rawgService.getGameDetails(gameId);
+          } catch (e) {
+            debugPrint('❌ Failed to fetch game details for $gameId: $e');
+          }
+          
+          // Add as a rated game with full details if available
           mergedGames.add({
             'id': '${userId}_$gameId',
             'userId': userId,
             'gameId': gameId,
-            'gameTitle': rating['gameTitle'] ?? 'Unknown Game',
-            'gameCoverImage': '',
-            'gameDeveloper': '',
-            'gameReleaseDate': '',
-            'gameGenres': <String>[],
-            'gamePlatforms': <String>[],
+            'gameTitle': gameDetails?.title ?? rating['gameTitle'] ?? 'Unknown Game',
+            'gameCoverImage': gameDetails?.coverImage ?? '',
+            'gameDeveloper': gameDetails?.developer ?? 'Unknown Developer',
+            'gameReleaseDate': gameDetails?.releaseDate ?? '',
+            'gameGenres': gameDetails?.genres ?? <String>[],
+            'gamePlatforms': gameDetails?.platforms ?? <String>[],
             'userRating': rating['rating'] ?? 0.0,
             'userReview': rating['review'],
             'status': 'rated',
-            'dateAdded': rating['createdAt'] is Timestamp 
-                ? (rating['createdAt'] as Timestamp).millisecondsSinceEpoch
-                : (rating['createdAt'] ?? DateTime.now().millisecondsSinceEpoch),
-            'dateUpdated': rating['updatedAt'] is Timestamp 
-                ? (rating['updatedAt'] as Timestamp).millisecondsSinceEpoch
-                : (rating['updatedAt'] ?? DateTime.now().millisecondsSinceEpoch),
+            'dateAdded': _convertToMilliseconds(rating['createdAt']),
+            'dateUpdated': _convertToMilliseconds(rating['updatedAt']),
           });
+          processedGameIds.add(gameId);
         }
       }
+      
+      // Sort by date updated (most recent first)
+      mergedGames.sort((a, b) {
+        final aDate = a['dateUpdated'];
+        final bDate = b['dateUpdated'];
+        
+        // Convert Timestamps to milliseconds for comparison
+        int aMillis = 0;
+        int bMillis = 0;
+        
+        if (aDate is Timestamp) {
+          aMillis = aDate.millisecondsSinceEpoch;
+        } else if (aDate is int) {
+          aMillis = aDate;
+        } else if (aDate is num) {
+          aMillis = aDate.toInt();
+        }
+        
+        if (bDate is Timestamp) {
+          bMillis = bDate.millisecondsSinceEpoch;
+        } else if (bDate is int) {
+          bMillis = bDate;
+        } else if (bDate is num) {
+          bMillis = bDate.toInt();
+        }
+        
+        return bMillis.compareTo(aMillis);
+      });
       
       debugPrint('✅ Returning ${mergedGames.length} total games (library + ratings)');
       return mergedGames;

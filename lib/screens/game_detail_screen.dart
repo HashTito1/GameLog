@@ -292,6 +292,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           username: currentUser.email?.split('@')[0] ?? 'user',
           rating: _selectedRating,
           review: _reviewController.text.trim().isEmpty ? null : _reviewController.text.trim(),
+          gameTitle: _game!.title,
         );
         
         debugPrint('✅ RatingService rating submitted successfully');

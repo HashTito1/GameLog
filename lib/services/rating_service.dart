@@ -23,6 +23,7 @@ class RatingService {
     required String username,
     required double rating,
     String? review,
+    String? gameTitle,
   }) async {
     try {
       final ratingId = '${userId}_$gameId';
@@ -39,10 +40,16 @@ class RatingService {
         updatedAt: now,
       );
 
+      // Create rating data with game title if provided
+      final ratingData = userRating.toMap();
+      if (gameTitle != null) {
+        ratingData['gameTitle'] = gameTitle;
+      }
+
       await _firestore
           .collection(_ratingsCollection)
           .doc(ratingId)
-          .set(userRating.toMap(), SetOptions(merge: true));
+          .set(ratingData, SetOptions(merge: true));
       
       // Clear cache for this game to ensure fresh data on next load
       _clearGameCache(gameId);

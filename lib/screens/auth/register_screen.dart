@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/firebase_auth_service.dart';
+import '../../services/email_validation_service.dart';
 import 'firebase_verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -59,7 +60,6 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
     );
 
     if (success && mounted) {
-      // Navigate to Firebase verification screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => FirebaseVerificationScreen(
@@ -68,12 +68,30 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
         ),
       );
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(FirebaseAuthService().error ?? 'Registration failed'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      final error = FirebaseAuthService().error ?? 'Registration failed';
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1F2937),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 24),
+              SizedBox(width: 8),
+              Text('Registration Failed', style: TextStyle(color: Colors.white, fontSize: 18)),
+            ],
+          ),
+          content: Text(
+            error,
+            style: const TextStyle(color: Colors.grey, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK', style: TextStyle(color: Color(0xFF8B5CF6))),
+            ),
+          ],
         ),
       );
     }
@@ -83,27 +101,35 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: RadialGradient(
             center: Alignment.topLeft,
             radius: 1.5,
             colors: [
-              const Color(0xFF1F2937),
-              const Color(0xFF111827),
-              const Color(0xFF000000),
+              Color(0xFF1F2937),
+              Color(0xFF111827),
+              Color(0xFF000000),
             ],
           ),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            child: const Padding(padding: EdgeInsets.all(24.0), child: Form(key: _formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [SizedBox(height: 20),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 20),
                     
                     // Back button
                     Align(
                       alignment: Alignment.centerLeft,
                       child: IconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.arrow_back_ios,
+                        icon: const Icon(
+                          Icons.arrow_back_ios,
                           color: Colors.white,
                         ),
                       ),
@@ -152,10 +178,10 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                 ),
                                 const SizedBox(height: 8),
                                 Container(
-                                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                                   decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [const Color(0xFF06D6A0), const Color(0xFF8B5CF6)],
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF06D6A0), Color(0xFF8B5CF6)],
                                     ),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
@@ -203,13 +229,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                   icon: Icons.email_outlined,
                                   keyboardType: TextInputType.emailAddress,
                                   validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your email';
-                                    }
-                                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                                      return 'Please enter a valid email';
-                                    }
-                                    return null;
+                                    return EmailValidationService.validateEmail(value);
                                   },
                                 ),
                                 const SizedBox(height: 20),
@@ -221,7 +241,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                   icon: Icons.lock_outline,
                                   obscureText: _obscurePassword,
                                   suffixIcon: IconButton(
-                                    icon: const Icon(
+                                    icon: Icon(
                                       _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                                       color: Colors.grey,
                                     ),
@@ -250,7 +270,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                   icon: Icons.lock_outline,
                                   obscureText: _obscureConfirmPassword,
                                   suffixIcon: IconButton(
-                                    icon: const Icon(
+                                    icon: Icon(
                                       _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                                       color: Colors.grey,
                                     ),
@@ -280,8 +300,8 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                       width: double.infinity,
                                       height: 56,
                                       decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [const Color(0xFF06D6A0), const Color(0xFF8B5CF6)],
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFF06D6A0), Color(0xFF8B5CF6)],
                                           begin: Alignment.centerLeft,
                                           end: Alignment.centerRight,
                                         ),
@@ -342,7 +362,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                       child: const Text(
                                         'Sign In',
                                         style: TextStyle(
-                                          color: const Color(0xFF8B5CF6),
+                                          color: Color(0xFF8B5CF6),
                                           fontSize: 16,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -391,11 +411,11 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
         controller: controller,
         keyboardType: keyboardType,
         obscureText: obscureText,
-        style: TextStyle(color: Colors.white, fontSize: 16),
+        style: const TextStyle(color: Colors.white, fontSize: 16),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: TextStyle(color: Colors.grey),
-          prefixIcon: const Icon(icon, color: Colors.grey),
+          labelStyle: const TextStyle(color: Colors.grey),
+          prefixIcon: Icon(icon, color: Colors.grey),
           suffixIcon: suffixIcon,
           filled: true,
           fillColor: const Color(0xFF1F2937).withValues(alpha: 0.8),
@@ -412,7 +432,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: const BorderSide(
-              color: const Color(0xFF06D6A0),
+              color: Color(0xFF06D6A0),
               width: 2,
             ),
           ),
@@ -422,7 +442,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
               color: Colors.red,
             ),
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         ),
         validator: validator,
       ),
@@ -467,5 +487,3 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
     );
   }
 }
-
-
