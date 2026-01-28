@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../services/user_data_service.dart';
 import '../services/friends_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../services/database_debug_service.dart';
 import 'user_profile_screen.dart';
 
 class FriendsScreen extends StatefulWidget {

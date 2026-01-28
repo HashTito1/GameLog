@@ -28,6 +28,9 @@ class FirebaseAuthService extends ChangeNotifier {
       // Initialize FirebaseAuth (Firebase already initialized)
       _firebaseAuth = FirebaseAuth.instance;
       
+      // Security cleanup: Remove any legacy password data
+      await StorageService.cleanupLegacyPasswordData();
+      
       // Listen to auth state changes
       _firebaseAuth!.authStateChanges().listen(_onAuthStateChanged);
       

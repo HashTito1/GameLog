@@ -5,7 +5,7 @@ import '../models/auth_user.dart';
 class StorageService {
   static const String _userKey = 'current_user';
   static const String _usersKey = 'all_users';
-  static const String _passwordsKey = 'user_passwords';
+  // Removed _passwordsKey - no longer storing passwords locally for security
 
   // Save current user
   static Future<void> saveUser(AuthUser user) async {
@@ -50,41 +50,14 @@ class StorageService {
     return {};
   }
 
-  // Save password (in production, use proper encryption)
-  static Future<void> savePassword(String email, String password) async {
-    final prefs = await SharedPreferences.getInstance();
-    final passwords = await getPasswords();
-    passwords[email] = password; // In production, hash this!
-    await prefs.setString(_passwordsKey, jsonEncode(passwords));
-  }
-
-  // Get password
-  static Future<String?> getPassword(String email) async {
-    final passwords = await getPasswords();
-    return passwords[email];
-  }
-
-  // Get all passwords
-  static Future<Map<String, String>> getPasswords() async {
-    final prefs = await SharedPreferences.getInstance();
-    final passwordsJson = prefs.getString(_passwordsKey);
-    if (passwordsJson != null) {
-      return Map<String, String>.from(jsonDecode(passwordsJson));
-    }
-    return {};
-  }
-
   // Check if user exists
   static Future<bool> userExists(String email) async {
     final users = await getAllUsers();
     return users.containsKey(email);
   }
 
-  // Validate user credentials
-  static Future<bool> validateCredentials(String email, String password) async {
-    final storedPassword = await getPassword(email);
-    return storedPassword == password;
-  }
+  // Note: Password validation now handled by Firebase Auth only
+  // Local password storage removed for security compliance
 
   // Save game library for user
   static Future<void> saveUserLibrary(String userId, List<Map<String, dynamic>> library) async {
@@ -122,6 +95,12 @@ class StorageService {
   static Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+  }
+
+  // Security cleanup: Remove any legacy password data
+  static Future<void> cleanupLegacyPasswordData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('user_passwords'); // Remove old password storage
   }
 
   // Export user data (for backup/migration)

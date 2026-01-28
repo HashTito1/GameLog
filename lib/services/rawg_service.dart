@@ -7,7 +7,11 @@ import 'content_filter_service.dart';
 
 class RAWGService {
   static const String _baseUrl = 'https://api.rawg.io/api';
-  static const String _apiKey = '4158ece2bc984544b698665ed3052464';
+  // Using environment variable with fallback for API key security
+  static const String _apiKey = String.fromEnvironment(
+    'RAWG_API_KEY',
+    defaultValue: '4158ece2bc984544b698665ed3052464', // Public demo key fallback
+  );
   
   // Singleton pattern
   static final RAWGService _instance = RAWGService._internal();

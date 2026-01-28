@@ -21,13 +21,25 @@ A social platform for gamers to track, rate, and review games - like Letterboxd 
 
 - Flutter for cross-platform mobile development
 - Dart programming language
-- Firebase Authentication for user management
+- Firebase Authentication for secure user management
 - Cloud Firestore for data storage
 - Material Design 3 with dark theme
 - Google Fonts for typography
 - Flutter Rating Bar for star ratings
 - RAWG API for real game data
 - Cached Network Image for optimized image loading
+
+## Security & Privacy
+
+GameLog prioritizes user security and data protection:
+
+- ✅ **Secure Authentication**: Firebase Auth handles all password management
+- ✅ **No Local Password Storage**: Passwords never stored on devices
+- ✅ **Encrypted Data**: All communication uses HTTPS/TLS encryption
+- ✅ **Access Controls**: Firestore security rules protect user data
+- ✅ **Regular Updates**: Automatic security updates through GitHub releases
+
+See [SECURITY.md](SECURITY.md) for detailed security information.
 
 ## API Integration
 

@@ -8,7 +8,22 @@ The update service allows users to check for and install updates directly from t
 
 ## Setup Steps
 
-### 1. Configure Repository Information
+### 1. Repository Visibility Requirements
+
+**IMPORTANT: Your GitHub repository MUST be public for the update system to work.**
+
+The UpdateService uses GitHub's public API without authentication, which requires:
+- ✅ **Public repository** - Accessible without tokens (60 requests/hour)
+- ❌ **Private repository** - Would require authentication tokens (security risk in mobile apps)
+
+**To make your repository public:**
+1. Go to `https://github.com/HashTito1/GameLog/settings`
+2. Scroll to "Danger Zone" 
+3. Click "Change repository visibility"
+4. Select "Make public"
+5. Confirm the change
+
+### 2. Configure Repository Information
 
 Edit `lib/services/update_service.dart` and replace the placeholder values:
 
@@ -25,7 +40,7 @@ static const String _repoName = 'gamelog-app';
 static const String _branch = 'test';
 ```
 
-### 2. Create GitHub Releases
+### 3. Create GitHub Releases
 
 To make updates available:
 
@@ -63,7 +78,7 @@ To make updates available:
    ❌ release1  (Not semantic versioning)
    ```
 
-### 3. Release Naming Convention
+### 4. Release Naming Convention
 
 For proper version comparison, use semantic versioning:
 
@@ -87,7 +102,7 @@ v2.0.0  → Major update
 - ✅ Release title: "GameLog v1.0.1"
 - ✅ APK attached as asset
 
-### 4. APK Upload and Build Process
+### 5. APK Upload and Build Process
 
 **Building the APK:**
 ```bash
@@ -109,7 +124,7 @@ flutter build apk --release
 - Keep the default name `app-release.apk` or use descriptive names
 - The update service will use the first APK asset found in the release
 
-### 5. Testing the Update System
+### 6. Testing the Update System
 
 1. **Lower your app version** temporarily in `pubspec.yaml`
 2. **Create a test release** with a higher version number
