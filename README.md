@@ -125,11 +125,38 @@ lib/
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+
+**Why GPL v3?** We chose GPL v3 to encourage collaborative development and ensure GameLog remains free and open source. This means:
+- ✅ Anyone can use and modify the code
+- ✅ All improvements must be shared back with the community
+- ✅ No one can create proprietary versions
+- ✅ The project stays open source forever
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+We **strongly encourage contributions** to the main GameLog project! Here's how:
+
+1. **Fork** the repository on GitHub
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Contribution Guidelines
+- Follow Flutter/Dart best practices
+- Write clear commit messages
+- Test your changes thoroughly
+- Update documentation as needed
+- Be respectful and collaborative
+
+### Types of Contributions Welcome
+- 🐛 Bug fixes
+- ✨ New features
+- 📚 Documentation improvements
+- 🎨 UI/UX enhancements
+- 🔧 Performance optimizations
+- 🌐 Translations/Localization
 
 ## Acknowledgments
 
