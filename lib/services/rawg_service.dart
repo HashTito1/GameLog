@@ -7,10 +7,10 @@ import 'content_filter_service.dart';
 
 class RAWGService {
   static const String _baseUrl = 'https://api.rawg.io/api';
-  // Using environment variable with fallback for API key security
+  // API key removed for security - app will use mock data when no environment variable is set
   static const String _apiKey = String.fromEnvironment(
     'RAWG_API_KEY',
-    defaultValue: '4158ece2bc984544b698665ed3052464', // Public demo key fallback
+    defaultValue: '', // No fallback key for security
   );
   
   // Singleton pattern
@@ -36,6 +36,16 @@ class RAWGService {
     double? metacriticMax,
   }) async {
     try {
+      // If no API key is available, use mock data immediately
+      if (_apiKey.isEmpty) {
+        final mockResults = _getMockGames().where((game) => 
+          game.title.toLowerCase().contains(query.toLowerCase()) ||
+          game.developer.toLowerCase().contains(query.toLowerCase()) ||
+          game.genres.any((genre) => genre.toLowerCase().contains(query.toLowerCase()))
+        ).take(limit).toList();
+        return mockResults;
+      }
+
       // Create a cache key based on search parameters
       final cacheKey = 'search_$query${genres?.join(',') ?? ''}_${platforms?.join(',') ?? ''}_${ordering ?? ''}_${metacriticMin ?? 0}_${metacriticMax ?? 100}';
       
@@ -132,6 +142,12 @@ class RAWGService {
   // Get popular games with caching and pagination
   Future<List<Game>> getPopularGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
+      // If no API key is available, use mock data immediately
+      if (_apiKey.isEmpty) {
+        final mockGames = _getMockGames().take(limit).toList();
+        return await _filterAdultContent(mockGames, includeAdultContent);
+      }
+
       // For page 1, try to get from cache first
       if (page == 1) {
         final cachedGames = await CacheService.getCachedGameList(CacheService.popularGamesKey);
@@ -201,6 +217,12 @@ class RAWGService {
   // Get trending games with caching and pagination
   Future<List<Game>> getTrendingGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
+      // If no API key is available, use mock data immediately
+      if (_apiKey.isEmpty) {
+        final mockGames = _getMockGames().take(limit).toList();
+        return await _filterAdultContent(mockGames, includeAdultContent);
+      }
+
       // For page 1, try to get from cache first
       if (page == 1) {
         final cachedGames = await CacheService.getCachedGameList(CacheService.trendingGamesKey);
@@ -277,6 +299,28 @@ class RAWGService {
   // Get game details by ID with caching
   Future<Game?> getGameDetails(String gameId) async {
     try {
+      // If no API key is available, return mock data
+      if (_apiKey.isEmpty) {
+        final mockGames = _getMockGames();
+        final game = mockGames.firstWhere(
+          (g) => g.id == gameId,
+          orElse: () => Game(
+            id: gameId,
+            title: 'Game Not Found',
+            developer: 'Unknown',
+            publisher: 'Unknown',
+            releaseDate: 'TBA',
+            platforms: [],
+            genres: [],
+            coverImage: '',
+            description: 'This game is not available in offline mode.',
+            averageRating: 0.0,
+            totalReviews: 0,
+          ),
+        );
+        return game;
+      }
+
       // Try to get from cache first
       final cachedGame = await CacheService.getCachedGame(gameId);
       if (cachedGame != null) {
@@ -336,6 +380,15 @@ class RAWGService {
   // Get games by genre with caching and pagination
   Future<List<Game>> getGamesByGenre(String genre, {int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     try {
+      // If no API key is available, use mock data immediately
+      if (_apiKey.isEmpty) {
+        final mockGames = _getMockGames();
+        final filteredGames = mockGames.where((game) => 
+          game.genres.any((g) => g.toLowerCase().contains(genre.toLowerCase()))
+        ).take(limit).toList();
+        return await _filterAdultContent(filteredGames, includeAdultContent);
+      }
+
       final cacheKey = 'genre_$genre';
       
       // For page 1, try to get from cache first
@@ -461,6 +514,12 @@ class RAWGService {
   // Get available genres from RAWG with caching
   Future<List<String>> getGenres() async {
     try {
+      // If no API key is available, return default genres
+      if (_apiKey.isEmpty) {
+        final defaultGenres = _getDefaultGenres();
+        return defaultGenres;
+      }
+
       // Try to get from cache first
       final cachedGenres = await CacheService.getCachedGenres();
       if (cachedGenres != null && cachedGenres.isNotEmpty) {
@@ -501,6 +560,12 @@ class RAWGService {
   // Get available platforms from RAWG with caching
   Future<List<Map<String, dynamic>>> getPlatforms() async {
     try {
+      // If no API key is available, return default platforms
+      if (_apiKey.isEmpty) {
+        final defaultPlatforms = _getDefaultPlatforms();
+        return defaultPlatforms;
+      }
+
       // Try to get from cache first
       final cachedPlatforms = await CacheService.getCachedPlatforms();
       if (cachedPlatforms != null && cachedPlatforms.isNotEmpty) {
@@ -671,6 +736,11 @@ class RAWGService {
   // Test API connection
   Future<bool> testConnection() async {
     try {
+      // If no API key is available, return false (offline mode)
+      if (_apiKey.isEmpty) {
+        return false;
+      }
+      
       final games = await searchGames('test', limit: 1);
       return games.isNotEmpty;
     } catch (e) {
@@ -694,6 +764,18 @@ class RAWGService {
     int limit = 20,
   }) async {
     try {
+      // If no API key is available, use filtered mock data
+      if (_apiKey.isEmpty) {
+        return _getFilteredMockGames(
+          query: query,
+          genre: genre,
+          platform: platform,
+          metacriticMin: metacriticMin,
+          metacriticMax: metacriticMax,
+          limit: limit,
+        );
+      }
+
       // Create a cache key based on all search parameters
       final cacheKey = 'advanced_search_${query}_${genre ?? 'all'}_${platform ?? 'all'}_${ordering ?? 'relevance'}_${metacriticMin ?? 0}_${metacriticMax ?? 100}_${releasedAfter ?? ''}_${releasedBefore ?? ''}';
       

@@ -37,21 +37,30 @@ GameLog prioritizes user security and data protection:
 - ✅ **No Local Password Storage**: Passwords never stored on devices
 - ✅ **Encrypted Data**: All communication uses HTTPS/TLS encryption
 - ✅ **Access Controls**: Firestore security rules protect user data
+- ✅ **No Hardcoded API Keys**: All external API keys via environment variables only
+- ✅ **Offline-First Design**: Full functionality without external dependencies
 - ✅ **Regular Updates**: Automatic security updates through GitHub releases
 
 See [SECURITY.md](SECURITY.md) for detailed security information.
 
 ## API Integration
 
-GameLog integrates with the **RAWG Video Games Database API** to provide:
-- Real game data and metadata
-- High-quality cover images
-- Accurate ratings and review counts
-- Developer/publisher information
-- Genre and platform data
-- Release dates and descriptions
+GameLog is designed with an **offline-first approach**:
 
-The app includes intelligent caching and fallback to mock data for offline functionality.
+- **Works Without API Keys**: Complete functionality using curated mock data
+- **Optional RAWG Integration**: Developers can optionally add RAWG API key for live data
+- **Intelligent Fallbacks**: Automatic fallback to mock data if API is unavailable
+- **Comprehensive Mock Data**: 23+ games covering all genres and platforms
+- **No Hardcoded Keys**: All API keys must be provided via environment variables
+
+See [API_CONFIGURATION.md](API_CONFIGURATION.md) for setup instructions.
+
+### Mock Data Features
+- Popular games from 2009-2026 (including upcoming titles)
+- Diverse genres: Action, RPG, Strategy, Horror, Indie, and more
+- Multiple platforms: PC, PlayStation, Xbox, Nintendo Switch, Mobile
+- Realistic ratings, reviews, and metadata
+- High-quality descriptions and game details
 
 ## Getting Started
 
