@@ -122,3 +122,17 @@ lib/
 - Photo sharing for gaming moments
 - Gaming lists and collections
 - Push notifications for new reviews
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+## Acknowledgments
+
+- [RAWG.io](https://rawg.io/) for providing the video game database API
+- [Firebase](https://firebase.google.com/) for authentication and database services
+- [Flutter](https://flutter.dev/) for the amazing cross-platform framework
