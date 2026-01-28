@@ -6,6 +6,7 @@ import '../services/user_data_service.dart';
 import '../services/rawg_service.dart';
 import '../services/library_service.dart';
 import '../services/friends_service.dart';
+import '../services/follow_service.dart';
 import '../models/game.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -27,6 +28,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isCurrentUser = false;
   FriendshipStatus _friendshipStatus = FriendshipStatus.none;
   bool _isLoadingAction = false;
+  bool _isFollowing = false;
+  bool _isLoadingFollow = false;
 
   @override
   void initState() {
@@ -119,8 +122,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         // Load friendship status if not current user
         if (!_isCurrentUser) {
           final friendshipStatus = await FriendsService.getFriendshipStatus(currentUser.uid, widget.userId);
+          final isFollowing = await FollowService.isFollowing(widget.userId);
           setState(() {
             _friendshipStatus = friendshipStatus;
+            _isFollowing = isFollowing;
           });
         }
       }
@@ -1041,6 +1046,31 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ),
             ],
           ),
+          if (!_isCurrentUser) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoadingFollow ? null : _toggleFollow,
+                icon: _isLoadingFollow
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Icon(_isFollowing ? Icons.person_remove : Icons.person_add),
+                label: Text(_isFollowing ? 'Unfollow' : 'Follow'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isFollowing ? Colors.grey[700] : const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1052,7 +1082,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         Text(
           count.toString(),
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: 18, // Reduced from 20
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -1067,5 +1097,46 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _toggleFollow() async {
+    setState(() => _isLoadingFollow = true);
+    
+    try {
+      if (_isFollowing) {
+        await FollowService.unfollowUser(widget.userId);
+        setState(() => _isFollowing = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unfollowed successfully'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        await FollowService.followUser(widget.userId);
+        setState(() => _isFollowing = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Following successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to ${_isFollowing ? 'unfollow' : 'follow'}: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoadingFollow = false);
+    }
   }
 }

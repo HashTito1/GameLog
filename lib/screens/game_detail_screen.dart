@@ -11,6 +11,7 @@ import '../services/library_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/user_data_service.dart';
+import '../services/follow_service.dart';
 import '../services/event_bus.dart';
 import 'game_ratings_screen.dart';
 
@@ -43,6 +44,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   
   // Library status
   String? _currentLibraryStatus;
+  
+  // Favorite status
+  bool _isFavorite = false;
+  bool _isUpdatingFavorite = false;
   
   // Rating form
   double _selectedRating = 0.0;
@@ -79,6 +84,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       // Load rating data using both new and old structures
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
+        // Check if this game is the user's favorite
+        await _loadFavoriteStatus();
+        
         // Get user's rating from the new structure
         final userRatings = await UserDataService.getUserRatings(currentUser.uid, limit: 1000);
         final userRating = userRatings.firstWhere(
@@ -291,9 +299,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         // Clear rating cache to ensure fresh data
         RatingService.clearAllCache();
 
-        // Reload rating data immediately to update community rating
-        debugPrint('🔄 Reloading game data...');
-        await _loadGameData();
+        // Instead of reloading all game data, just update the specific rating data
+        await _updateRatingDataOnly();
 
         // Update the game object with new community rating
         if (_game != null && _totalRatings > 0) {
@@ -318,6 +325,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           gameId: widget.gameId,
           rating: _selectedRating,
         ));
+
+        // Notify followers about the rating
+        await FollowService.notifyFollowersOfRating(
+          userId: currentUser.uid,
+          gameId: widget.gameId,
+          gameTitle: _game!.title,
+          rating: _selectedRating,
+          review: _reviewController.text.trim().isEmpty ? null : _reviewController.text.trim(),
+        );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -397,6 +413,174 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _loadFavoriteStatus() async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        final userProfile = await UserDataService.getUserProfile(currentUser.uid);
+        final favoriteGame = userProfile?['favoriteGame'] as Map<String, dynamic>?;
+        
+        if (mounted) {
+          setState(() {
+            _isFavorite = favoriteGame?['gameId'] == widget.gameId;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading favorite status: $e');
+    }
+  }
+
+  Future<void> _updateRatingDataOnly() async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        // Get user's rating from the new structure
+        final userRatings = await UserDataService.getUserRatings(currentUser.uid, limit: 1000);
+        final userRating = userRatings.firstWhere(
+          (rating) => rating['gameId'] == widget.gameId,
+          orElse: () => <String, dynamic>{},
+        );
+        
+        // Get ALL ratings for this game from both old and new structures
+        final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
+        final newGameRatings = await _getAllRatingsForGame(widget.gameId);
+        
+        // Combine and deduplicate ratings
+        final Map<String, UserRating> allRatingsMap = {};
+        
+        // Add old ratings
+        for (final rating in oldGameRatings) {
+          allRatingsMap[rating.userId] = rating;
+        }
+        
+        // Add new ratings (will override old ones if same user)
+        for (final rating in newGameRatings) {
+          allRatingsMap[rating.userId] = rating;
+        }
+        
+        final gameRatings = allRatingsMap.values.toList();
+        gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        
+        // Load user profiles for ratings (limit to avoid performance issues)
+        final Map<String, Map<String, dynamic>> profiles = {};
+        for (final rating in gameRatings.take(10)) { // Only load profiles for first 10 ratings
+          if (!profiles.containsKey(rating.userId)) {
+            final profile = await UserDataService.getUserProfile(rating.userId);
+            if (profile != null) {
+              profiles[rating.userId] = profile;
+            }
+          }
+        }
+        
+        if (mounted) {
+          setState(() {
+            // Convert user rating data to UserRating object if it exists
+            if (userRating.isNotEmpty) {
+              _userRating = UserRating(
+                id: userRating['id'] ?? '',
+                gameId: userRating['gameId'] ?? widget.gameId,
+                userId: userRating['userId'] ?? currentUser.uid,
+                username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
+                rating: (userRating['rating'] ?? 0.0).toDouble(),
+                review: userRating['review'],
+                createdAt: userRating['createdAt'] != null 
+                    ? (userRating['createdAt'] is Timestamp 
+                        ? (userRating['createdAt'] as Timestamp).toDate()
+                        : DateTime.fromMillisecondsSinceEpoch(userRating['createdAt']))
+                    : DateTime.now(),
+                updatedAt: userRating['updatedAt'] != null 
+                    ? (userRating['updatedAt'] is Timestamp 
+                        ? (userRating['updatedAt'] as Timestamp).toDate()
+                        : DateTime.fromMillisecondsSinceEpoch(userRating['updatedAt']))
+                    : DateTime.now(),
+              );
+            } else {
+              _userRating = null;
+            }
+            
+            _gameRatings = gameRatings;
+            _ratingUserProfiles = profiles;
+            _averageRating = gameRatings.isEmpty 
+                ? 0.0 
+                : gameRatings.map((r) => r.rating).reduce((a, b) => a + b) / gameRatings.length;
+            _totalRatings = gameRatings.length;
+            
+            if (_userRating != null) {
+              _selectedRating = _userRating!.rating;
+              _reviewController.text = _userRating!.review ?? '';
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating rating data: $e');
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_isUpdatingFavorite) return;
+    
+    setState(() => _isUpdatingFavorite = true);
+
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null && _game != null) {
+        if (_isFavorite) {
+          // Remove from favorites by setting favoriteGame to null
+          await UserDataService.saveUserProfile(currentUser.uid, {
+            'favoriteGame': null,
+          });
+          
+          setState(() => _isFavorite = false);
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${_game!.title} removed from favorites'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        } else {
+          // Add to favorites
+          await UserDataService.saveUserProfile(currentUser.uid, {
+            'favoriteGame': {
+              'gameId': _game!.id,
+              'gameName': _game!.title,
+              'gameImage': _game!.coverImage,
+              'updatedAt': DateTime.now().millisecondsSinceEpoch,
+            },
+          });
+          
+          setState(() => _isFavorite = true);
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${_game!.title} added to favorites!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update favorite: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingFavorite = false);
       }
     }
   }
@@ -558,6 +742,26 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
         onPressed: () => Navigator.of(context).pop(),
       ),
+      actions: [
+        // Favorite star button
+        IconButton(
+          onPressed: _isUpdatingFavorite ? null : _toggleFavorite,
+          icon: _isUpdatingFavorite
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Icon(
+                  _isFavorite ? Icons.star : Icons.star_border,
+                  color: _isFavorite ? const Color(0xFFFBBF24) : Colors.white,
+                  size: 28,
+                ),
+        ),
+      ],
     );
   }
 
@@ -568,7 +772,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         Text(
           _game?.title ?? 'Loading...',
           style: const TextStyle(
-            fontSize: 24, // Reduced from 28
+            fontSize: 22, // Reduced from 24
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -1076,7 +1280,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 Text(
                   _averageRating.toStringAsFixed(1),
                   style: const TextStyle(
-                    fontSize: 28, // Reduced from 32
+                    fontSize: 24, // Reduced from 28
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),

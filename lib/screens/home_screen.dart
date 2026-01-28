@@ -99,8 +99,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         includeAdultContent: includeAdultContent,
       );
       
-      // Create featured games from trending (first 3)
-      final featuredGames = trendingGames.take(3).toList();
+      // Create featured games from trending and popular (first 6)
+      final featuredGames = [
+        ...trendingGames.take(3).toList(),
+        ...popularGames.take(3).toList(),
+      ];
       
       setState(() {
         _trendingGames = trendingGames;
@@ -245,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         Text(
                           _userName,
                           style: const TextStyle(
-                            fontSize: 24,
+                            fontSize: 20, // Reduced from 24
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -452,14 +455,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               const Text(
                 'Featured Games',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 18, // Reduced from 20
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
               const SizedBox(height: 12),
               SizedBox(
-                height: 160,
+                height: 180, // Increased from 160
                 child: PageView.builder(
                   controller: PageController(viewportFraction: 0.82),
                   itemCount: _featuredGames.length,
@@ -625,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               const Text(
                 'Quick Actions',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 18, // Reduced from 20
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
@@ -785,15 +788,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(
             children: [
               _buildModernGameSection('Trending Now', _trendingGames, 'trending'),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20), // Reduced from 24
               _buildModernGameSection('Popular Games', _popularGames, 'popular'),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20), // Reduced from 24
               _buildModernGameSection('Action Games', _actionGames, 'action'),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20), // Reduced from 24
               _buildModernGameSection('RPG Games', _rpgGames, 'rpg'),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20), // Reduced from 24
               _buildModernGameSection('Indie Games', _indieGames, 'indie'),
-              const SizedBox(height: 80), // Bottom padding
+              const SizedBox(height: 60), // Reduced from 80
             ],
           ),
         ),
@@ -813,7 +816,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 20,
+                  fontSize: 18, // Reduced from 20
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),

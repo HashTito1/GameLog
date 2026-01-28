@@ -21,10 +21,10 @@ class LibraryService {
     String status = 'rated',
   }) async {
     try {
-      final libraryEntryId = '$userId${game.id}';
+      final libraryEntryId = '${userId}_${game.id}';
       final now = DateTime.now();
       
-                  final libraryEntry = {
+      final libraryEntry = {
         'id': libraryEntryId,
         'userId': userId,
         'gameId': game.id,
@@ -41,23 +41,36 @@ class LibraryService {
         'dateUpdated': now.millisecondsSinceEpoch,
       };
 
-                        await _firestore
+      // Save to both old and new structure for compatibility
+      await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
           .set(libraryEntry, SetOptions(merge: true));
       
-            // Verify the game was added
+      // Also save to new structure (user's library subcollection)
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('library')
+          .doc(game.id)
+          .set(libraryEntry, SetOptions(merge: true));
+      
+      // Verify the game was added
       final savedDoc = await _firestore
-          .collection(_libraryCollection)
-          .doc(libraryEntryId)
+          .collection('users')
+          .doc(userId)
+          .collection('library')
+          .doc(game.id)
           .get();
       
       if (savedDoc.exists) {
-        } else {
-                throw Exception('Library entry was not saved properly');
+        debugPrint('Game ${game.title} added to library successfully');
+      } else {
+        throw Exception('Library entry was not saved properly');
       }
       
     } catch (e) {
+      debugPrint('Error adding game to library: $e');
       throw Exception('Failed to add game to library: $e');
     }
   }
@@ -65,6 +78,8 @@ class LibraryService {
   // Get user's library (updated to use new data structure)
   Future<List<Map<String, dynamic>>> getUserLibrary(String userId, {int limit = 50}) async {
     try {
+      debugPrint('🔍 Loading library for user: $userId');
+      
       // Get data from user's library subcollection (new structure)
       final librarySnapshot = await _firestore
           .collection('users')
@@ -74,6 +89,25 @@ class LibraryService {
           .limit(limit)
           .get();
 
+      debugPrint('📚 Found ${librarySnapshot.docs.length} games in new library structure');
+
+      // If no games in new structure, try old structure
+      List<Map<String, dynamic>> libraryGames = [];
+      if (librarySnapshot.docs.isEmpty) {
+        debugPrint('🔍 Checking old library structure...');
+        final oldLibrarySnapshot = await _firestore
+            .collection(_libraryCollection)
+            .where('userId', isEqualTo: userId)
+            .orderBy('dateUpdated', descending: true)
+            .limit(limit)
+            .get();
+        
+        debugPrint('📚 Found ${oldLibrarySnapshot.docs.length} games in old library structure');
+        libraryGames = oldLibrarySnapshot.docs.map((doc) => doc.data()).toList();
+      } else {
+        libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
+      }
+
       // Get ratings to merge with library data
       final ratingsSnapshot = await _firestore
           .collection('users')
@@ -81,7 +115,8 @@ class LibraryService {
           .collection('ratings')
           .get();
 
-      final libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
+      debugPrint('⭐ Found ${ratingsSnapshot.docs.length} ratings');
+
       final ratingsMap = <String, Map<String, dynamic>>{};
       
       // Create a map of ratings by gameId
@@ -122,31 +157,27 @@ class LibraryService {
             'gameId': gameId,
             'gameTitle': rating['gameTitle'] ?? 'Unknown Game',
             'gameCoverImage': '',
-            'gameDeveloper': 'Unknown Developer',
+            'gameDeveloper': '',
             'gameReleaseDate': '',
             'gameGenres': <String>[],
             'gamePlatforms': <String>[],
             'userRating': rating['rating'] ?? 0.0,
             'userReview': rating['review'],
             'status': 'rated',
-            'dateAdded': rating['lastModified'] ?? DateTime.now().millisecondsSinceEpoch,
-            'dateUpdated': rating['lastModified'] ?? DateTime.now().millisecondsSinceEpoch,
+            'dateAdded': rating['createdAt'] is Timestamp 
+                ? (rating['createdAt'] as Timestamp).millisecondsSinceEpoch
+                : (rating['createdAt'] ?? DateTime.now().millisecondsSinceEpoch),
+            'dateUpdated': rating['updatedAt'] is Timestamp 
+                ? (rating['updatedAt'] as Timestamp).millisecondsSinceEpoch
+                : (rating['updatedAt'] ?? DateTime.now().millisecondsSinceEpoch),
           });
         }
       }
       
-      // Sort by dateUpdated
-      mergedGames.sort((a, b) {
-        final aDate = a['dateUpdated'] ?? 0;
-        final bDate = b['dateUpdated'] ?? 0;
-        return bDate.compareTo(aDate);
-      });
-      
-      debugPrint('Loaded ${mergedGames.length} games from user library (${libraryGames.length} library + ${ratingsMap.length} ratings)');
-      
-      return mergedGames.take(limit).toList();
+      debugPrint('✅ Returning ${mergedGames.length} total games (library + ratings)');
+      return mergedGames;
     } catch (e) {
-      debugPrint('Error loading user library: $e');
+      debugPrint('❌ Error getting user library: $e');
       return [];
     }
   }
@@ -154,7 +185,7 @@ class LibraryService {
   // Check if game is in user's library
   Future<bool> isGameInLibrary(String userId, String gameId) async {
     try {
-      final libraryEntryId = '$userId$gameId';
+      final libraryEntryId = '${userId}_$gameId';
       final doc = await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
@@ -162,7 +193,7 @@ class LibraryService {
 
       return doc.exists;
     } catch (e) {
-      print('Error checking if game is in library: $e');
+      debugPrint('Error checking if game is in library: $e');
       return false;
     }
   }
@@ -170,7 +201,7 @@ class LibraryService {
   // Get game data from user's library
   Future<Map<String, dynamic>?> getGameFromLibrary(String userId, String gameId) async {
     try {
-      final libraryEntryId = '$userId$gameId';
+      final libraryEntryId = '${userId}_$gameId';
       final doc = await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
@@ -195,10 +226,10 @@ class LibraryService {
     String? status,
   }) async {
     try {
-      final libraryEntryId = '$userId$gameId';
+      final libraryEntryId = '${userId}_$gameId';
       final now = DateTime.now();
       
-                  final updateData = <String, dynamic>{
+      final updateData = <String, dynamic>{
         'userRating': rating,
         'dateUpdated': now.millisecondsSinceEpoch,
       };
@@ -211,20 +242,21 @@ class LibraryService {
         updateData['status'] = status;
       }
 
-            await _firestore
+      await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
           .update(updateData);
       
-            // Verify the update
+      // Verify the update
       final updatedDoc = await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
           .get();
       
       if (updatedDoc.exists) {
-        } else {
-                throw Exception('Library entry not found for update');
+        debugPrint('Game updated in library successfully');
+      } else {
+        throw Exception('Library entry not found for update');
       }
       
     } catch (e) {
@@ -318,10 +350,10 @@ class LibraryService {
     required Game game,
   }) async {
     try {
-      final libraryEntryId = '$userId${game.id}';
+      final libraryEntryId = '${userId}_${game.id}';
       final now = DateTime.now();
       
-            final libraryEntry = {
+      final libraryEntry = {
         'id': libraryEntryId,
         'userId': userId,
         'gameId': game.id,
@@ -343,15 +375,17 @@ class LibraryService {
           .doc(libraryEntryId)
           .set(libraryEntry, SetOptions(merge: true));
       
-            // Verify the game was added
+      // Verify the game was added
       final savedDoc = await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
           .get();
       
       if (savedDoc.exists) {
-              } else {
-              }
+        debugPrint('Game ${game.title} added to backlog successfully');
+      } else {
+        throw Exception('Backlog entry was not saved properly');
+      }
       
     } catch (e) {
       throw Exception('Failed to add game to backlog: $e');
@@ -361,7 +395,7 @@ class LibraryService {
   // Remove game from library
   Future<void> removeGameFromLibrary(String userId, String gameId) async {
     try {
-      final libraryEntryId = '$userId$gameId';
+      final libraryEntryId = '${userId}_$gameId';
       await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)

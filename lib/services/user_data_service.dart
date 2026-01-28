@@ -1128,6 +1128,48 @@ class UserDataService {
       return [];
     }
   }
+
+  // Update username while preserving user ID
+  static Future<bool> updateUsername(String userId, String newUsername) async {
+    try {
+      // Validate username format
+      if (newUsername.isEmpty || newUsername.length < 3) {
+        throw Exception('Username must be at least 3 characters long');
+      }
+      
+      // Check if username contains only allowed characters
+      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(newUsername)) {
+        throw Exception('Username can only contain letters, numbers, and underscores');
+      }
+      
+      // Check if username is already taken by another user
+      final existingUsers = await _firestore
+          .collection(_usersCollection)
+          .where('username', isEqualTo: newUsername.toLowerCase())
+          .get();
+      
+      // If username exists and belongs to a different user, it's taken
+      if (existingUsers.docs.isNotEmpty && existingUsers.docs.first.id != userId) {
+        throw Exception('Username is already taken');
+      }
+      
+      // Update the username
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .update({
+        'username': newUsername.toLowerCase(),
+        'displayName': newUsername, // Also update display name to match
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('Username updated successfully for user: $userId');
+      return true;
+    } catch (e) {
+      debugPrint('Error updating username: $e');
+      throw Exception('Failed to update username: $e');
+    }
+  }
 }
 
 

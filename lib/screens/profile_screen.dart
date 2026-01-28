@@ -522,6 +522,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 20),
                 _buildMenuOption(
+                  'Change Username',
+                  Icons.edit,
+                  () {
+                    Navigator.pop(context);
+                    _showChangeUsernameDialog();
+                  },
+                ),
+                _buildMenuOption(
                   'Change Profile Picture',
                   Icons.photo_camera,
                   () {
@@ -674,6 +682,136 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to create playlist: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _showChangeUsernameDialog() async {
+    final usernameController = TextEditingController();
+    final currentUser = FirebaseAuthService.instance.currentUser;
+    
+    if (currentUser == null) return;
+    
+    // Pre-fill with current username
+    final currentUsername = _userData?['username'] ?? '';
+    usernameController.text = currentUsername;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F2937),
+          title: const Text(
+            'Change Username',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Your user ID will remain the same. Only your username will change.',
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: usernameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'New Username',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  hintText: 'Enter new username',
+                  hintStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                  ),
+                  helperText: 'Letters, numbers, and underscores only. Min 3 characters.',
+                  helperStyle: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+                maxLength: 20,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                final newUsername = usernameController.text.trim();
+                if (newUsername.isNotEmpty && newUsername != currentUsername) {
+                  Navigator.pop(context, newUsername);
+                }
+              },
+              child: const Text(
+                'Update',
+                style: TextStyle(color: Color(0xFF6366F1)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null) {
+      try {
+        // Show loading indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Updating username...'),
+                ],
+              ),
+              backgroundColor: Color(0xFF6366F1),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // Update username
+        await UserDataService.updateUsername(currentUser.uid, result);
+        
+        // Update local state instead of reloading all data
+        if (mounted) {
+          setState(() {
+            if (_userData != null) {
+              _userData!['username'] = result.toLowerCase();
+              _userData!['displayName'] = result;
+            }
+          });
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Username updated to "$result" successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to update username: ${e.toString().replaceAll('Exception: ', '')}'),
               backgroundColor: Colors.red,
             ),
           );
@@ -958,7 +1096,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Text(
                     displayName,
                     style: const TextStyle(
-                      fontSize: 24,
+                      fontSize: 22, // Reduced from 24
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                       shadows: [
@@ -1028,7 +1166,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Text(
           displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
           style: const TextStyle(
-            fontSize: 48,
+            fontSize: 42, // Reduced from 48
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -1080,7 +1218,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Text(
           value,
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: 18, // Reduced from 20
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -1789,7 +1927,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Text(
           count.toString(),
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: 18, // Reduced from 20
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
