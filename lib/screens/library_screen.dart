@@ -245,13 +245,15 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final user = FirebaseAuthService().currentUser;
     if (user == null) return [];
     
-    return await UserDataService.getUserPlaylistsWithGames(user.id);
+    // In library screen, user is always viewing their own playlists, so show all
+    return await UserDataService.getUserPlaylistsWithGamesFiltered(user.id, currentUserId: user.id);
   }
 
   Future<void> _showCreatePlaylistDialog() async {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
     bool isCreating = false;
+    bool isPublic = false;
 
     showDialog(
       context: context,
@@ -301,6 +303,57 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF374151),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF4B5563)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isPublic ? Icons.public : Icons.lock,
+                      color: isPublic ? const Color(0xFF10B981) : Colors.grey,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isPublic ? 'Public Playlist' : 'Private Playlist',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Text(
+                            isPublic 
+                                ? 'Others can see this playlist on your profile'
+                                : 'Only you can see this playlist',
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: isPublic,
+                      onChanged: (value) {
+                        setDialogState(() {
+                          isPublic = value;
+                        });
+                      },
+                      activeColor: const Color(0xFF10B981),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           actions: [
@@ -326,6 +379,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   await _createPlaylist(
                     nameController.text.trim(),
                     descriptionController.text.trim(),
+                    isPublic,
                   );
                   
                   if (mounted) {
@@ -372,7 +426,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  Future<void> _createPlaylist(String name, String description) async {
+  Future<void> _createPlaylist(String name, String description, bool isPublic) async {
     final user = FirebaseAuthService().currentUser;
     if (user == null) throw Exception('User not logged in');
 
@@ -381,7 +435,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       playlistName: name,
       description: description,
       gameIds: [], // Empty playlist initially
-      isPublic: false,
+      isPublic: isPublic,
     );
   }
 
@@ -936,6 +990,159 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
+  void _showGameOptions(Map<String, dynamic> gameData) {
+    final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(
+                  Icons.videogame_asset,
+                  color: const Color(0xFF6366F1),
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    gameTitle,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(
+                Icons.delete,
+                color: Colors.red,
+              ),
+              title: const Text(
+                'Remove from Library',
+                style: TextStyle(color: Colors.white),
+              ),
+              subtitle: const Text(
+                'This will remove the game and its rating from your library',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _showRemoveConfirmation(gameData);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRemoveConfirmation(Map<String, dynamic> gameData) {
+    final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
+    final gameId = gameData['gameId'] ?? '';
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1F2937),
+        title: const Text(
+          'Remove Game',
+          style: TextStyle(color: Colors.white, fontSize: 18),
+        ),
+        content: Text(
+          'Are you sure you want to remove "$gameTitle" from your library? This will also delete your rating and review.',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              
+              try {
+                final user = FirebaseAuthService().currentUser;
+                if (user != null && gameId.isNotEmpty) {
+                  debugPrint('🗑️ Attempting to remove game: $gameId for user: ${user.id}');
+                  
+                  await LibraryService.instance.removeGameFromLibrary(user.id, gameId);
+                  
+                  debugPrint('✅ Game removed successfully from database');
+                  
+                  if (mounted) {
+                    // Remove the game from local list immediately for better UX
+                    setState(() {
+                      _libraryGames.removeWhere((game) => game['gameId'] == gameId);
+                    });
+                    
+                    // Notify other parts of the app that library was updated
+                    EventBus().fire(LibraryUpdatedEvent(userId: user.id));
+                    
+                    // Use a post-frame callback to ensure the widget is still mounted
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$gameTitle removed from library'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                    });
+                    
+                    // Refresh the library to ensure consistency
+                    _loadLibrary();
+                  }
+                }
+              } catch (e) {
+                debugPrint('❌ Error removing game: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to remove game: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyPlaylistsState() {
     return Center(
       child: Column(
@@ -1060,7 +1267,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             if (_selectedFilter == GameStatus.backlog) {
               return statusStr == 'backlog';
             } else if (_selectedFilter == GameStatus.completed) {
-              return statusStr == 'completed';
+              // Show games that are explicitly completed OR have a rating (rated games are considered completed)
+              return statusStr == 'completed' || userRating > 0;
             } else if (_selectedFilter == GameStatus.rated) {
               // Show ALL games that have a rating > 0, regardless of status
               final hasRating = userRating > 0;
@@ -1070,7 +1278,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             } else if (_selectedFilter == GameStatus.dropped) {
               return statusStr == 'dropped';
             } else if (_selectedFilter == GameStatus.planToPlay) {
-              return statusStr == 'planToPlay';
+              // Handle both 'want_to_play' (from game detail screen) and 'planToPlay' (enum name)
+              // BUT exclude games that have been rated (rated games are considered completed)
+              return (statusStr == 'want_to_play' || statusStr == 'planToPlay') && userRating == 0;
             }
             // Match stored status string with enum name
             return statusStr == _selectedFilter!.name;
@@ -1115,6 +1325,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           );
         }
       },
+      onLongPress: () => _showGameOptions(gameData),
       child: Container(
         margin: EdgeInsets.only(bottom: 12),
         padding: EdgeInsets.all(12),
@@ -1256,7 +1467,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                               color: Colors.white,
                             ),
                           ),
-                          if (status == 'completed') ...[
+                          if (status == 'completed' || userRating > 0) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1328,6 +1539,28 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 ],
               ),
             ),
+            // Add remove button
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
+              color: const Color(0xFF374151),
+              onSelected: (value) {
+                if (value == 'remove') {
+                  _showRemoveConfirmation(gameData);
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'remove',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: Colors.red, size: 16),
+                      SizedBox(width: 8),
+                      Text('Remove from Library', style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1344,7 +1577,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     if (_selectedFilter == GameStatus.backlog) {
       return statusStr == 'backlog';
     } else if (_selectedFilter == GameStatus.completed) {
-      return statusStr == 'completed';
+      // Show games that are explicitly completed OR have a rating (rated games are considered completed)
+      return statusStr == 'completed' || userRating > 0;
     } else if (_selectedFilter == GameStatus.rated) {
       return userRating > 0;
     } else if (_selectedFilter == GameStatus.playing) {
@@ -1352,7 +1586,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     } else if (_selectedFilter == GameStatus.dropped) {
       return statusStr == 'dropped';
     } else if (_selectedFilter == GameStatus.planToPlay) {
-      return statusStr == 'planToPlay';
+      // Handle both 'want_to_play' (from game detail screen) and 'planToPlay' (enum name)
+      // BUT exclude games that have been rated (rated games are considered completed)
+      return (statusStr == 'want_to_play' || statusStr == 'planToPlay') && userRating == 0;
     }
     
     return statusStr == _selectedFilter!.name;

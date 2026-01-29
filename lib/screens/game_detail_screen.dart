@@ -54,18 +54,51 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   final TextEditingController _reviewController = TextEditingController();
   bool _isSubmittingRating = false;
   bool _isDescriptionExpanded = false;
+  
+  // Event subscriptions
+  StreamSubscription<LibraryUpdatedEvent>? _libraryUpdateSubscription;
 
   @override
   void initState() {
     super.initState();
     _game = widget.initialGame;
     _loadGameData();
+    _setupEventListeners();
   }
 
   @override
   void dispose() {
     _reviewController.dispose();
+    _libraryUpdateSubscription?.cancel();
     super.dispose();
+  }
+
+  void _setupEventListeners() {
+    _libraryUpdateSubscription = EventBus().on<LibraryUpdatedEvent>().listen((event) {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null && event.userId == currentUser.uid) {
+        // Reload library status when library is updated
+        _loadLibraryStatus();
+      }
+    });
+  }
+
+  Future<void> _loadLibraryStatus() async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        final libraryEntry = await LibraryService.instance.getGameFromLibrary(currentUser.uid, widget.gameId);
+        final currentStatus = libraryEntry?['status'] as String?;
+        
+        if (mounted) {
+          setState(() {
+            _currentLibraryStatus = currentStatus;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading library status: $e');
+    }
   }
 
   Future<void> _loadGameData() async {

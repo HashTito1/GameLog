@@ -676,6 +676,31 @@ class UserDataService {
     }
   }
 
+  /// Get user's playlists with privacy filtering
+  static Future<List<Map<String, dynamic>>> getUserPlaylistsFiltered(String userId, {String? currentUserId}) async {
+    try {
+      final playlistsSnapshot = await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .collection('playlists')
+          .orderBy('updatedAt', descending: true)
+          .get();
+
+      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
+      
+      // If viewing own profile, show all playlists
+      if (currentUserId == userId) {
+        return allPlaylists;
+      }
+      
+      // If viewing someone else's profile, only show public playlists
+      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+    } catch (e) {
+      debugPrint('Error getting user playlists: $e');
+      return [];
+    }
+  }
+
   // Save user profile
   static Future<void> saveUserProfile(String userId, Map<String, dynamic> profileData) async {
     try {
@@ -879,6 +904,49 @@ class UserDataService {
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];
+    }
+  }
+
+  /// Get user's playlists with full game details and privacy filtering
+  static Future<List<Map<String, dynamic>>> getUserPlaylistsWithGamesFiltered(String userId, {String? currentUserId}) async {
+    try {
+      final playlistsSnapshot = await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .collection('playlists')
+          .orderBy('updatedAt', descending: true)
+          .get();
+
+      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
+      
+      // If viewing own profile, show all playlists
+      if (currentUserId == userId) {
+        return allPlaylists;
+      }
+      
+      // If viewing someone else's profile, only show public playlists
+      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+    } catch (e) {
+      debugPrint('Error getting user playlists: $e');
+      return [];
+    }
+  }
+
+  /// Update playlist privacy setting
+  static Future<void> updatePlaylistPrivacy(String userId, String playlistId, bool isPublic) async {
+    try {
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .collection('playlists')
+          .doc(playlistId)
+          .update({
+        'isPublic': isPublic,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      debugPrint('Error updating playlist privacy: $e');
+      throw Exception('Failed to update playlist privacy: $e');
     }
   }
 

@@ -683,78 +683,133 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _createPlaylist() async {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
+    bool isPublic = false;
 
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: const Text(
-            'Create Playlist',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'Playlist Name',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  hintText: 'Enter playlist name',
-                  hintStyle: TextStyle(color: Colors.grey),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            backgroundColor: const Color(0xFF1F2937),
+            title: const Text(
+              'Create Playlist',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Playlist Name',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    hintText: 'Enter playlist name',
+                    hintStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  style: const TextStyle(color: Colors.white),
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (Optional)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    hintText: 'Enter playlist description',
+                    hintStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF374151),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF4B5563)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isPublic ? Icons.public : Icons.lock,
+                        color: isPublic ? const Color(0xFF10B981) : Colors.grey,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isPublic ? 'Public Playlist' : 'Private Playlist',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              isPublic 
+                                  ? 'Others can see this playlist on your profile'
+                                  : 'Only you can see this playlist',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: isPublic,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            isPublic = value;
+                          });
+                        },
+                        activeColor: const Color(0xFF10B981),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Description (Optional)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  hintText: 'Enter playlist description',
-                  hintStyle: TextStyle(color: Colors.grey),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
+              TextButton(
+                onPressed: () {
+                  if (nameController.text.trim().isNotEmpty) {
+                    Navigator.pop(context, {
+                      'name': nameController.text.trim(),
+                      'description': descriptionController.text.trim(),
+                      'isPublic': isPublic,
+                    });
+                  }
+                },
+                child: const Text(
+                  'Create',
+                  style: TextStyle(color: Color(0xFF6366F1)),
                 ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                if (nameController.text.trim().isNotEmpty) {
-                  Navigator.pop(context, {
-                    'name': nameController.text.trim(),
-                    'description': descriptionController.text.trim(),
-                  });
-                }
-              },
-              child: const Text(
-                'Create',
-                style: TextStyle(color: Color(0xFF6366F1)),
-              ),
-            ),
-          ],
         );
       },
     );
@@ -768,7 +823,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             playlistName: result['name']!,
             description: result['description'] ?? '',
             gameIds: [], // Empty playlist initially
-            isPublic: false,
+            isPublic: result['isPublic'] ?? false,
           );
           
           // Reload data to show new playlist
