@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'rawg_service.dart';
+import 'igdb_service.dart';
 
 class UserDataService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -732,7 +732,7 @@ class UserDataService {
       final List<Map<String, dynamic>> games = [];
       for (final gameId in gameIds) {
         try {
-          final game = await RAWGService.instance.getGameDetails(gameId);
+          final game = await IGDBService.instance.getGameDetails(gameId);
           if (game != null) {
             games.add({
               'gameId': gameId,

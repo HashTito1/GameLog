@@ -6,6 +6,7 @@ import '../models/game.dart';
 import '../services/library_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
+import '../services/igdb_service.dart';
 import '../services/event_bus.dart';
 import 'game_detail_screen.dart';
 
@@ -112,18 +113,21 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
-            if (_libraryStats.isNotEmpty) _buildStats(),
-            _buildTabBar(),
+            _buildHeader(theme),
+            if (_libraryStats.isNotEmpty) _buildStats(theme),
+            _buildTabBar(theme),
             Expanded(
               child: _isLoading
-                  ? const Center(
+                  ? Center(
                       child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF6366F1)),
+                        valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
                       ),
                     )
                   : _buildTabContent(),
@@ -134,17 +138,17 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(ThemeData theme) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: const Row(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
         children: [
-          const Text(
+          Text(
             'My Library',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ],
@@ -152,28 +156,28 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(ThemeData theme) {
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
       ),
       child: TabBar(
         controller: _tabController,
         indicator: BoxDecoration(
-          color: const Color(0xFF6366F1),
+          color: theme.colorScheme.primary,
           borderRadius: BorderRadius.circular(6),
         ),
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: Colors.transparent,
         labelColor: Colors.white,
-        unselectedLabelColor: Colors.grey,
-        labelStyle: TextStyle(
+        unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        labelStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        unselectedLabelStyle: TextStyle(
+        unselectedLabelStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.normal,
         ),
@@ -349,7 +353,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                           isPublic = value;
                         });
                       },
-                      activeColor: const Color(0xFF10B981),
+                      activeThumbColor: const Color(0xFF10B981),
+                      activeTrackColor: const Color(0xFF10B981).withValues(alpha: 0.3),
                     ),
                   ],
                 ),
@@ -473,8 +478,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.playlist_play,
-                    color: Color(0xFF6366F1),
+                  child: Icon(
+                    _getPlaylistIcon(playlist),
+                    color: const Color(0xFF6366F1),
                     size: 20,
                   ),
                 ),
@@ -483,12 +489,24 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(playlist['name'] ?? 'Unnamed Playlist',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(playlist['name'] ?? 'Unnamed Playlist',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            playlist['isPublic'] == true ? Icons.public : Icons.lock,
+                            size: 14,
+                            color: playlist['isPublic'] == true ? const Color(0xFF10B981) : Colors.grey,
+                          ),
+                        ],
                       ),
                       if ((playlist['description'] ?? '').isNotEmpty) ...[
                         const SizedBox(height: 4),
@@ -524,6 +542,12 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   color: const Color(0xFF374151),
                   onSelected: (value) {
                     switch (value) {
+                      case 'add_games':
+                        _showAddGamesToPlaylistDialog(playlist);
+                        break;
+                      case 'toggle_privacy':
+                        _togglePlaylistPrivacy(playlist);
+                        break;
                       case 'edit':
                         _showEditPlaylistDialog(playlist);
                         break;
@@ -533,6 +557,33 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     }
                   },
                   itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'add_games',
+                      child: Row(
+                        children: [
+                          Icon(Icons.add, color: Color(0xFF10B981), size: 16),
+                          SizedBox(width: 8),
+                          Text('Add Games', style: TextStyle(color: Colors.white)),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'toggle_privacy',
+                      child: Row(
+                        children: [
+                          Icon(
+                            playlist['isPublic'] == true ? Icons.lock : Icons.public,
+                            color: Color(0xFF6366F1),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            playlist['isPublic'] == true ? 'Make Private' : 'Make Public',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
                     const PopupMenuItem(
                       value: 'edit',
                       child: Row(
@@ -1143,6 +1194,310 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
+  Future<void> _showAddGamesToPlaylistDialog(Map<String, dynamic> playlist) async {
+    final searchController = TextEditingController();
+    List<Game> searchResults = [];
+    bool isSearching = false;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1F2937),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.add, color: Color(0xFF10B981), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Add Games to "${playlist['name']}"',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.6,
+            child: Column(
+              children: [
+                // Search field
+                TextField(
+                  controller: searchController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search for games...',
+                    hintStyle: const TextStyle(color: Colors.grey),
+                    prefixIcon: const Icon(Icons.search, color: Color(0xFF6366F1)),
+                    suffixIcon: isSearching
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                            ),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: const Color(0xFF374151),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (query) async {
+                    if (query.trim().isEmpty) {
+                      setDialogState(() {
+                        searchResults = [];
+                        isSearching = false;
+                      });
+                      return;
+                    }
+                    
+                    setDialogState(() => isSearching = true);
+                    
+                    try {
+                      final results = await IGDBService.instance.searchGames(query.trim());
+                      setDialogState(() {
+                        searchResults = results;
+                        isSearching = false;
+                      });
+                    } catch (e) {
+                      setDialogState(() => isSearching = false);
+                    }
+                  },
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Search results
+                Expanded(
+                  child: searchResults.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.search,
+                                size: 48,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                searchController.text.isEmpty
+                                    ? 'Search for games to add to your playlist'
+                                    : 'No games found',
+                                style: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 14,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: searchResults.length,
+                          itemBuilder: (context, index) {
+                            final game = searchResults[index];
+                            final isAlreadyInPlaylist = (playlist['games'] as List?)
+                                ?.any((g) => g['gameId'] == game.id) ?? false;
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: game.coverImage.isNotEmpty
+                                      ? Image.network(
+                                          game.coverImage,
+                                          width: 50,
+                                          height: 70,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              Container(
+                                            width: 50,
+                                            height: 70,
+                                            color: Colors.grey[700],
+                                            child: const Icon(
+                                              Icons.videogame_asset,
+                                              color: Colors.white54,
+                                            ),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 50,
+                                          height: 70,
+                                          color: Colors.grey[700],
+                                          child: const Icon(
+                                            Icons.videogame_asset,
+                                            color: Colors.white54,
+                                          ),
+                                        ),
+                                ),
+                                title: Text(
+                                  game.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  game.releaseDate.isNotEmpty ? game.releaseDate : 'Unknown release date',
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                trailing: isAlreadyInPlaylist
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: Color(0xFF10B981),
+                                      )
+                                    : IconButton(
+                                        icon: const Icon(
+                                          Icons.add_circle_outline,
+                                          color: Color(0xFF6366F1),
+                                        ),
+                                        onPressed: () async {
+                                          try {
+                                            final user = FirebaseAuthService().currentUser;
+                                            if (user != null) {
+                                              await UserDataService.addGameToPlaylist(
+                                                userId: user.id,
+                                                playlistId: playlist['id'],
+                                                gameId: game.id,
+                                                gameTitle: game.title,
+                                                gameCoverImage: game.coverImage,
+                                                gameDeveloper: game.developer,
+                                                gameGenres: game.genres,
+                                              );
+                                              
+                                              // Update local playlist data
+                                              final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
+                                              games.add({
+                                                'gameId': game.id,
+                                                'gameTitle': game.title,
+                                                'gameCoverImage': game.coverImage,
+                                                'gameDeveloper': game.developer,
+                                                'gameGenres': game.genres,
+                                                'addedAt': DateTime.now().millisecondsSinceEpoch,
+                                              });
+                                              playlist['games'] = games;
+                                              
+                                              setDialogState(() {});
+                                              
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('${game.title} added to playlist'),
+                                                  backgroundColor: const Color(0xFF10B981),
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Failed to add game: $e'),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                tileColor: const Color(0xFF374151),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Refresh the playlists to show updated game count
+                setState(() {});
+              },
+              child: const Text('Done', style: TextStyle(color: Color(0xFF6366F1))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _getPlaylistIcon(Map<String, dynamic> playlist) {
+    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
+    final gameCount = games.length;
+    
+    // Choose icon based on playlist characteristics
+    if (gameCount == 0) {
+      return Icons.playlist_add;
+    } else if (gameCount < 5) {
+      return Icons.playlist_play;
+    } else if (gameCount < 15) {
+      return Icons.library_music;
+    } else {
+      return Icons.collections;
+    }
+  }
+
+  Future<void> _togglePlaylistPrivacy(Map<String, dynamic> playlist) async {
+    try {
+      final user = FirebaseAuthService().currentUser;
+      if (user != null) {
+        final newPrivacy = !(playlist['isPublic'] == true);
+        
+        await UserDataService.updatePlaylistPrivacy(
+          user.id,
+          playlist['id'],
+          newPrivacy,
+        );
+        
+        // Update local state
+        setState(() {
+          playlist['isPublic'] = newPrivacy;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newPrivacy 
+                  ? 'Playlist is now public' 
+                  : 'Playlist is now private',
+            ),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update playlist privacy: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildEmptyPlaylistsState() {
     return Center(
       child: Column(
@@ -1206,6 +1561,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   }
 
   Widget _buildFilterChip(String label, GameStatus? status) {
+    final theme = Theme.of(context);
     final isSelected = _selectedFilter == status;
     return Container(
       margin: const EdgeInsets.only(right: 8), // Reduced margin
@@ -1213,7 +1569,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
         label: Text(label,
           style: TextStyle(
             fontSize: 12, // Smaller text
-            color: isSelected ? Colors.white : Colors.grey,
+            color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -1223,34 +1579,35 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             _selectedFilter = selected ? status : null;
           });
         },
-        backgroundColor: const Color(0xFF1F2937),
-        selectedColor: const Color(0xFF6366F1),
+        backgroundColor: theme.colorScheme.surface,
+        selectedColor: theme.colorScheme.primary,
         side: BorderSide.none,
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4), // Reduced padding
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), // Reduced padding
       ),
     );
   }
 
-  Widget _buildStats() {
+  Widget _buildStats(ThemeData theme) {
     final totalGames = _libraryStats['totalGames'] ?? 0;
     final averageRating = (_libraryStats['averageRating'] ?? 0.0).toDouble();
     final ratedGames = _libraryStats['ratedGames'] ?? 0;
     final backlogGames = _libraryStats['backlogGames'] ?? 0;
 
     return Container(
-      margin: EdgeInsets.all(12),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _StatItem(number: totalGames.toString(), label: 'Games'),
-          _StatItem(number: ratedGames.toString(), label: 'Rated'),
-          _StatItem(number: backlogGames.toString(), label: 'Backlog'),
-          _StatItem(number: averageRating.toStringAsFixed(1), label: 'Avg Rating'),
+          _StatItem(number: totalGames.toString(), label: 'Games', theme: theme),
+          _StatItem(number: ratedGames.toString(), label: 'Rated', theme: theme),
+          _StatItem(number: backlogGames.toString(), label: 'Backlog', theme: theme),
+          _StatItem(number: averageRating.toStringAsFixed(1), label: 'Avg Rating', theme: theme),
         ],
       ),
     );
@@ -1305,6 +1662,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   }
 
   Widget _buildGameItem(Map<String, dynamic> gameData) {
+    final theme = Theme.of(context);
     final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
     final gameCoverImage = gameData['gameCoverImage'] ?? '';
     final gameDeveloper = gameData['gameDeveloper'] ?? 'Unknown Developer';
@@ -1327,15 +1685,15 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       },
       onLongPress: () => _showGameOptions(gameData),
       child: Container(
-        margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1F2937),
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(10),
           // Highlight selected category with border
           border: _selectedFilter != null && _isGameInSelectedCategory(gameData)
-              ? Border.all(color: const Color(0xFF6366F1), width: 2)
-              : null,
+              ? Border.all(color: theme.colorScheme.primary, width: 2)
+              : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [
@@ -1350,18 +1708,18 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       placeholder: (context, url) => Container(
                         width: 60,
                         height: 80,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
+                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                        child: Icon(Icons.videogame_asset,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                           size: 24,
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
                         width: 60,
                         height: 80,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
+                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                        child: Icon(Icons.videogame_asset,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                           size: 24,
                         ),
                       ),
@@ -1369,9 +1727,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   : Container(
                       width: 60,
                       height: 80,
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.videogame_asset,
-                        color: Colors.white54,
+                      color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                      child: Icon(Icons.videogame_asset,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                         size: 24,
                       ),
                     ),
@@ -1383,10 +1741,10 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 children: [
                   Text(
                     gameTitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: theme.colorScheme.onSurface,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -1394,9 +1752,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   const SizedBox(height: 4),
                   Text(
                     gameDeveloper,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1633,10 +1991,12 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
 class _StatItem extends StatelessWidget {
   final String number;
   final String label;
+  final ThemeData theme;
 
   const _StatItem({
     required this.number,
     required this.label,
+    required this.theme,
   });
 
   @override
@@ -1648,7 +2008,7 @@ class _StatItem extends StatelessWidget {
           style: TextStyle(
             fontSize: 18, // Smaller text
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: theme.colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 2),
@@ -1656,7 +2016,7 @@ class _StatItem extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 11, // Smaller text
-            color: Colors.grey,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
           ),
         ),
       ],

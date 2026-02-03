@@ -198,15 +198,6 @@ class RAWGService {
     try {
       // For page 1, try to get from cache first
       if (page == 1) {
-  // Get popular games with caching and pagination
-  Future<List<Game>> getPopularGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
-    if (!isConfigured) {
-      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
-    }
-
-    try {
-      // For page 1, try to get from cache first
-      if (page == 1) {
         final cacheKey = 'popular_games_${includeAdultContent ? 'adult' : 'safe'}';
         final cachedGames = await CacheService.getCachedGameList(cacheKey);
         if (cachedGames != null && cachedGames.length >= limit) {
@@ -249,54 +240,6 @@ class RAWGService {
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching popular games: $e');
-      }
-      rethrow;
-    }
-  }
-        final cachedGames = await CacheService.getCachedGameList(CacheService.popularGamesKey);
-        if (cachedGames != null && cachedGames.isNotEmpty) {
-          final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
-          return filteredGames.take(limit).toList();
-        }
-      }
-
-      final uri = Uri.parse('$_baseUrl/games').replace(queryParameters: {
-        'key': _apiKey,
-        'ordering': '-rating',
-        'page_size': limit.toString(),
-        'page': page.toString(),
-        'metacritic': '80,100',
-      });
-
-      final response = await http.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List<dynamic> results = data['results'] ?? [];
-        
-        if (results.isEmpty) {
-          return [];
-        }
-        
-        final games = results.map((gameData) => _parseGameFromRAWG(gameData)).toList();
-        
-        // Cache the results only for page 1
-        if (page == 1) {
-          await CacheService.cacheGameList(CacheService.popularGamesKey, games);
-        }
-        
-        // Cache individual games
-        for (final game in games) {
-          await CacheService.cacheGame(game);
-        }
-        
-        return await _filterAdultContent(games, includeAdultContent);
-      } else {
-        throw Exception('RAWG API request failed with status: ${response.statusCode}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting popular games: $e');
       }
       rethrow;
     }
@@ -501,6 +444,71 @@ class RAWGService {
       
       return true;
     }).toList();
+  }
+
+  // Get highly rated games from any year with caching and pagination
+  Future<List<Game>> getHighlyRatedGames({int limit = 20, int page = 1, bool includeAdultContent = false}) async {
+    if (!isConfigured) {
+      throw Exception('RAWG API key not configured. Please set RAWG_API_KEY environment variable.');
+    }
+
+    try {
+      final cacheKey = 'highly_rated_games';
+      
+      // For page 1, try to get from cache first
+      if (page == 1) {
+        final cachedGames = await CacheService.getCachedGameList(cacheKey);
+        if (cachedGames != null && cachedGames.isNotEmpty) {
+          final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
+          return filteredGames.take(limit).toList();
+        }
+      }
+
+      final uri = Uri.parse('$_baseUrl/games').replace(queryParameters: {
+        'key': _apiKey,
+        'ordering': '-rating,-metacritic,-added', // Order by rating first, then metacritic, then popularity
+        'metacritic': '80,100', // Only games with metacritic score 80+
+        'page_size': (limit * 2).toString(), // Get more to filter by rating
+        'page': page.toString(),
+        'dates': '1980-01-01,${DateTime.now().year}-12-31', // Any year from 1980 to current
+      });
+
+      final response = await http.get(uri, headers: _headers);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> results = data['results'] ?? [];
+        
+        if (results.isEmpty) {
+          return [];
+        }
+        
+        final games = results
+            .map((gameData) => _parseGameFromRAWG(gameData))
+            .where((game) => game.averageRating >= 4.0) // Only games with 4.0+ rating
+            .take(limit)
+            .toList();
+        
+        // Cache the results only for page 1
+        if (page == 1) {
+          await CacheService.cacheGameList(cacheKey, games);
+        }
+        
+        // Cache individual games
+        for (final game in games) {
+          await CacheService.cacheGame(game);
+        }
+        
+        return await _filterAdultContent(games, includeAdultContent);
+      } else {
+        throw Exception('RAWG API request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting highly rated games: $e');
+      }
+      rethrow;
+    }
   }
 
   // Get available genres from RAWG with caching

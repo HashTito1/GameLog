@@ -5,6 +5,7 @@ import 'library_screen.dart';
 import 'profile_screen.dart';
 import 'discover_screen.dart';
 import 'search_screen.dart';
+import 'forum_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -23,6 +24,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     const HomeScreen(),
     const DiscoverScreen(),
     const SearchScreen(),
+    const ForumScreen(),
     LibraryScreen(initialPlaylistId: _libraryPlaylistId),
     ProfileScreen(userId: FirebaseAuth.instance.currentUser?.uid ?? ''),
   ];
@@ -52,7 +54,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     setState(() {
       _libraryPlaylistId = playlistId;
     });
-    _onTabTapped(3); // Switch to library tab
+    _onTabTapped(4); // Switch to library tab (now index 4)
   }
 
   void _onTabTapped(int index) {
@@ -61,7 +63,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     
     // Clear library playlist ID when switching away from library
-    if (_currentIndex == 3 && index != 3) {
+    if (_currentIndex == 4 && index != 4) {
       _libraryPlaylistId = null;
     }
     
@@ -76,6 +78,8 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return PopScope(
       canPop: _currentIndex == 0, // Only allow pop if on home tab
       onPopInvokedWithResult: (didPop, result) {
@@ -93,7 +97,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         bottomNavigationBar: Container(
           height: 58, // Reduced from 65
           decoration: BoxDecoration(
-            color: const Color(0xFF1F2937),
+            color: theme.colorScheme.surface,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -106,11 +110,12 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildNavItem(Icons.home_filled, 'Home', 0),
-                _buildNavItem(Icons.explore, 'Discover', 1),
-                _buildNavItem(Icons.search, 'Search', 2),
-                _buildNavItem(Icons.bookmark, 'Library', 3),
-                _buildNavItem(Icons.person, 'Profile', 4),
+                _buildNavItem(Icons.home_filled, 'Home', 0, theme),
+                _buildNavItem(Icons.explore, 'Discover', 1, theme),
+                _buildNavItem(Icons.search, 'Search', 2, theme),
+                _buildNavItem(Icons.forum, 'Forum', 3, theme),
+                _buildNavItem(Icons.bookmark, 'Library', 4, theme),
+                _buildNavItem(Icons.person, 'Profile', 5, theme),
               ],
             ),
           ),
@@ -119,7 +124,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
+  Widget _buildNavItem(IconData icon, String label, int index, ThemeData theme) {
     final isActive = _currentIndex == index;
     
     return GestureDetector(
@@ -129,11 +134,11 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         width: 44, // Reduced from 50
         height: 44, // Reduced from 50
         decoration: BoxDecoration(
-          color: isActive ? Colors.white : Colors.transparent,
+          color: isActive ? theme.colorScheme.primary : Colors.transparent,
           shape: BoxShape.circle,
           boxShadow: isActive ? [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: theme.colorScheme.primary.withValues(alpha: 0.3),
               blurRadius: 4, // Reduced from 6
               offset: const Offset(0, 1), // Reduced from 2
             ),
@@ -141,7 +146,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ),
         child: Icon(
           icon,
-          color: isActive ? const Color(0xFF1F2937) : const Color(0xFFA1A1AA),
+          color: isActive ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
           size: 20, // Reduced from 22
         ),
       ),

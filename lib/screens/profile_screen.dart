@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
-import '../services/rawg_service.dart';
+import '../services/igdb_service.dart';
 import '../services/library_service.dart';
 import '../services/image_picker_service.dart';
 import '../services/hybrid_image_storage_service.dart';
@@ -99,7 +99,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final gameId = favoriteGameData['gameId']?.toString();
           if (gameId != null) {
             try {
-              final game = await RAWGService.instance.getGameDetails(gameId);
+              final game = await IGDBService.instance.getGameDetails(gameId);
               setState(() {
                 _favoriteGame = game;
               });
@@ -166,11 +166,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _changeProfilePicture() async {
     try {
       String? imagePath;
+      final theme = Theme.of(context);
       
       // Show bottom sheet to select image source
       final source = await showModalBottomSheet<String>(
         context: context,
-        backgroundColor: const Color(0xFF1F2937),
+        backgroundColor: theme.colorScheme.surface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
@@ -185,15 +186,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey[600],
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text(
+                  Text(
                     'Select Image Source',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: theme.colorScheme.onSurface,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -284,20 +285,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Row(
                 children: [
                   SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.onPrimary),
                   ),
-                  SizedBox(width: 16),
-                  Text('Uploading profile picture...'),
+                  const SizedBox(width: 16),
+                  const Text('Uploading profile picture...'),
                 ],
               ),
-              backgroundColor: Color(0xFF6366F1),
-              duration: Duration(seconds: 3),
+              backgroundColor: theme.colorScheme.primary,
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -341,16 +342,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ? 'Profile picture uploaded to cloud successfully!'
                         : 'Profile picture saved successfully!',
                     ),
-                    backgroundColor: Colors.green,
+                    backgroundColor: theme.colorScheme.secondary,
                   ),
                 );
               }
             } else {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Failed to upload profile picture. Please try again.'),
-                    backgroundColor: Colors.red,
+                  SnackBar(
+                    content: const Text('Failed to upload profile picture. Please try again.'),
+                    backgroundColor: theme.colorScheme.error,
                   ),
                 );
               }
@@ -369,10 +370,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final theme = Theme.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to update profile picture: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: theme.colorScheme.error,
           ),
         );
       }
@@ -382,11 +384,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _changeBannerImage() async {
     try {
       String? imagePath;
+      final theme = Theme.of(context);
       
       // Show bottom sheet to select image source
       final source = await showModalBottomSheet<String>(
         context: context,
-        backgroundColor: const Color(0xFF1F2937),
+        backgroundColor: theme.colorScheme.surface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
@@ -401,15 +404,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey[600],
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text(
+                  Text(
                     'Select Banner Image Source',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: theme.colorScheme.onSurface,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -596,9 +599,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showProfileMenu() {
+    final theme = Theme.of(context);
+    
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1F2937),
+      backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -613,15 +618,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey[600],
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Profile Options',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: theme.colorScheme.onSurface,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
@@ -684,51 +689,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
     bool isPublic = false;
+    final theme = Theme.of(context);
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
-            backgroundColor: const Color(0xFF1F2937),
-            title: const Text(
+            backgroundColor: theme.colorScheme.surface,
+            title: Text(
               'Create Playlist',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: theme.colorScheme.onSurface),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: theme.colorScheme.onSurface),
+                  decoration: InputDecoration(
                     labelText: 'Playlist Name',
-                    labelStyle: TextStyle(color: Colors.grey),
+                    labelStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                     hintText: 'Enter playlist name',
-                    hintStyle: TextStyle(color: Colors.grey),
+                    hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
                     enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                      borderSide: BorderSide(color: theme.colorScheme.primary),
                     ),
                     focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                      borderSide: BorderSide(color: theme.colorScheme.primary),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: descriptionController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: theme.colorScheme.onSurface),
                   maxLines: 2,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Description (Optional)',
-                    labelStyle: TextStyle(color: Colors.grey),
+                    labelStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                     hintText: 'Enter playlist description',
-                    hintStyle: TextStyle(color: Colors.grey),
+                    hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
                     enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                      borderSide: BorderSide(color: theme.colorScheme.primary),
                     ),
                     focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Color(0xFF6366F1)),
+                      borderSide: BorderSide(color: theme.colorScheme.primary),
                     ),
                   ),
                 ),
@@ -736,15 +742,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF374151),
+                    color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF4B5563)),
+                    border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         isPublic ? Icons.public : Icons.lock,
-                        color: isPublic ? const Color(0xFF10B981) : Colors.grey,
+                        color: isPublic ? theme.colorScheme.secondary : theme.colorScheme.onSurface.withValues(alpha: 0.7),
                         size: 20,
                       ),
                       const SizedBox(width: 12),
@@ -754,8 +760,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             Text(
                               isPublic ? 'Public Playlist' : 'Private Playlist',
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -763,8 +769,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               isPublic 
                                   ? 'Others can see this playlist on your profile'
                                   : 'Only you can see this playlist',
-                              style: const TextStyle(
-                                color: Colors.grey,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                                 fontSize: 12,
                               ),
                             ),
@@ -778,7 +784,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             isPublic = value;
                           });
                         },
-                        activeColor: const Color(0xFF10B981),
+                        activeThumbColor: theme.colorScheme.secondary,
+                        activeTrackColor: theme.colorScheme.secondary.withValues(alpha: 0.3),
                       ),
                     ],
                   ),
@@ -788,9 +795,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text(
+                child: Text(
                   'Cancel',
-                  style: TextStyle(color: Colors.grey),
+                  style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                 ),
               ),
               TextButton(
@@ -803,9 +810,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     });
                   }
                 },
-                child: const Text(
+                child: Text(
                   'Create',
-                  style: TextStyle(color: Color(0xFF6366F1)),
+                  style: TextStyle(color: theme.colorScheme.primary),
                 ),
               ),
             ],
@@ -830,20 +837,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _loadData();
           
           if (mounted) {
+            final theme = Theme.of(context);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Playlist "${result['name']}" created successfully!'),
-                backgroundColor: Colors.green,
+                backgroundColor: theme.colorScheme.secondary,
               ),
             );
           }
         }
       } catch (e) {
         if (mounted) {
+          final theme = Theme.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to create playlist: $e'),
-              backgroundColor: Colors.red,
+              backgroundColor: theme.colorScheme.error,
             ),
           );
         }
@@ -854,6 +863,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _showChangeUsernameDialog() async {
     final usernameController = TextEditingController();
     final currentUser = FirebaseAuthService.instance.currentUser;
+    final theme = Theme.of(context);
     
     if (currentUser == null) return;
     
@@ -865,35 +875,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: const Text(
+          backgroundColor: theme.colorScheme.surface,
+          title: Text(
             'Change Username',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(color: theme.colorScheme.onSurface),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 'Your user ID will remain the same. Only your username will change.',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
+                style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 14),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: usernameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                style: TextStyle(color: theme.colorScheme.onSurface),
+                decoration: InputDecoration(
                   labelText: 'New Username',
-                  labelStyle: TextStyle(color: Colors.grey),
+                  labelStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
                   hintText: 'Enter new username',
-                  hintStyle: TextStyle(color: Colors.grey),
+                  hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
                   enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    borderSide: BorderSide(color: theme.colorScheme.primary),
                   ),
                   focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    borderSide: BorderSide(color: theme.colorScheme.primary),
                   ),
                   helperText: 'Letters, numbers, and underscores only. Min 3 characters.',
-                  helperStyle: TextStyle(color: Colors.grey, fontSize: 12),
+                  helperStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 12),
                 ),
                 maxLength: 20,
               ),
@@ -902,9 +912,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text(
+              child: Text(
                 'Cancel',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
               ),
             ),
             TextButton(
@@ -914,9 +924,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Navigator.pop(context, newUsername);
                 }
               },
-              child: const Text(
+              child: Text(
                 'Update',
-                style: TextStyle(color: Color(0xFF6366F1)),
+                style: TextStyle(color: theme.colorScheme.primary),
               ),
             ),
           ],
@@ -929,20 +939,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Row(
                 children: [
                   SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.onPrimary),
                   ),
-                  SizedBox(width: 16),
-                  Text('Updating username...'),
+                  const SizedBox(width: 16),
+                  const Text('Updating username...'),
                 ],
               ),
-              backgroundColor: Color(0xFF6366F1),
-              duration: Duration(seconds: 2),
+              backgroundColor: theme.colorScheme.primary,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -961,19 +971,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         
         if (mounted) {
+          final theme = Theme.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Username updated to "$result" successfully!'),
-              backgroundColor: Colors.green,
+              backgroundColor: theme.colorScheme.secondary,
             ),
           );
         }
       } catch (e) {
         if (mounted) {
+          final theme = Theme.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to update username: ${e.toString().replaceAll('Exception: ', '')}'),
-              backgroundColor: Colors.red,
+              backgroundColor: theme.colorScheme.error,
             ),
           );
         }
@@ -994,15 +1006,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildMenuOption(String title, IconData icon, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    
     return ListTile(
       leading: Icon(
         icon,
-        color: const Color(0xFF6366F1),
+        color: theme.colorScheme.primary,
       ),
       title: Text(
         title,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: theme.colorScheme.onSurface,
           fontSize: 16,
         ),
       ),
@@ -1011,7 +1025,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         borderRadius: BorderRadius.circular(8),
       ),
       tileColor: Colors.transparent,
-      hoverColor: const Color(0xFF374151),
+      hoverColor: theme.colorScheme.surface,
     );
   }
 
@@ -1033,20 +1047,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
         
         if (mounted) {
+          final theme = Theme.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('${game.title} set as favorite game!'),
-              backgroundColor: Colors.green,
+              backgroundColor: theme.colorScheme.secondary,
             ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
+        final theme = Theme.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to set favorite game: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: theme.colorScheme.error,
           ),
         );
       }
@@ -1055,24 +1071,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final currentUser = FirebaseAuthService.instance.currentUser;
     
     if (currentUser == null) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
         body: Center(
           child: Text(
             'No user logged in',
-            style: TextStyle(color: Colors.red, fontSize: 16),
+            style: TextStyle(color: theme.colorScheme.error, fontSize: 16),
           ),
         ),
       );
     }
 
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+          ),
+        ),
       );
     }
 
@@ -1089,10 +1110,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     debugPrint('Extracted username: $username, displayName: $displayName');
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
         slivers: [
-          _buildSliverAppBar(bannerImage, profileImage, displayName, username),
+          _buildSliverAppBar(bannerImage, profileImage, displayName, username, theme),
           SliverToBoxAdapter(
             child: Column(
               children: [
@@ -1117,12 +1138,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSliverAppBar(String bannerImage, String profileImage, String displayName, String username) {
+  Widget _buildSliverAppBar(String bannerImage, String profileImage, String displayName, String username, ThemeData theme) {
     return SliverAppBar(
       expandedHeight: 240,
       floating: false,
       pinned: true,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: theme.colorScheme.surface,
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           children: [
@@ -1132,14 +1153,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Container(
                 decoration: BoxDecoration(
                   gradient: (bannerImage.isEmpty)
-                      ? const LinearGradient(
+                      ? LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            Color(0xFF6366F1),
-                            Color(0xFF8B5CF6),
-                            Color(0xFFEC4899),
-                            Color(0xFFF59E0B),
+                            theme.colorScheme.primary,
+                            theme.colorScheme.secondary,
+                            theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                            theme.colorScheme.primary.withValues(alpha: 0.8),
                           ],
                         )
                       : null,
@@ -1335,13 +1356,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildStatsSection(int gamesPlayed, int reviewsWritten, int backlogCount, double averageRating) {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -1366,28 +1389,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildStatItem(String value, String label, IconData icon) {
+    final theme = Theme.of(context);
+    
     return Column(
       children: [
         Icon(
           icon,
-          color: const Color(0xFF6366F1),
+          color: theme.colorScheme.primary,
           size: 20,
         ),
         const SizedBox(height: 6),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 18, // Reduced from 20
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: theme.colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: Colors.grey,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
           ),
         ),
       ],
@@ -1395,21 +1420,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildStatDivider() {
+    final theme = Theme.of(context);
+    
     return Container(
       height: 32,
       width: 1,
-      color: const Color(0xFF374151),
+      color: theme.colorScheme.outline.withValues(alpha: 0.3),
     );
   }
 
   Widget _buildFavoriteGameSection() {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -1429,12 +1458,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 size: 20,
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Favorite Game',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
               const Spacer(),
@@ -1442,8 +1471,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onPressed: _selectFavoriteGame,
                 child: Text(
                   _favoriteGame == null ? 'Set Favorite' : 'Change',
-                  style: const TextStyle(
-                    color: Color(0xFF6366F1),
+                  style: TextStyle(
+                    color: theme.colorScheme.primary,
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
                   ),
@@ -1456,9 +1485,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF374151),
+                color: theme.colorScheme.surface.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF4B5563)),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -1472,10 +1501,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       errorBuilder: (context, error, stackTrace) => Container(
                         width: 50,
                         height: 66,
-                        color: const Color(0xFF6B7280),
-                        child: const Icon(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                        child: Icon(
                           Icons.videogame_asset,
-                          color: Colors.white54,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                           size: 20,
                         ),
                       ),
@@ -1488,10 +1517,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           _favoriteGame!.title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: theme.colorScheme.onSurface,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -1500,9 +1529,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         if (_favoriteGame!.releaseDate.isNotEmpty)
                           Text(
                             _favoriteGame!.releaseDate,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                             ),
                           ),
                         const SizedBox(height: 6),
@@ -1516,9 +1545,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(width: 4),
                             Text(
                               _favoriteGame!.averageRating.toStringAsFixed(1),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.white,
+                                color: theme.colorScheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -1535,31 +1564,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFF374151),
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF4B5563)),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
               ),
-              child: const Column(
+              child: Column(
                 children: [
                   Icon(
                     Icons.videogame_asset,
-                    color: Colors.grey,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     size: 40,
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Text(
                     'No favorite game selected',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     'Tap "Set Favorite" to choose your favorite game',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -1573,13 +1602,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildPlaylistsSection() {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -1593,25 +1624,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.playlist_play,
-                color: Color(0xFF10B981),
+                color: theme.colorScheme.secondary,
                 size: 20,
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Playlists',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
               const Spacer(),
               Text(
                 '${_userPlaylists.length}',
-                style: const TextStyle(
-                  color: Color(0xFF10B981),
+                style: TextStyle(
+                  color: theme.colorScheme.secondary,
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -1629,6 +1660,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildPlaylistItem(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
     final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
     final playlistId = playlist['id'] ?? '';
     final isExpanded = _expandedPlaylists.contains(playlistId);
@@ -1637,9 +1669,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF374151),
+        color: theme.colorScheme.surface.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF4B5563)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1659,11 +1691,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                    color: theme.colorScheme.secondary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Icon(Icons.playlist_play,
-                    color: Color(0xFF10B981),
+                  child: Icon(Icons.playlist_play,
+                    color: theme.colorScheme.secondary,
                     size: 16,
                   ),
                 ),
@@ -1673,18 +1705,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(playlist['name'] ?? 'Unnamed Playlist',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
                       if ((playlist['description'] ?? '').isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(playlist['description'],
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1695,16 +1727,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 Text(
                   '${games.length} games',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF10B981),
+                    color: theme.colorScheme.secondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Icon(
                   isExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: Colors.grey,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                   size: 18,
                 ),
               ],
@@ -1725,7 +1757,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                      color: theme.colorScheme.secondary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
@@ -1733,16 +1765,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           'View all ${games.length} games',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
-                            color: Color(0xFF10B981),
+                            color: theme.colorScheme.secondary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(width: 4),
-                        const Icon(
+                        Icon(
                           Icons.arrow_forward_ios,
-                          color: Color(0xFF10B981),
+                          color: theme.colorScheme.secondary,
                           size: 12,
                         ),
                       ],
@@ -1773,24 +1805,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       fit: BoxFit.cover,
                                       width: double.infinity,
                                       placeholder: (context, url) => Container(
-                                        color: Colors.grey[700],
-                                        child: const Icon(Icons.videogame_asset,
-                                          color: Colors.white54,
+                                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                                        child: Icon(Icons.videogame_asset,
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                                           size: 16,
                                         ),
                                       ),
                                       errorWidget: (context, url, error) => Container(
-                                        color: Colors.grey[700],
-                                        child: const Icon(Icons.videogame_asset,
-                                          color: Colors.white54,
+                                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                                        child: Icon(Icons.videogame_asset,
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                                           size: 16,
                                         ),
                                       ),
                                     )
                                   : Container(
-                                      color: Colors.grey[700],
-                                      child: const Icon(Icons.videogame_asset,
-                                        color: Colors.white54,
+                                      color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                                      child: Icon(Icons.videogame_asset,
+                                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                                         size: 16,
                                       ),
                                     ),
@@ -1799,9 +1831,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 2),
                           Text(
                             game['gameTitle'] ?? 'Unknown',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 8,
-                              color: Colors.white,
+                              color: theme.colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1819,9 +1851,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _navigateToLibraryPlaylist(playlistId),
                   child: Text(
                     '+${games.length - 5} more games',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
-                      color: Color(0xFF10B981),
+                      color: theme.colorScheme.secondary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1833,18 +1865,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFF4B5563),
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.grey, size: 14),
-                  SizedBox(width: 6),
+                  Icon(Icons.info_outline, color: theme.colorScheme.onSurface.withValues(alpha: 0.7), size: 14),
+                  const SizedBox(width: 6),
                   Text(
                     'No games in this playlist yet',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
@@ -1857,6 +1889,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildPlaylistGameItem(Map<String, dynamic> game) {
+    final theme = Theme.of(context);
     final gameTitle = game['gameTitle'] ?? 'Unknown Game';
     final gameCoverImage = game['gameCoverImage'] ?? '';
     final gameDeveloper = game['gameDeveloper'] ?? 'Unknown Developer';
@@ -1878,7 +1911,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: const Color(0xFF4B5563),
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Row(
@@ -1894,18 +1927,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       placeholder: (context, url) => Container(
                         width: 35,
                         height: 50,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
+                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                        child: Icon(Icons.videogame_asset,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                           size: 16,
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
                         width: 35,
                         height: 50,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
+                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                        child: Icon(Icons.videogame_asset,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                           size: 16,
                         ),
                       ),
@@ -1913,9 +1946,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : Container(
                       width: 35,
                       height: 50,
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.videogame_asset,
-                        color: Colors.white54,
+                      color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                      child: Icon(Icons.videogame_asset,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                         size: 16,
                       ),
                     ),
@@ -1927,10 +1960,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Text(
                     gameTitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                      color: theme.colorScheme.onSurface,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1938,17 +1971,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 2),
                   Text(
                     gameDeveloper,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.arrow_forward_ios,
-              color: Colors.grey,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
               size: 12,
             ),
           ],
@@ -2023,13 +2056,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildFriendsSection(int followers, int following) {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -2041,20 +2076,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(
                 Icons.people,
-                color: Color(0xFF6366F1),
+                color: theme.colorScheme.primary,
                 size: 20,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Social',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
             ],
@@ -2068,7 +2103,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Container(
                 height: 32,
                 width: 1,
-                color: const Color(0xFF374151),
+                color: theme.colorScheme.outline.withValues(alpha: 0.3),
               ),
               Expanded(
                 child: _buildSocialStat('Following', following),
@@ -2081,22 +2116,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildSocialStat(String label, int count) {
+    final theme = Theme.of(context);
+    
     return Column(
       children: [
         Text(
           count.toString(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 18, // Reduced from 20
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: theme.colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Colors.grey,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
           ),
         ),
       ],

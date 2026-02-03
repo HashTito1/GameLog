@@ -60,3 +60,13 @@ analyze_output.txt
 
 # Local properties
 android/local.properties
+
+# Environment variables and API credentials
+.env
+.env.local
+.env.production
+.env.development
+
+# IGDB/API credentials (never commit these!)
+**/igdb_credentials.dart
+**/api_keys.dart

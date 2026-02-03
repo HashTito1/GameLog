@@ -142,6 +142,12 @@ class CacheService {
   static String get rpgGamesKey => _rpgKey;
   static String get indieGamesKey => _indieKey;
 
+  // Clear specific cache key
+  static Future<void> clearCacheByKey(String key) async {
+    final prefs = await _prefs;
+    await prefs.remove(key);
+  }
+
   // Clear all cache
   static Future<void> clearAllCache() async {
     final prefs = await _prefs;
@@ -153,7 +159,8 @@ class CacheService {
       key == _popularKey ||
       key == _actionKey ||
       key == _rpgKey ||
-      key == _indieKey
+      key == _indieKey ||
+      key.startsWith('igdb_') // Clear all IGDB-related cache
     ).toList();
     
     for (final key in keys) {
