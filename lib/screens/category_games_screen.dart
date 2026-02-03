@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
-import '../services/rawg_service.dart';
+import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
 import 'game_detail_screen.dart';
 
@@ -58,40 +58,69 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
       List<Game> games;
       switch (widget.categoryType) {
         case 'trending':
-          games = await RAWGService.instance.getTrendingGames(
+          games = await IGDBService.instance.getTrendingGames(
             limit: _pageSize, 
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'popular':
-          games = await RAWGService.instance.getPopularGames(
+          games = await IGDBService.instance.getPopularGames(
+            limit: _pageSize,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'shooter':
+          games = await IGDBService.instance.getGamesByGenre(
+            'Shooter', 
             limit: _pageSize,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'action':
-          games = await RAWGService.instance.getGamesByGenre(
-            'action', 
+          // Fallback for old action category - use Shooter
+          games = await IGDBService.instance.getGamesByGenre(
+            'Shooter', 
             limit: _pageSize,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'rpg':
-          games = await RAWGService.instance.getGamesByGenre(
-            'role-playing-games-rpg', 
+          games = await IGDBService.instance.getGamesByGenre(
+            'Role-playing (RPG)', 
             limit: _pageSize,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'indie':
-          games = await RAWGService.instance.getGamesByGenre(
-            'indie', 
+          games = await IGDBService.instance.getGamesByGenre(
+            'Indie', 
+            limit: _pageSize,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'adventure':
+          games = await IGDBService.instance.getGamesByGenre(
+            'Adventure', 
+            limit: _pageSize,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'strategy':
+          games = await IGDBService.instance.getGamesByGenre(
+            'Strategy', 
+            limit: _pageSize,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'goty':
+          games = await IGDBService.instance.getGOTYCandidates(
+            year: DateTime.now().year - 1,
             limit: _pageSize,
             includeAdultContent: includeAdultContent,
           );
           break;
         default:
-          games = await RAWGService.instance.getPopularGames(
+          games = await IGDBService.instance.getPopularGames(
             limit: _pageSize,
             includeAdultContent: includeAdultContent,
           );
@@ -124,45 +153,74 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
       List<Game> moreGames;
       switch (widget.categoryType) {
         case 'trending':
-          moreGames = await RAWGService.instance.getTrendingGames(
+          moreGames = await IGDBService.instance.getTrendingGames(
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'popular':
-          moreGames = await RAWGService.instance.getPopularGames(
+          moreGames = await IGDBService.instance.getPopularGames(
+            limit: _pageSize,
+            page: _currentPage,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'shooter':
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Shooter',
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'action':
-          moreGames = await RAWGService.instance.getGamesByGenre(
-            'action',
+          // Fallback for old action category - use Shooter
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Shooter',
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'rpg':
-          moreGames = await RAWGService.instance.getGamesByGenre(
-            'role-playing-games-rpg',
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Role-playing (RPG)',
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
           );
           break;
         case 'indie':
-          moreGames = await RAWGService.instance.getGamesByGenre(
-            'indie',
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Indie',
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
           );
           break;
+        case 'adventure':
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Adventure',
+            limit: _pageSize,
+            page: _currentPage,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'strategy':
+          moreGames = await IGDBService.instance.getGamesByGenre(
+            'Strategy',
+            limit: _pageSize,
+            page: _currentPage,
+            includeAdultContent: includeAdultContent,
+          );
+          break;
+        case 'goty':
+          // GOTY games don't support pagination in the same way, so return empty
+          moreGames = [];
+          break;
         default:
-          moreGames = await RAWGService.instance.getPopularGames(
+          moreGames = await IGDBService.instance.getPopularGames(
             limit: _pageSize,
             page: _currentPage,
             includeAdultContent: includeAdultContent,
@@ -183,19 +241,21 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: theme.colorScheme.surface,
         elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.of(context).pop(),
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: theme.colorScheme.onSurface),
         ),
         title: Text(
           widget.categoryTitle,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: theme.colorScheme.onSurface,
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
@@ -205,18 +265,18 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
             onPressed: () {
               // TODO: Add search functionality
             },
-            icon: const Icon(Icons.search, color: Colors.white),
+            icon: Icon(Icons.search, color: theme.colorScheme.onSurface),
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
               ),
             )
           : _games.isEmpty
-              ? _buildEmptyState()
+              ? _buildEmptyState(theme)
               : Column(
                   children: [
                     Padding(
@@ -225,8 +285,8 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                         children: [
                           Text(
                             '${_games.length} games found',
-                            style: const TextStyle(
-                              color: Colors.grey,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                               fontSize: 14,
                             ),
                           ),
@@ -241,7 +301,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          childAspectRatio: 0.7,
+                          childAspectRatio: 0.75, // Adjusted for better proportions
                           crossAxisSpacing: 12,
                           mainAxisSpacing: 12,
                         ),
@@ -262,6 +322,8 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
   }
 
   Widget _buildGameCard(Game game) {
+    final theme = Theme.of(context);
+    
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(
@@ -275,15 +337,16 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF1F2937),
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF374151)),
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              flex: 3,
+            // Image section - fixed height to prevent overflow
+            AspectRatio(
+              aspectRatio: 1.4, // Slightly wider than square for better proportions
               child: Stack(
                 children: [
                   ClipRRect(
@@ -299,7 +362,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                               child: const Center(
                                 child: Icon(Icons.videogame_asset,
                                   color: Colors.white54,
-                                  size: 40,
+                                  size: 32,
                                 ),
                               ),
                             ),
@@ -308,7 +371,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                               child: const Center(
                                 child: Icon(Icons.videogame_asset,
                                   color: Colors.white54,
-                                  size: 40,
+                                  size: 32,
                                 ),
                               ),
                             ),
@@ -318,34 +381,34 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                             child: const Center(
                               child: Icon(Icons.videogame_asset,
                                 color: Colors.white54,
-                                size: 40,
+                                size: 32,
                               ),
                             ),
                           ),
                   ),
                   if (game.averageRating > 0)
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      top: 6,
+                      right: 6,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.star,
                               color: Color(0xFFFBBF24),
-                              size: 12,
+                              size: 10,
                             ),
                             const SizedBox(width: 2),
                             Text(
                               game.averageRating.toStringAsFixed(1),
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 10,
+                                fontSize: 9,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -356,53 +419,62 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                 ],
               ),
             ),
+            // Content section - flexible but constrained
             Expanded(
-              flex: 2,
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Title - constrained height
                     Text(
                       game.title,
-                      style: const TextStyle(
-                        fontSize: 14,
+                      style: TextStyle(
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
+                    // Release date - single line
                     if (game.releaseDate.isNotEmpty)
                       Text(
                         game.releaseDate,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    const Spacer(),
+                    const SizedBox(height: 4),
+                    // Genres - constrained to prevent overflow
                     if (game.genres.isNotEmpty)
-                      Wrap(
-                        spacing: 4,
-                        children: game.genres.take(2).map((genre) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              genre,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF6366F1),
-                                fontWeight: FontWeight.w600,
+                      Flexible(
+                        child: Wrap(
+                          spacing: 3,
+                          runSpacing: 2,
+                          children: game.genres.take(2).map((genre) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(3),
                               ),
-                            ),
-                          );
-                        }).toList(),
+                              child: Text(
+                                genre,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
                       ),
                   ],
                 ),
@@ -415,22 +487,24 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
   }
 
   Widget _buildLoadingCard() {
+    final theme = Theme.of(context);
+    
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
       ),
-      child: const Center(
+      child: Center(
         child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+          valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
           strokeWidth: 2,
         ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(ThemeData theme) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -438,7 +512,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
           Icon(
             Icons.games_outlined,
             size: 64,
-            color: Colors.grey.shade600,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
           const SizedBox(height: 16),
           Text(
@@ -446,7 +520,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: Colors.grey.shade300,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -454,7 +528,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
             'Try refreshing or check back later',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[500],
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
             textAlign: TextAlign.center,
           ),

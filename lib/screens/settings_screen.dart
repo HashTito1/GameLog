@@ -41,14 +41,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(theme),
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                      ),
+                    )
                   : ListView(
                       padding: const EdgeInsets.all(12),
                       children: [
@@ -64,6 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   widget.onNavigateToProfile!();
                                 }
                               },
+                              theme: theme,
                             ),
                             _buildSettingsTile(
                               icon: Icons.security,
@@ -76,15 +84,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 );
                               },
+                              theme: theme,
                             ),
                           ],
+                          theme: theme,
                         ),
                         const SizedBox(height: 16),
                         _buildSettingsSection(
                           title: 'Content',
                           children: [
-                            _buildAdultContentToggle(),
+                            _buildAdultContentToggle(theme),
                           ],
+                          theme: theme,
                         ),
                         const SizedBox(height: 16),
                         _buildSettingsSection(
@@ -101,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 );
                               },
+                              theme: theme,
                             ),
                             _buildSettingsTile(
                               icon: Icons.palette_outlined,
@@ -113,8 +125,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 );
                               },
+                              theme: theme,
                             ),
                           ],
+                          theme: theme,
                         ),
                         const SizedBox(height: 16),
                         _buildSettingsSection(
@@ -131,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 );
                               },
+                              theme: theme,
                             ),
                             _buildSettingsTile(
                               icon: Icons.info_outline,
@@ -143,11 +158,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                 );
                               },
+                              theme: theme,
                             ),
                           ],
+                          theme: theme,
                         ),
                         const SizedBox(height: 24),
-                        _buildLogoutButton(context),
+                        _buildLogoutButton(context, theme),
                       ],
                     ),
             ),
@@ -157,17 +174,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: const Row(
+      child: Row(
         children: [
           Text(
             'Settings',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ],
@@ -177,6 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSettingsSection({
     required String title,
     required List<Widget> children,
+    required ThemeData theme,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,16 +203,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.only(left: 4, bottom: 8),
           child: Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF1F2937),
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(children: children),
@@ -203,7 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAdultContentToggle() {
+  Widget _buildAdultContentToggle(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
@@ -225,12 +243,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   '18+ Content',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -238,9 +256,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _adultContentEnabled 
                       ? 'Adult content is visible' 
                       : 'Adult content is filtered',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFFA1A1AA),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -249,9 +267,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: _adultContentEnabled,
             onChanged: _toggleAdultContent,
-            activeColor: const Color(0xFFF59E0B),
-            inactiveThumbColor: const Color(0xFF6B7280),
-            inactiveTrackColor: const Color(0xFF374151),
+            activeThumbColor: const Color(0xFFF59E0B),
+            inactiveThumbColor: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            inactiveTrackColor: theme.colorScheme.outline.withValues(alpha: 0.3),
           ),
         ],
       ),
@@ -310,12 +328,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    required ThemeData theme,
     bool enabled = true,
   }) {
     return ListTile(
       leading: Icon(
         icon,
-        color: enabled ? const Color(0xFF6366F1) : Color(0xFF9CA3AF),
+        color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.5),
         size: 22,
       ),
       title: Text(
@@ -323,19 +342,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          color: enabled ? Colors.white : Color(0xFF9CA3AF),
+          color: enabled ? theme.colorScheme.onSurface : theme.colorScheme.onSurface.withValues(alpha: 0.5),
         ),
       ),
       subtitle: Text(
         subtitle,
         style: TextStyle(
           fontSize: 12,
-          color: enabled ? Color(0xFFA1A1AA) : Color(0xFF6B7280),
+          color: enabled ? theme.colorScheme.onSurface.withValues(alpha: 0.6) : theme.colorScheme.onSurface.withValues(alpha: 0.4),
         ),
       ),
       trailing: Icon(
         Icons.chevron_right,
-        color: enabled ? Color(0xFFA1A1AA) : Color(0xFF6B7280),
+        color: enabled ? theme.colorScheme.onSurface.withValues(alpha: 0.6) : theme.colorScheme.onSurface.withValues(alpha: 0.4),
         size: 20,
       ),
       onTap: enabled ? onTap : null,
@@ -343,7 +362,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildLogoutButton(BuildContext context) {
+  Widget _buildLogoutButton(BuildContext context, ThemeData theme) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
       child: ElevatedButton(
@@ -351,17 +370,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final shouldLogout = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF1F2937),
+              backgroundColor: theme.colorScheme.surface,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text('Logout', style: TextStyle(color: Colors.white)),
-              content: const Text(
+              title: Text('Logout', style: TextStyle(color: theme.colorScheme.onSurface)),
+              content: Text(
                 'Are you sure you want to logout?',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  child: Text('Cancel', style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7))),
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(true),
@@ -372,8 +391,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           );
 
-          if (shouldLogout == true) {
+          if (shouldLogout == true && mounted) {
             await FirebaseAuthService().logout();
+            // Auto-close settings screen after logout
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
           }
         },
         style: ElevatedButton.styleFrom(

@@ -4,10 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
-import '../services/rawg_service.dart';
+import '../services/igdb_service.dart';
 import '../services/library_service.dart';
 import '../services/friends_service.dart';
 import '../services/follow_service.dart';
+import 'game_detail_screen.dart';
 import '../models/game.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -136,7 +137,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           final gameId = favoriteGameData['gameId']?.toString();
           if (gameId != null) {
             try {
-              final game = await RAWGService.instance.getGameDetails(gameId);
+              final game = await IGDBService.instance.getGameDetails(gameId);
               setState(() {
                 _favoriteGame = game;
               });
@@ -148,7 +149,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
         // Load user playlists
         if (_userData != null) {
-          final playlists = await UserDataService.getUserPlaylists(widget.userId);
+          final currentUser = FirebaseAuthService().currentUser;
+          final playlists = await UserDataService.getUserPlaylistsWithGamesFiltered(
+            widget.userId, 
+            currentUserId: currentUser?.uid,
+          );
           setState(() {
             _userPlaylists = playlists;
           });
@@ -196,46 +201,392 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  void _showPlaylistOptions(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(
+                  Icons.playlist_play,
+                  color: theme.colorScheme.secondary,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    playlist['name'] ?? 'Untitled Playlist',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Icon(
+                playlist['isPublic'] == true ? Icons.lock : Icons.public,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(
+                playlist['isPublic'] == true ? 'Make Private' : 'Make Public',
+                style: const TextStyle(color: Colors.white),
+              ),
+              subtitle: Text(
+                playlist['isPublic'] == true 
+                    ? 'Only you will be able to see this playlist'
+                    : 'Others will be able to see this playlist on your profile',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              onTap: () => _togglePlaylistPrivacy(playlist),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.visibility,
+                color: theme.colorScheme.secondary,
+              ),
+              title: const Text(
+                'View Playlist',
+                style: TextStyle(color: Colors.white),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _showPlaylistDialog(playlist);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _togglePlaylistPrivacy(Map<String, dynamic> playlist) async {
+    try {
+      Navigator.pop(context); // Close bottom sheet
+      
+      final newPrivacy = !(playlist['isPublic'] == true);
+      
+      await UserDataService.updatePlaylistPrivacy(
+        widget.userId,
+        playlist['id'],
+        newPrivacy,
+      );
+      
+      // Update local state
+      setState(() {
+        playlist['isPublic'] = newPrivacy;
+      });
+      
+      final theme = Theme.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newPrivacy 
+                ? 'Playlist is now public' 
+                : 'Playlist is now private',
+          ),
+          backgroundColor: theme.colorScheme.secondary,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update playlist privacy: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showPlaylistDialog(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.playlist_play,
+                      color: theme.colorScheme.secondary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            playlist['name'] ?? 'Untitled Playlist',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (playlist['description'] != null && playlist['description'].toString().isNotEmpty)
+                            Text(
+                              playlist['description'],
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              // Games list
+              Expanded(
+                child: _buildPlaylistGames(playlist),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaylistGames(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
+    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
+    
+    if (games.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.playlist_remove,
+              size: 64,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'This playlist is empty',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: games.length,
+      itemBuilder: (context, index) {
+        final game = games[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).pop(); // Close dialog first
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => GameDetailScreen(
+                    gameId: game['gameId'] ?? game['id'] ?? '',
+                  ),
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: game['coverImage'] != null && game['coverImage'].toString().isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: game['coverImage'],
+                            width: 50,
+                            height: 66,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                              width: 50,
+                              height: 66,
+                              color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+                                ),
+                              ),
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              width: 50,
+                              height: 66,
+                              color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                              child: Icon(
+                                Icons.videogame_asset,
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                size: 20,
+                              ),
+                            ),
+                          )
+                        : Container(
+                            width: 50,
+                            height: 66,
+                            color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                            child: Icon(
+                              Icons.videogame_asset,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                              size: 20,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          game['title'] ?? game['name'] ?? 'Unknown Game',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        if (game['developer'] != null && game['developer'].toString().isNotEmpty)
+                          Text(
+                            game['developer'],
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        if (game['releaseDate'] != null && game['releaseDate'].toString().isNotEmpty)
+                          Text(
+                            game['releaseDate'],
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.grey,
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: theme.colorScheme.surface,
           elevation: 0,
-          title: const Text(
+          title: Text(
             'User Profile',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(color: theme.colorScheme.onSurface),
           ),
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+            icon: Icon(Icons.arrow_back_ios, color: theme.colorScheme.onSurface),
             onPressed: () => Navigator.of(context).pop(),
           ),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator(color: theme.colorScheme.primary)),
       );
     }
 
     if (_userData == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: theme.colorScheme.surface,
           elevation: 0,
-          title: const Text(
+          title: Text(
             'User Profile',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(color: theme.colorScheme.onSurface),
           ),
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+            icon: Icon(Icons.arrow_back_ios, color: theme.colorScheme.onSurface),
             onPressed: () => Navigator.of(context).pop(),
           ),
         ),
-        body: const Center(
+        body: Center(
           child: Text(
             'User not found',
-            style: TextStyle(color: Colors.white, fontSize: 18),
+            style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 18),
           ),
         ),
       );
@@ -260,7 +611,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     debugPrint('Banner Image: $bannerImage');
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
         slivers: [
           _buildSliverAppBar(bannerImage, profileImage, displayName, username),
@@ -289,11 +640,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildSliverAppBar(String bannerImage, String profileImage, String displayName, String username) {
+    final theme = Theme.of(context);
+    
     return SliverAppBar(
       expandedHeight: 240,
       floating: false,
       pinned: true,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: theme.colorScheme.surface,
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           children: [
@@ -301,14 +654,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             Container(
               decoration: BoxDecoration(
                 gradient: (bannerImage.isEmpty)
-                    ? const LinearGradient(
+                    ? LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          Color(0xFF6366F1),
-                          Color(0xFF8B5CF6),
-                          Color(0xFFEC4899),
-                          Color(0xFFF59E0B),
+                          Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.secondary,
+                          Theme.of(context).colorScheme.tertiary ?? Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
                         ],
                       )
                     : null,
@@ -366,7 +719,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               placeholder: (context, url) => Center(
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                  valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
                                 ),
                               ),
                               errorWidget: (context, url, error) => _buildDefaultAvatar(displayName),
@@ -421,13 +774,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Widget _buildDefaultAvatar(String displayName) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF6366F1),
-            Color(0xFF8B5CF6),
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.secondary,
           ],
         ),
       ),
@@ -445,13 +798,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildStatsSection(int gamesPlayed, int reviewsWritten, double averageRating) {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -474,11 +829,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildStatItem(String value, String label, IconData icon) {
+    final theme = Theme.of(context);
+    
     return Column(
       children: [
         Icon(
           icon,
-          color: const Color(0xFF6366F1),
+          color: theme.colorScheme.primary,
           size: 20,
         ),
         const SizedBox(height: 6),
@@ -503,21 +860,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildStatDivider() {
+    final theme = Theme.of(context);
+    
     return Container(
       height: 32,
       width: 1,
-      color: const Color(0xFF374151),
+      color: theme.colorScheme.outline.withValues(alpha: 0.3),
     );
   }
 
   Widget _buildFavoriteGameSection() {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -549,81 +910,99 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
           const SizedBox(height: 12),
           if (_favoriteGame != null) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF374151),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF4B5563)),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: Image.network(
-                      _favoriteGame!.coverImage,
-                      width: 50,
-                      height: 66,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => GameDetailScreen(
+                      gameId: _favoriteGame!.id,
+                      initialGame: _favoriteGame,
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.network(
+                        _favoriteGame!.coverImage,
                         width: 50,
                         height: 66,
-                        color: const Color(0xFF6B7280),
-                        child: const Icon(
-                          Icons.videogame_asset,
-                          color: Colors.white54,
-                          size: 20,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 50,
+                          height: 66,
+                          color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                          child: Icon(
+                            Icons.videogame_asset,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _favoriteGame!.title,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        if (_favoriteGame!.releaseDate.isNotEmpty)
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            _favoriteGame!.releaseDate,
+                            _favoriteGame!.title,
                             style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.star,
-                              color: Color(0xFFFBBF24),
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
+                          const SizedBox(height: 4),
+                          if (_favoriteGame!.releaseDate.isNotEmpty)
                             Text(
-                              _favoriteGame!.averageRating.toStringAsFixed(1),
+                              _favoriteGame!.releaseDate,
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
+                                color: Colors.grey,
                               ),
                             ),
-                          ],
-                        ),
-                      ],
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.star,
+                                color: Color(0xFFFBBF24),
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _favoriteGame!.averageRating.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.grey,
+                      size: 16,
+                    ),
+                  ],
+                ),
               ),
             ),
           ] else ...[
@@ -631,9 +1010,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFF374151),
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF4B5563)),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
               ),
               child: const Column(
                 children: [
@@ -660,13 +1039,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildPlaylistsSection() {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -680,9 +1061,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.playlist_play,
-                color: Color(0xFF10B981),
+                color: theme.colorScheme.secondary,
                 size: 20,
               ),
               const SizedBox(width: 8),
@@ -697,8 +1078,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               const Spacer(),
               Text(
                 '${_userPlaylists.length}',
-                style: const TextStyle(
-                  color: Color(0xFF10B981),
+                style: TextStyle(
+                  color: theme.colorScheme.secondary,
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -713,49 +1094,74 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               itemCount: _userPlaylists.length,
               itemBuilder: (context, index) {
                 final playlist = _userPlaylists[index];
-                return Container(
-                  width: 120,
-                  margin: const EdgeInsets.only(right: 12),
-                  padding: const EdgeInsets.all(10), // Reduced padding from 12 to 10
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF374151),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF4B5563)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min, // Added to prevent overflow
-                    children: [
-                      Flexible( // Wrapped in Flexible to prevent overflow
-                        child: Text(
-                          playlist['name'] ?? 'Untitled',
+                return GestureDetector(
+                  onTap: () => _showPlaylistDialog(playlist),
+                  onLongPress: _isCurrentUser ? () => _showPlaylistOptions(playlist) : null,
+                  child: Container(
+                    width: 120,
+                    margin: const EdgeInsets.only(right: 12),
+                    padding: const EdgeInsets.all(10), // Reduced padding from 12 to 10
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min, // Added to prevent overflow
+                      children: [
+                        Row(
+                          children: [
+                            Flexible( // Wrapped in Flexible to prevent overflow
+                              child: Text(
+                                playlist['name'] ?? 'Untitled',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                                maxLines: 2, // Increased from 1 to 2 for better text display
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (_isCurrentUser) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                playlist['isPublic'] == true ? Icons.public : Icons.lock,
+                                size: 12,
+                                color: playlist['isPublic'] == true ? theme.colorScheme.secondary : theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${(playlist['games'] as List?)?.length ?? 0} games',
                           style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            fontSize: 10,
+                            color: Colors.grey,
                           ),
-                          maxLines: 2, // Increased from 1 to 2 for better text display
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${(playlist['games'] as List?)?.length ?? 0} games',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey,
+                        if (_isCurrentUser && playlist['isPublic'] != true)
+                          const Text(
+                            'Private',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        const Spacer(),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Icon(
+                            Icons.playlist_play,
+                            color: Theme.of(context).colorScheme.secondary,
+                            size: 16,
+                          ),
                         ),
-                      ),
-                      const Spacer(),
-                      const Align(
-                        alignment: Alignment.centerRight,
-                        child: Icon(
-                          Icons.playlist_play,
-                          color: Color(0xFF10B981),
-                          size: 16,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },
@@ -779,6 +1185,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildFriendshipButton() {
+    final theme = Theme.of(context);
+    
     switch (_friendshipStatus) {
       case FriendshipStatus.none:
         return ElevatedButton.icon(
@@ -792,12 +1200,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               : const Icon(Icons.person_add, size: 18),
           label: const Text('Send Friend Request'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.1),
-            foregroundColor: const Color(0xFF6366F1),
+            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+            foregroundColor: theme.colorScheme.primary,
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+              side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
             ),
             elevation: 0,
           ),
@@ -833,12 +1241,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     : const Icon(Icons.check, size: 18),
                 label: const Text('Accept'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.1),
-                  foregroundColor: const Color(0xFF10B981),
+                  backgroundColor: theme.colorScheme.secondary.withValues(alpha: 0.1),
+                  foregroundColor: theme.colorScheme.secondary,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    side: BorderSide(color: theme.colorScheme.secondary.withValues(alpha: 0.3)),
                   ),
                   elevation: 0,
                 ),
@@ -851,12 +1259,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 icon: const Icon(Icons.close, size: 18),
                 label: const Text('Decline'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.1),
-                  foregroundColor: const Color(0xFFEF4444),
+                  backgroundColor: theme.colorScheme.error.withValues(alpha: 0.1),
+                  foregroundColor: theme.colorScheme.error,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                    side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.3)),
                   ),
                   elevation: 0,
                 ),
@@ -876,12 +1284,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               : const Icon(Icons.person_remove, size: 18),
           label: const Text('Remove Friend'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.1),
-            foregroundColor: const Color(0xFFEF4444),
+            backgroundColor: theme.colorScheme.error.withValues(alpha: 0.1),
+            foregroundColor: theme.colorScheme.error,
             padding: const EdgeInsets.symmetric(vertical: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+              side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.3)),
             ),
             elevation: 0,
           ),
@@ -1024,13 +1432,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildFriendsSection(int followers, int following) {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -1042,11 +1452,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(
                 Icons.people,
-                color: Color(0xFF6366F1),
+                color: Theme.of(context).colorScheme.primary,
                 size: 20,
               ),
               SizedBox(width: 8),
@@ -1069,7 +1479,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               Container(
                 height: 32,
                 width: 1,
-                color: const Color(0xFF374151),
+                color: theme.colorScheme.outline.withValues(alpha: 0.3),
               ),
               Expanded(
                 child: _buildSocialStat('Following', following),
@@ -1091,7 +1501,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     : Icon(_isFollowing ? Icons.person_remove : Icons.person_add),
                 label: Text(_isFollowing ? 'Unfollow' : 'Follow'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _isFollowing ? Colors.grey[700] : const Color(0xFF8B5CF6),
+                  backgroundColor: _isFollowing ? theme.colorScheme.outline.withValues(alpha: 0.3) : theme.colorScheme.secondary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(

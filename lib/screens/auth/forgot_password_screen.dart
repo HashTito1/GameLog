@@ -92,16 +92,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment.topLeft,
             radius: 1.5,
             colors: [
-              Color(0xFF1F2937),
-              Color(0xFF111827),
-              Color(0xFF000000),
+              theme.colorScheme.surface,
+              theme.scaffoldBackgroundColor,
+              theme.scaffoldBackgroundColor.withValues(alpha: 0.8),
             ],
           ),
         ),
@@ -117,8 +119,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                     alignment: Alignment.centerLeft,
                     child: IconButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back_ios,
-                        color: Colors.white,
+                      icon: Icon(Icons.arrow_back_ios,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -130,19 +132,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                         _buildFloatingElement(
                           top: 50,
                           right: 30,
-                          color: const Color(0xFF8B5CF6),
+                          color: theme.colorScheme.primary,
                           size: 60,
                         ),
                         _buildFloatingElement(
                           top: 120,
                           left: 40,
-                          color: const Color(0xFF06D6A0),
+                          color: theme.colorScheme.secondary,
                           size: 40,
                         ),
                         _buildFloatingElement(
                           top: 200,
                           right: 80,
-                          color: const Color(0xFFF59E0B),
+                          color: theme.colorScheme.tertiary ?? theme.colorScheme.primary,
                           size: 30,
                         ),
                         
@@ -156,23 +158,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   // Title
-                                  const Text(
+                                  Text(
                                     'Forgot Password',
                                     style: TextStyle(
                                       fontSize: 32,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: theme.colorScheme.onSurface,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 16),
                                   
                                   // Subtitle
-                                  const Text(
+                                  Text(
                                     'Please enter your email address you\nregistered with before',
                                     style: TextStyle(
                                       fontSize: 16,
-                                      color: Colors.grey,
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                                       height: 1.5,
                                     ),
                                     textAlign: TextAlign.center,
@@ -194,13 +196,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                     child: TextFormField(
                                       controller: _emailController,
                                       keyboardType: TextInputType.emailAddress,
-                                      style: TextStyle(color: Colors.white, fontSize: 16),
+                                      style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 16),
                                       decoration: InputDecoration(
                                         labelText: 'Your email address',
-                                        labelStyle: TextStyle(color: Colors.grey),
-                                        prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
+                                        labelStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                                        prefixIcon: Icon(Icons.email_outlined, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
                                         filled: true,
-                                        fillColor: const Color(0xFF1F2937).withValues(alpha: 0.8),
+                                        fillColor: theme.colorScheme.surface.withValues(alpha: 0.8),
                                         border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(16),
                                           borderSide: BorderSide.none,
@@ -208,13 +210,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                         enabledBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(16),
                                           borderSide: BorderSide(
-                                            color: Colors.grey.withValues(alpha: 0.2),
+                                            color: theme.colorScheme.outline.withValues(alpha: 0.3),
                                           ),
                                         ),
                                         focusedBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(16),
-                                          borderSide: const BorderSide(
-                                            color: const Color(0xFF8B5CF6),
+                                          borderSide: BorderSide(
+                                            color: theme.colorScheme.primary,
                                             width: 2,
                                           ),
                                         ),
@@ -224,7 +226,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                             color: Colors.red,
                                           ),
                                         ),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                                       ),
                                       validator: (value) {
                                         if (value == null || value.isEmpty) {
@@ -245,14 +247,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                     height: 56,
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
-                                        colors: [const Color(0xFF8B5CF6), const Color(0xFF6366F1)],
+                                        colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
                                         begin: Alignment.centerLeft,
                                         end: Alignment.centerRight,
                                       ),
                                       borderRadius: BorderRadius.circular(16),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: const Color(0xFF8B5CF6).withValues(alpha: 0.3),
+                                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
                                           blurRadius: 20,
                                           offset: const Offset(0, 10),
                                         ),

@@ -26,7 +26,7 @@ A social platform for gamers to track, rate, and review games - like Letterboxd 
 - Material Design 3 with dark theme
 - Google Fonts for typography
 - Flutter Rating Bar for star ratings
-- RAWG API for real game data
+- IGDB API for comprehensive game data
 - Cached Network Image for optimized image loading
 
 ## Security & Privacy
@@ -37,7 +37,7 @@ GameLog prioritizes user security and data protection:
 - ✅ **No Local Password Storage**: Passwords never stored on devices
 - ✅ **Encrypted Data**: All communication uses HTTPS/TLS encryption
 - ✅ **Access Controls**: Firestore security rules protect user data
-- ✅ **No Hardcoded API Keys**: All external API keys via environment variables only
+- ✅ **Secure API Integration**: IGDB credentials properly managed
 - ✅ **Offline-First Design**: Full functionality without external dependencies
 - ✅ **Regular Updates**: Automatic security updates through GitHub releases
 
@@ -45,28 +45,47 @@ See [SECURITY.md](SECURITY.md) for detailed security information.
 
 ## API Integration
 
-GameLog uses the **RAWG API** for real game data:
+GameLog uses the **IGDB API** (Internet Game Database) for comprehensive game data:
 
-- **Pre-configured**: RAWG API key is built into the app
+- **Setup Required**: You'll need to configure IGDB API credentials
+- **Better Data**: More accurate and comprehensive game information than RAWG
+- **Higher Quality Images**: Better cover art and screenshots
 - **Real Game Data**: Fetches live game information, ratings, and metadata
-- **Comprehensive Database**: Access to 500,000+ games from RAWG.io
+- **Comprehensive Database**: Access to 500,000+ games from IGDB
 - **Automatic Caching**: Intelligent caching for better performance
-- **No Setup Required**: Just run `flutter run` and it works!
 
 ## Getting Started
 
-1. Make sure you have Flutter installed on your system
-2. Install dependencies:
+### Prerequisites
+- Flutter SDK installed on your system
+- Twitch Developer Account (for IGDB API access)
+
+### Setup Instructions
+
+1. **Install Dependencies**:
    ```bash
    flutter pub get
    ```
 
-3. Run the app:
+2. **Configure IGDB API** (Required):
+   - Follow the detailed setup guide in [IGDB_SETUP.md](IGDB_SETUP.md)
+   - Get your Twitch Client ID and Access Token
+   - Update `lib/services/igdb_service.dart` with your credentials
+
+3. **Test IGDB Connection**:
+   ```bash
+   dart run scripts/test_igdb_connection.dart
+   ```
+
+4. **Run the App**:
    ```bash
    flutter run
    ```
 
-The app is pre-configured with a RAWG API key and will automatically fetch real game data.
+### Important Notes
+- The app requires IGDB API credentials to fetch game data
+- Without proper API setup, the app will show configuration errors
+- See [IGDB_SETUP.md](IGDB_SETUP.md) for detailed setup instructions
 
 ## Project Structure
 
@@ -80,7 +99,7 @@ lib/
 │   ├── auth_user.dart
 │   └── user_rating.dart
 ├── services/                    # Services
-│   ├── rawg_service.dart        # RAWG API integration
+│   ├── igdb_service.dart        # IGDB API integration
 │   ├── firebase_auth_service.dart
 │   ├── rating_service.dart
 │   ├── library_service.dart

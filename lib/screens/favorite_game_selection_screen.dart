@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/game.dart';
-import '../services/rawg_service.dart';
+import '../services/igdb_service.dart';
 
 class FavoriteGameSelectionScreen extends StatefulWidget {
   const FavoriteGameSelectionScreen({super.key});
@@ -42,7 +42,7 @@ class _FavoriteGameSelectionScreenState extends State<FavoriteGameSelectionScree
     setState(() => _isLoading = true);
 
     try {
-      final games = await RAWGService.instance.searchGames(query);
+      final games = await IGDBService.instance.searchGames(query);
       
       if (mounted) {
         setState(() {

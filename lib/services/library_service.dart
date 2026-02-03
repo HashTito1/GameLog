@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game.dart';
-import 'rawg_service.dart';
+import 'igdb_service.dart';
 
 class LibraryService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -143,7 +143,7 @@ class LibraryService {
       // Merge library and rating data
       final mergedGames = <Map<String, dynamic>>[];
       final processedGameIds = <String>{};
-      final rawgService = RAWGService.instance;
+      final igdbService = IGDBService.instance;
       
       // Add library games with their ratings first
       for (final game in libraryGames) {
@@ -166,7 +166,7 @@ class LibraryService {
             debugPrint('🎮 Fetching missing details for library game: $gameId');
             
             try {
-              final gameDetails = await rawgService.getGameDetails(gameId);
+              final gameDetails = await igdbService.getGameDetails(gameId);
               if (gameDetails != null) {
                 mergedGame['gameTitle'] = gameDetails.title;
                 mergedGame['gameCoverImage'] = gameDetails.coverImage;
@@ -197,12 +197,12 @@ class LibraryService {
           // Fetch full game details from RAWG API
           Game? gameDetails;
           try {
-            gameDetails = await rawgService.getGameDetails(gameId);
+            gameDetails = await igdbService.getGameDetails(gameId);
           } catch (e) {
             debugPrint('❌ Failed to fetch game details for $gameId: $e');
           }
           
-          // Add as a rated game with full details if available
+          // Add as a completed game with rating (rated games are considered completed)
           mergedGames.add({
             'id': '${userId}_$gameId',
             'userId': userId,
@@ -215,7 +215,7 @@ class LibraryService {
             'gamePlatforms': gameDetails?.platforms ?? <String>[],
             'userRating': rating['rating'] ?? 0.0,
             'userReview': rating['review'],
-            'status': 'rated',
+            'status': 'completed', // Rated games are considered completed
             'dateAdded': _convertToMilliseconds(rating['createdAt']),
             'dateUpdated': _convertToMilliseconds(rating['updatedAt']),
           });
@@ -472,14 +472,46 @@ class LibraryService {
   // Remove game from library
   Future<void> removeGameFromLibrary(String userId, String gameId) async {
     try {
+      debugPrint('🗑️ Starting removal process for game: $gameId, user: $userId');
+      
       final libraryEntryId = '${userId}_$gameId';
+      
+      // Remove from both old and new structure
+      debugPrint('🗑️ Removing from old library structure...');
       await _firestore
           .collection(_libraryCollection)
           .doc(libraryEntryId)
           .delete();
       
+      debugPrint('🗑️ Removing from new library structure...');
+      // Remove from new structure (user's library subcollection)
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('library')
+          .doc(gameId)
+          .delete();
+      
+      debugPrint('🗑️ Removing from user ratings...');
+      // Remove from user's ratings subcollection
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('ratings')
+          .doc(gameId)
+          .delete();
+      
+      debugPrint('🗑️ Removing from global ratings...');
+      // Remove from global ratings collection
+      await _firestore
+          .collection('user_ratings')
+          .doc(libraryEntryId)
+          .delete();
+      
+      debugPrint('✅ Game removed from library successfully: $gameId');
     } catch (e) {
-      debugPrint('Error removing game from library: $e');
+      debugPrint('❌ Error removing game from library: $e');
+      debugPrint('❌ Stack trace: ${StackTrace.current}');
       throw Exception('Failed to remove game from library: $e');
     }
   }

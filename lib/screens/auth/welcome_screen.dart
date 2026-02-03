@@ -3,7 +3,9 @@ import 'login_screen.dart';
 import 'register_screen.dart';
 
 class WelcomeScreen extends StatefulWidget {
-  const WelcomeScreen({super.key});
+  final VoidCallback? onWelcomeComplete;
+  
+  const WelcomeScreen({super.key, this.onWelcomeComplete});
 
   @override
   State<WelcomeScreen> createState() => _WelcomeScreenState();
@@ -55,16 +57,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment.topCenter,
             radius: 1.2,
             colors: [
-              Color(0xFF1F2937),
-              Color(0xFF111827),
-              Color(0xFF000000),
+              theme.colorScheme.surface,
+              theme.scaffoldBackgroundColor,
+              theme.scaffoldBackgroundColor.withValues(alpha: 0.8),
             ],
           ),
         ),
@@ -80,28 +84,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                       _buildFloatingElement(
                         top: 100,
                         right: 30,
-                        color: const Color(0xFF8B5CF6),
+                        color: theme.colorScheme.primary,
                         size: 80,
                         delay: 0,
                       ),
                       _buildFloatingElement(
                         top: 200,
                         left: 40,
-                        color: const Color(0xFF06D6A0),
+                        color: theme.colorScheme.secondary,
                         size: 60,
                         delay: 500,
                       ),
                       _buildFloatingElement(
                         top: 350,
                         right: 60,
-                        color: const Color(0xFFF59E0B),
+                        color: theme.colorScheme.tertiary ?? theme.colorScheme.primary,
                         size: 40,
                         delay: 1000,
                       ),
                       _buildFloatingElement(
                         top: 450,
                         left: 80,
-                        color: const Color(0xFFEF4444),
+                        color: theme.colorScheme.error,
                         size: 30,
                         delay: 1500,
                       ),
@@ -122,63 +126,63 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                                     width: 200,
                                     height: 200,
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.1),
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(100),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.white.withValues(alpha: 0.1),
+                                          color: theme.colorScheme.primary.withValues(alpha: 0.2),
                                           blurRadius: 30,
                                           spreadRadius: 10,
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(Icons.videogame_asset,
+                                    child: Icon(Icons.videogame_asset,
                                       size: 100,
-                                      color: Colors.white,
+                                      color: theme.colorScheme.primary,
                                     ),
                                   ),
                                   const SizedBox(height: 40),
                                   
                                   // Title
-                                  const Text(
+                                  Text(
                                     'Never Get Bored',
                                     style: TextStyle(
                                       fontSize: 32,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: theme.colorScheme.onSurface,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 8),
-                                  const Text(
+                                  Text(
                                     'Game On the Go',
                                     style: TextStyle(
                                       fontSize: 24,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white,
+                                      color: theme.colorScheme.onSurface,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 8),
-                                  const Text(
+                                  Text(
                                     'Bet on the GO!',
                                     style: TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.w500,
-                                      color: Colors.white70,
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 32),
                                   
                                   // Description
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 24),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 24),
                                     child: Text(
                                       'Welcome to GameLog - Your ultimate gaming companion',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        color: Colors.grey,
+                                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                                         fontSize: 16,
                                       ),
                                     ),
@@ -221,6 +225,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                           ),
                           child: ElevatedButton(
                             onPressed: () {
+                              widget.onWelcomeComplete?.call();
                               Navigator.of(context).push(
                                 MaterialPageRoute(builder: (context) => const RegisterScreen()),
                               );
@@ -257,6 +262,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                             ),
                             GestureDetector(
                               onTap: () {
+                                widget.onWelcomeComplete?.call();
                                 Navigator.of(context).push(
                                   MaterialPageRoute(builder: (context) => const LoginScreen()),
                                 );

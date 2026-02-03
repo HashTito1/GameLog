@@ -5,7 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game.dart';
 import '../models/user_rating.dart';
-import '../services/rawg_service.dart';
+import '../services/igdb_service.dart';
 import '../services/rating_service.dart';
 import '../services/library_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -13,7 +13,10 @@ import '../services/recommendation_service.dart';
 import '../services/user_data_service.dart';
 import '../services/follow_service.dart';
 import '../services/event_bus.dart';
+import '../services/rating_interaction_service.dart';
 import 'game_ratings_screen.dart';
+import 'create_forum_post_screen.dart';
+// import 'rating_comments_screen.dart';
 
 class GameDetailScreen extends StatefulWidget {
   final String gameId;
@@ -54,18 +57,51 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   final TextEditingController _reviewController = TextEditingController();
   bool _isSubmittingRating = false;
   bool _isDescriptionExpanded = false;
+  
+  // Event subscriptions
+  StreamSubscription<LibraryUpdatedEvent>? _libraryUpdateSubscription;
 
   @override
   void initState() {
     super.initState();
     _game = widget.initialGame;
     _loadGameData();
+    _setupEventListeners();
   }
 
   @override
   void dispose() {
     _reviewController.dispose();
+    _libraryUpdateSubscription?.cancel();
     super.dispose();
+  }
+
+  void _setupEventListeners() {
+    _libraryUpdateSubscription = EventBus().on<LibraryUpdatedEvent>().listen((event) {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null && event.userId == currentUser.uid) {
+        // Reload library status when library is updated
+        _loadLibraryStatus();
+      }
+    });
+  }
+
+  Future<void> _loadLibraryStatus() async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser != null) {
+        final libraryEntry = await LibraryService.instance.getGameFromLibrary(currentUser.uid, widget.gameId);
+        final currentStatus = libraryEntry?['status'] as String?;
+        
+        if (mounted) {
+          setState(() {
+            _currentLibraryStatus = currentStatus;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading library status: $e');
+    }
   }
 
   Future<void> _loadGameData() async {
@@ -77,7 +113,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       // Load game details if not provided
       if (_game == null) {
         debugPrint('Game is null, fetching from RAWG API...');
-        _game = await RAWGService.instance.getGameDetails(widget.gameId);
+        _game = await IGDBService.instance.getGameDetails(widget.gameId);
         debugPrint('Fetched game: ${_game?.title ?? 'null'}');
       }
 
@@ -137,7 +173,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             // Convert user rating data to UserRating object if it exists
             if (userRating.isNotEmpty) {
               _userRating = UserRating(
-                id: userRating['id'] ?? '',
+                id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
                 gameId: userRating['gameId'] ?? widget.gameId,
                 userId: userRating['userId'] ?? currentUser.uid,
                 username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
@@ -203,7 +239,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         for (final ratingDoc in ratingsSnapshot.docs) {
           final data = ratingDoc.data();
           final rating = UserRating(
-            id: data['id'] ?? '',
+            id: data['id'] ?? '${userDoc.id}_$gameId',
             gameId: data['gameId'] ?? gameId,
             userId: data['userId'] ?? userDoc.id,
             username: data['username'] ?? 'user',
@@ -289,7 +325,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         await RatingService.instance.submitRating(
           gameId: widget.gameId,
           userId: currentUser.uid,
-          username: currentUser.email?.split('@')[0] ?? 'user',
+          username: currentUser.email != null ? currentUser.email!.split('@')[0] : 'user',
           rating: _selectedRating,
           review: _reviewController.text.trim().isEmpty ? null : _reviewController.text.trim(),
           gameTitle: _game!.title,
@@ -483,7 +519,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             // Convert user rating data to UserRating object if it exists
             if (userRating.isNotEmpty) {
               _userRating = UserRating(
-                id: userRating['id'] ?? '',
+                id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
                 gameId: userRating['gameId'] ?? widget.gameId,
                 userId: userRating['userId'] ?? currentUser.uid,
                 username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
@@ -724,7 +760,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         background: (_game?.coverImage?.isNotEmpty ?? false)
             ? CachedNetworkImage(
                 imageUrl: _game!.coverImage,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain, // Changed from cover to contain to show full image
                 placeholder: (context, url) => Container(
                   color: Colors.grey[800],
                   child: const Center(child: CircularProgressIndicator()),
@@ -744,6 +780,21 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
+        // Forum post button
+        IconButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => CreateForumPostScreen(
+                  gameId: widget.gameId,
+                  gameTitle: _game?.title,
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.forum, color: Colors.white),
+          tooltip: 'Create Forum Post',
+        ),
         // Favorite star button
         IconButton(
           onPressed: _isUpdatingFavorite ? null : _toggleFavorite,
@@ -1415,6 +1466,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final userProfile = _ratingUserProfiles[rating.userId];
     final displayName = userProfile?['displayName'] ?? userProfile?['username'] ?? 'User';
     final profileImage = userProfile?['profileImage'] ?? '';
+    final currentUser = FirebaseAuthService().currentUser;
+    final isLiked = currentUser != null && rating.likedBy.contains(currentUser.uid);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6), // Reduced from 8
@@ -1500,8 +1553,104 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               overflow: TextOverflow.ellipsis,
             ),
           ],
+          // Like and comment buttons
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              // Like button
+              GestureDetector(
+                onTap: currentUser != null ? () => _toggleRatingLike(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 14,
+                      color: isLiked ? Colors.red : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.likeCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Comment button
+              GestureDetector(
+                onTap: currentUser != null ? () => _openRatingComments(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.comment_outlined,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.commentCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _toggleRatingLike(UserRating rating) async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return;
+
+    try {
+      await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
+      
+      // Update the local rating data
+      await _updateRatingDataOnly();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(rating.likedBy.contains(currentUser.uid) ? 'Rating unliked!' : 'Rating liked!'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to toggle like: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _openRatingComments(UserRating rating) {
+    // Navigator.of(context).push(
+    //   MaterialPageRoute(
+    //     builder: (context) => RatingCommentsScreen(rating: rating),
+    //   ),
+    // ).then((_) {
+    //   // Refresh rating data when returning from comments screen
+    //   _updateRatingDataOnly();
+    // });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Comments feature temporarily disabled')),
     );
   }
 

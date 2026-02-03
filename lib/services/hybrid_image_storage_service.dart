@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'imgbb_storage_service.dart';
-import 'image_storage_service.dart';
 
 /// Cloud-only image storage service using ImgBB with caching
 class HybridImageStorageService {

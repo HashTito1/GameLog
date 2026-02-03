@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/user_rating.dart';
+import 'user_data_service.dart';
 
 class RatingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -29,11 +31,27 @@ class RatingService {
       final ratingId = '${userId}_$gameId';
       final now = DateTime.now();
       
+      // Get current user profile data for display name and profile image
+      String? displayName;
+      String? profileImage;
+      
+      try {
+        final userProfile = await UserDataService.getUserProfile(userId);
+        if (userProfile != null) {
+          displayName = userProfile['displayName'] ?? userProfile['username'];
+          profileImage = userProfile['profileImage'];
+        }
+      } catch (e) {
+        // Continue with original username if profile fetch fails
+      }
+      
       final userRating = UserRating(
         id: ratingId,
         gameId: gameId,
         userId: userId,
         username: username,
+        displayName: displayName,
+        profileImage: profileImage,
         rating: rating,
         review: review,
         createdAt: now,
@@ -259,7 +277,7 @@ class RatingService {
   }
 
   // Get top rated games
-  static Future<List<Map<String, dynamic>>> getTopRatedGames({int limit = 20}) async {
+  static Future<List<Map<String, dynamic>>> getTopRatedGames({int limit = 20, int minRatings = 1}) async {
     try {
       final querySnapshot = await _firestore
           .collection(_ratingsCollection)
@@ -283,7 +301,7 @@ class RatingService {
       final List<Map<String, dynamic>> topGames = [];
       
       gameRatings.forEach((gameId, ratings) {
-        if (ratings.length >= 3) { // Only include games with at least 3 ratings
+        if (ratings.length >= minRatings) { // Configurable minimum ratings requirement
           final average = ratings.reduce((a, b) => a + b) / ratings.length;
           topGames.add({
             'gameId': gameId,
@@ -293,18 +311,24 @@ class RatingService {
         }
       });
 
-      // Sort by average rating
-      topGames.sort((a, b) => b['averageRating'].compareTo(a['averageRating']));
+      // Sort by average rating (descending), then by total ratings (descending) for tie-breaking
+      topGames.sort((a, b) {
+        final ratingComparison = b['averageRating'].compareTo(a['averageRating']);
+        if (ratingComparison != 0) return ratingComparison;
+        return b['totalRatings'].compareTo(a['totalRatings']);
+      });
       
       return topGames.take(limit).toList();
     } catch (e) {
+      debugPrint('Error in getTopRatedGames: $e');
       return [];
     }
   }
 
   // Get all recent ratings from all users (for discover screen)
-  static Future<List<UserRating>> getAllRecentRatings({int limit = 50}) async {
+  static Future<List<UserRating>> getAllRecentRatings({int limit = 200}) async {
     try {
+      debugPrint('Fetching all recent ratings with limit: $limit');
       final querySnapshot = await _firestore
           .collection(_ratingsCollection)
           .orderBy('updatedAt', descending: true)
@@ -315,9 +339,132 @@ class RatingService {
           .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
+      debugPrint('Found ${ratings.length} total ratings in database');
       return ratings;
     } catch (e) {
+      debugPrint('Error in getAllRecentRatings: $e');
       return [];
+    }
+  }
+
+  // Get ALL community ratings (for comprehensive filtering) - OPTIMIZED
+  static Future<List<UserRating>> getAllCommunityRatings({int limit = 100}) async {
+    try {
+      debugPrint('Fetching community ratings with limit: $limit');
+      final querySnapshot = await _firestore
+          .collection(_ratingsCollection)
+          .orderBy('updatedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      final ratings = querySnapshot.docs
+          .map((doc) => UserRating.fromMap(doc.data()))
+          .toList();
+      
+      debugPrint('Found ${ratings.length} community ratings (limited for performance)');
+      return ratings;
+    } catch (e) {
+      debugPrint('Error in getAllCommunityRatings: $e');
+      return [];
+    }
+  }
+
+  // OPTIMIZED: Get top rated reviews directly from database
+  static Future<List<UserRating>> getTopRatedReviewsOptimized({int limit = 50}) async {
+    try {
+      debugPrint('Fetching top rated reviews directly from database...');
+      final querySnapshot = await _firestore
+          .collection(_ratingsCollection)
+          .where('rating', isGreaterThanOrEqualTo: 4.0)
+          .orderBy('rating', descending: true)
+          .orderBy('updatedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      final ratings = querySnapshot.docs
+          .map((doc) => UserRating.fromMap(doc.data()))
+          .toList();
+      
+      debugPrint('Found ${ratings.length} top rated reviews');
+      return ratings;
+    } catch (e) {
+      debugPrint('Error in getTopRatedReviewsOptimized: $e');
+      return [];
+    }
+  }
+
+  // OPTIMIZED: Get popular reviews (most liked) directly from database
+  static Future<List<UserRating>> getPopularReviewsOptimized({int limit = 50}) async {
+    try {
+      debugPrint('Fetching popular reviews directly from database...');
+      final querySnapshot = await _firestore
+          .collection(_ratingsCollection)
+          .where('likeCount', isGreaterThan: 0)
+          .orderBy('likeCount', descending: true)
+          .orderBy('updatedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      final ratings = querySnapshot.docs
+          .map((doc) => UserRating.fromMap(doc.data()))
+          .toList();
+      
+      debugPrint('Found ${ratings.length} popular reviews');
+      return ratings;
+    } catch (e) {
+      debugPrint('Error in getPopularReviewsOptimized: $e');
+      return [];
+    }
+  }
+
+  // Debug method to check database contents
+  static Future<Map<String, dynamic>> getDatabaseStats() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection(_ratingsCollection)
+          .get();
+
+      final Map<String, int> gameRatingCounts = {};
+      final Map<String, List<double>> gameRatings = {};
+      
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final gameId = data['gameId'] as String;
+        final rating = (data['rating'] ?? 0.0).toDouble();
+        
+        gameRatingCounts[gameId] = (gameRatingCounts[gameId] ?? 0) + 1;
+        if (!gameRatings.containsKey(gameId)) {
+          gameRatings[gameId] = [];
+        }
+        gameRatings[gameId]!.add(rating);
+      }
+
+      debugPrint('Database stats:');
+      debugPrint('Total ratings: ${querySnapshot.docs.length}');
+      debugPrint('Unique games: ${gameRatingCounts.length}');
+      
+      gameRatingCounts.forEach((gameId, count) {
+        final ratings = gameRatings[gameId]!;
+        final average = ratings.reduce((a, b) => a + b) / ratings.length;
+        debugPrint('Game $gameId: $count ratings, avg: ${average.toStringAsFixed(2)}');
+      });
+
+      return {
+        'totalRatings': querySnapshot.docs.length,
+        'uniqueGames': gameRatingCounts.length,
+        'gameRatingCounts': gameRatingCounts,
+        'gameAverages': gameRatings.map((gameId, ratings) => 
+          MapEntry(gameId, ratings.reduce((a, b) => a + b) / ratings.length)
+        ),
+      };
+    } catch (e) {
+      debugPrint('Error getting database stats: $e');
+      return {
+        'totalRatings': 0,
+        'uniqueGames': 0,
+        'gameRatingCounts': <String, int>{},
+        'gameAverages': <String, double>{},
+      };
     }
   }
 }

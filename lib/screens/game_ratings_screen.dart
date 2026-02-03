@@ -4,7 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_rating.dart';
 import '../services/rating_service.dart';
 import '../services/user_data_service.dart';
+import '../services/rating_interaction_service.dart';
+import '../services/firebase_auth_service.dart';
 import 'user_profile_screen.dart';
+// import 'rating_comments_screen.dart';
 
 class GameRatingsScreen extends StatefulWidget {
   final String gameId;
@@ -385,6 +388,57 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
               ),
             ),
           ],
+          // Like and comment buttons
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              // Like button
+              GestureDetector(
+                onTap: () => _toggleRatingLike(rating),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isRatingLiked(rating) ? Icons.favorite : Icons.favorite_border,
+                      size: 16,
+                      color: _isRatingLiked(rating) ? Colors.red : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.likeCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              // Comment button
+              GestureDetector(
+                onTap: () => _openRatingComments(rating),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.comment_outlined,
+                      size: 16,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.commentCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -405,6 +459,56 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     } else {
       return 'Just now';
     }
+  }
+
+  bool _isRatingLiked(UserRating rating) {
+    final currentUser = FirebaseAuthService().currentUser;
+    return currentUser != null && rating.likedBy.contains(currentUser.uid);
+  }
+
+  Future<void> _toggleRatingLike(UserRating rating) async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return;
+
+    try {
+      await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
+      
+      // Refresh the ratings to get updated like counts
+      _loadRatings();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isRatingLiked(rating) ? 'Rating unliked!' : 'Rating liked!'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to toggle like: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _openRatingComments(UserRating rating) {
+    // Navigator.of(context).push(
+    //   MaterialPageRoute(
+    //     builder: (context) => RatingCommentsScreen(rating: rating),
+    //   ),
+    // ).then((_) {
+    //   // Refresh ratings when returning from comments screen
+    //   _loadRatings();
+    // });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Comments feature temporarily disabled')),
+    );
   }
 }
 // Custom clipper for half stars

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/user_data_service.dart';
 import '../services/friends_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -215,21 +216,95 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     }
   }
 
+  Widget _buildProfileAvatar(Map<String, dynamic> user, {double radius = 24}) {
+    final profileImage = user['profileImage'] ?? '';
+    final displayName = user['displayName'] ?? user['username'] ?? 'U';
+    
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.transparent,
+      child: ClipOval(
+        child: profileImage.isNotEmpty
+            ? CachedNetworkImage(
+                imageUrl: profileImage,
+                width: radius * 2,
+                height: radius * 2,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  width: radius * 2,
+                  height: radius * 2,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF6366F1),
+                        Color(0xFF8B5CF6),
+                      ],
+                    ),
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: radius * 0.6,
+                      height: radius * 0.6,
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+                errorWidget: (context, url, error) => _buildDefaultAvatar(displayName, radius),
+              )
+            : _buildDefaultAvatar(displayName, radius),
+      ),
+    );
+  }
+
+  Widget _buildDefaultAvatar(String displayName, double radius) {
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF6366F1),
+            Color(0xFF8B5CF6),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+          style: TextStyle(
+            fontSize: radius * 0.8,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
-            _buildTabBar(),
-            if (_selectedTab == 'search') _buildSearchBar(),
+            _buildHeader(theme),
+            _buildTabBar(theme),
+            if (_selectedTab == 'search') _buildSearchBar(theme),
             Expanded(
               child: _isLoading
-                  ? const Center(
+                  ? Center(
                       child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                        valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
                       ),
                     )
                   : _buildTabContent(),
@@ -240,35 +315,35 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            icon: Icon(Icons.arrow_back, color: theme.colorScheme.onSurface),
           ),
           const SizedBox(width: 8),
-          const Text(
+          Text(
             'Friends',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           const Spacer(),
           IconButton(
             onPressed: _loadData,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(Icons.refresh, color: theme.colorScheme.onSurface),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(ThemeData theme) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -295,7 +370,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(ThemeData theme) {
     return Container(
       margin: const EdgeInsets.all(16),
       child: TextField(
@@ -535,19 +610,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
                 ),
               );
             },
-            child: CircleAvatar(
-              radius: 24,
-              backgroundColor: const Color(0xFF6366F1),
-              child: Text(
-                (friend['displayName'] ?? friend['username'] ?? 'U').toString().isNotEmpty 
-                    ? (friend['displayName'] ?? friend['username'] ?? 'U').toString()[0].toUpperCase() 
-                    : 'U',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            child: _buildProfileAvatar(friend),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -627,19 +690,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF6366F1),
-            child: Text(
-              (senderProfile['displayName'] ?? senderProfile['username'] ?? 'U').toString().isNotEmpty 
-                  ? (senderProfile['displayName'] ?? senderProfile['username'] ?? 'U').toString()[0].toUpperCase() 
-                  : 'U',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          _buildProfileAvatar(senderProfile),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -702,19 +753,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF6366F1),
-            child: Text(
-              (recipientProfile['displayName'] ?? recipientProfile['username'] ?? 'U').toString().isNotEmpty 
-                  ? (recipientProfile['displayName'] ?? recipientProfile['username'] ?? 'U').toString()[0].toUpperCase() 
-                  : 'U',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          _buildProfileAvatar(recipientProfile),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -772,19 +811,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
                 ),
               );
             },
-            child: CircleAvatar(
-              radius: 24,
-              backgroundColor: const Color(0xFF6366F1),
-              child: Text(
-                (user['displayName'] ?? user['username'] ?? 'U').toString().isNotEmpty 
-                    ? (user['displayName'] ?? user['username'] ?? 'U').toString()[0].toUpperCase() 
-                    : 'U',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            child: _buildProfileAvatar(user),
           ),
           const SizedBox(width: 12),
           Expanded(

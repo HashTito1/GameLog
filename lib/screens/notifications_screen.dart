@@ -253,48 +253,49 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final unreadCount = _notifications.where((n) => n.isUnread).length;
     
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: theme.colorScheme.surface,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'Notifications',
           style: TextStyle(
-            color: Colors.white,
+            color: theme.colorScheme.onSurface,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: theme.colorScheme.onSurface),
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
           if (unreadCount > 0)
             TextButton(
               onPressed: _markAllAsRead,
-              child: const Text(
+              child: Text(
                 'Mark all read',
                 style: TextStyle(
-                  color: Color(0xFF8B5CF6),
+                  color: theme.colorScheme.primary,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ),
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(Icons.refresh, color: theme.colorScheme.onSurface),
             onPressed: _loadNotifications,
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
               ),
             )
           : _notifications.isEmpty
@@ -314,29 +315,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    final theme = Theme.of(context);
+    
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             Icons.notifications_none,
             size: 80,
-            color: Color(0xFF9CA3AF),
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             'No notifications yet',
             style: TextStyle(
-              color: Color(0xFFA1A1AA),
+              color: theme.colorScheme.onSurface,
               fontSize: 18,
               fontWeight: FontWeight.w500,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'We\'ll notify you when something interesting happens',
             style: TextStyle(
-              color: Color(0xFF9CA3AF),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               fontSize: 14,
             ),
             textAlign: TextAlign.center,
@@ -347,16 +350,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildNotificationCard(NotificationItem notification) {
+    final theme = Theme.of(context);
+    
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: notification.isUnread 
-            ? const Color(0xFF1E293B).withValues(alpha: 0.8)
-            : const Color(0xFF1E293B).withValues(alpha: 0.4),
+            ? theme.colorScheme.surface.withValues(alpha: 0.8)
+            : theme.colorScheme.surface.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
         border: notification.isUnread
-            ? Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.3))
-            : null,
+            ? Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3))
+            : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
       ),
       child: Material(
         color: Colors.transparent,
@@ -474,7 +479,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       const SizedBox(width: 8),
                       IconButton(
                         onPressed: () {
-                          final senderProfile = notification.actionData['senderProfile'] ?? {};
                           final senderId = notification.actionData['fromUserId'];
                           if (senderId != null) {
                             Navigator.of(context).push(

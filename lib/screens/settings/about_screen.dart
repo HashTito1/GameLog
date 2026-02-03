@@ -397,87 +397,100 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'About',
-          style: TextStyle(fontSize: 18),
+          style: TextStyle(fontSize: 18, color: theme.colorScheme.onSurface),
         ),
-        backgroundColor: const Color(0xFF1F2937),
+        backgroundColor: theme.colorScheme.surface,
         elevation: 0,
         toolbarHeight: 50,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: theme.colorScheme.onSurface),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildAppInfo(),
+          _buildAppInfo(theme),
           const SizedBox(height: 24),
           _buildSection(
             title: 'App Information',
+            theme: theme,
             children: [
-              _buildInfoTile('Version', _versionInfo['version'] ?? '1.0.0'),
-              _buildInfoTile('Build Number', _versionInfo['buildNumber'] ?? '1'),
-              _buildInfoTile('Release Date', 'January 2025'),
-              _buildInfoTile('Platform', 'Flutter'),
-              _buildUpdateTile(),
+              _buildInfoTile('Version', _versionInfo['version'] ?? '1.0.0', theme),
+              _buildInfoTile('Build Number', _versionInfo['buildNumber'] ?? '1', theme),
+              _buildInfoTile('Release Date', 'January 2025', theme),
+              _buildInfoTile('Platform', 'Flutter', theme),
+              _buildUpdateTile(theme),
             ],
           ),
           const SizedBox(height: 24),
           _buildSection(
             title: 'Legal',
+            theme: theme,
             children: [
               _buildActionTile(
                 title: 'Terms of Service',
                 onTap: () => _showComingSoonDialog(context, 'Terms of Service'),
+                theme: theme,
               ),
               _buildActionTile(
                 title: 'Privacy Policy',
                 onTap: () => _showComingSoonDialog(context, 'Privacy Policy'),
+                theme: theme,
               ),
               _buildActionTile(
                 title: 'Open Source Licenses',
                 onTap: () => _showLicensePage(context),
+                theme: theme,
               ),
             ],
           ),
           const SizedBox(height: 24),
           _buildSection(
             title: 'Connect',
+            theme: theme,
             children: [
               _buildActionTile(
                 title: 'Website',
                 subtitle: 'Visit our website',
                 onTap: () => _showComingSoonDialog(context, 'Website'),
+                theme: theme,
               ),
               _buildActionTile(
                 title: 'Social Media',
                 subtitle: 'Follow us for updates',
                 onTap: () => _showComingSoonDialog(context, 'Social Media'),
+                theme: theme,
               ),
               _buildActionTile(
                 title: 'Rate the App',
                 subtitle: 'Help us improve',
                 onTap: () => _showComingSoonDialog(context, 'App Rating'),
+                theme: theme,
               ),
             ],
           ),
           const SizedBox(height: 32),
-          _buildFooter(),
+          _buildFooter(theme),
         ],
       ),
     );
   }
 
-  Widget _buildAppInfo() {
+  Widget _buildAppInfo(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -485,7 +498,7 @@ class _AboutScreenState extends State<AboutScreen> {
             width: 80,
             height: 80,
             decoration: BoxDecoration(
-              color: const Color(0xFF6366F1),
+              color: theme.colorScheme.primary,
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Icon(Icons.videogame_asset,
@@ -494,20 +507,20 @@ class _AboutScreenState extends State<AboutScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'GameLog',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Track, rate, and discover your favorite games',
             style: TextStyle(
               fontSize: 14,
-              color: Color(0xFF9CA3AF), // Using hex color instead of Colors.grey.shade400
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
             textAlign: TextAlign.center,
           ),
@@ -516,26 +529,26 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  Widget _buildSection({required String title, required List<Widget> children}) {
+  Widget _buildSection({required String title, required List<Widget> children, required ThemeData theme}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           child: Text(title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
         ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF1F2937),
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF374151), width: 0.5),
+            border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
           ),
           child: Column(
             children: [
@@ -545,7 +558,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 16),
                     height: 0.5,
-                    color: const Color(0xFF374151),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.3),
                   ),
               ],
             ],
@@ -555,7 +568,7 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  Widget _buildInfoTile(String title, String value) {
+  Widget _buildInfoTile(String title, String value, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
@@ -563,17 +576,17 @@ class _AboutScreenState extends State<AboutScreen> {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: Colors.white,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              color: Colors.grey,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               fontWeight: FontWeight.w400,
             ),
           ),
@@ -582,7 +595,7 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  Widget _buildUpdateTile() {
+  Widget _buildUpdateTile(ThemeData theme) {
     // Make entire row tappable for better UX
     return InkWell(
       onTap: _isCheckingForUpdates ? null : _checkForUpdates,
@@ -594,12 +607,12 @@ class _AboutScreenState extends State<AboutScreen> {
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Icon(
                 _isCheckingForUpdates ? Icons.refresh : Icons.system_update,
-                color: const Color(0xFF6366F1),
+                color: theme.colorScheme.primary,
                 size: 16,
               ),
             ),
@@ -613,33 +626,33 @@ class _AboutScreenState extends State<AboutScreen> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: _isCheckingForUpdates ? Colors.grey : Colors.white,
+                      color: _isCheckingForUpdates ? theme.colorScheme.onSurface.withValues(alpha: 0.6) : theme.colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
+                  Text(
                     'Check GitHub test branch for updates',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                 ],
               ),
             ),
             if (_isCheckingForUpdates)
-              const SizedBox(
+              SizedBox(
                 width: 16,
                 height: 16,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                  valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
                 ),
               )
             else
-              const Icon(
+              Icon(
                 Icons.chevron_right,
-                color: Color(0xFF9CA3AF),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                 size: 16,
               ),
           ],
@@ -652,43 +665,44 @@ class _AboutScreenState extends State<AboutScreen> {
     required String title,
     String? subtitle,
     required VoidCallback onTap,
+    required ThemeData theme,
   }) {
     return ListTile(
       title: Text(title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          color: Colors.white,
+          color: theme.colorScheme.onSurface,
         ),
       ),
       subtitle: subtitle != null
           ? Text(subtitle,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
+              style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
             )
           : null,
-      trailing: const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
+      trailing: Icon(Icons.chevron_right, color: theme.colorScheme.onSurface.withValues(alpha: 0.5), size: 20),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     );
   }
 
-  Widget _buildFooter() {
-    return const Column(
+  Widget _buildFooter(ThemeData theme) {
+    return Column(
       children: [
         Text(
           '© 2025 GameLog. All rights reserved.',
           style: TextStyle(
             fontSize: 12,
-            color: Color(0xFF6B7280), // Using hex color instead of Colors.grey.shade600
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
           textAlign: TextAlign.center,
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         Text(
           'Made with ❤️ for gamers',
           style: TextStyle(
             fontSize: 12,
-            color: Color(0xFF6B7280), // Using hex color instead of Colors.grey.shade600
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
           textAlign: TextAlign.center,
         ),
