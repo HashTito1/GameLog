@@ -213,53 +213,237 @@ class UpdateService {
             ElevatedButton.icon(
               onPressed: () async {
                 Navigator.of(context).pop();
+                
                 if (updateInfo.downloadUrl.isNotEmpty) {
-                  // Show loading dialog
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (context) => AlertDialog(
-                      backgroundColor: theme.colorScheme.surface,
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Downloading Update...',
-                            style: TextStyle(color: theme.colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                  
-                  final success = await downloadAndInstallUpdate(updateInfo.downloadUrl);
-                  
-                  if (context.mounted) {
-                    Navigator.of(context).pop(); // Close loading dialog
-                    
-                    if (!success) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('Download failed. Opening GitHub for manual download.'),
-                          backgroundColor: Colors.orange,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      );
-                    }
-                  }
+                  // Show instant download dialog with progress
+                  await _showDownloadDialog(context, updateInfo);
                 } else {
                   await openReleasesPage();
                 }
               },
               icon: const Icon(Icons.download, size: 18),
-              label: Text(updateInfo.downloadUrl.isEmpty ? 'View on GitHub' : 'Download'),
+              label: Text(updateInfo.downloadUrl.isEmpty ? 'View on GitHub' : 'Download Now'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  /// Show download dialog with real-time progress (public method)
+  Future<void> showDownloadDialog(BuildContext context, UpdateInfo updateInfo) async {
+    return _showDownloadDialog(context, updateInfo);
+  }
+
+  /// Show download dialog with real-time progress
+  Future<void> _showDownloadDialog(BuildContext context, UpdateInfo updateInfo) async {
+    double progress = 0.0;
+    String status = 'Preparing download...';
+    bool isCompleted = false;
+    bool hasError = false;
+    
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // Start download immediately when dialog opens
+            if (progress == 0.0 && !isCompleted && !hasError) {
+              Future.microtask(() async {
+                final success = await downloadAndInstallUpdate(
+                  updateInfo.downloadUrl,
+                  onProgress: (p) {
+                    if (dialogContext.mounted) {
+                      setState(() {
+                        progress = p;
+                      });
+                    }
+                  },
+                  onStatusChange: (s) {
+                    if (dialogContext.mounted) {
+                      setState(() {
+                        status = s;
+                        if (s.contains('Installation started')) {
+                          isCompleted = true;
+                        } else if (s.contains('Error') || s.contains('failed')) {
+                          hasError = true;
+                        }
+                      });
+                    }
+                  },
+                );
+                
+                if (dialogContext.mounted) {
+                  setState(() {
+                    if (success) {
+                      isCompleted = true;
+                      status = 'Installation started! Please install the APK.';
+                    } else {
+                      hasError = true;
+                      status = 'Download failed. Please try again or download manually.';
+                    }
+                  });
+                  
+                  // Auto-close dialog after 3 seconds if completed or failed
+                  Future.delayed(const Duration(seconds: 3), () {
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                  });
+                }
+              });
+            }
+            
+            final theme = Theme.of(context);
+            
+            return AlertDialog(
+              backgroundColor: theme.colorScheme.surface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: hasError 
+                          ? Colors.red 
+                          : isCompleted 
+                              ? Colors.green 
+                              : theme.colorScheme.primary,
+                    ),
+                    child: Icon(
+                      hasError 
+                          ? Icons.error 
+                          : isCompleted 
+                              ? Icons.check_circle 
+                              : Icons.download,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      hasError 
+                          ? 'Download Failed' 
+                          : isCompleted 
+                              ? 'Download Complete!' 
+                              : 'Downloading Update',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Progress indicator
+                  if (!isCompleted && !hasError) ...[
+                    LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.3),
+                      valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${(progress * 100).toInt()}%',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ] else if (isCompleted) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Download completed successfully!',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ] else if (hasError) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error, color: Colors.red, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Download failed',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // Status text
+                  Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Action buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (hasError) ...[
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(dialogContext).pop();
+                            openReleasesPage();
+                          },
+                          child: const Text('Open GitHub'),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: Text(isCompleted ? 'Done' : 'Cancel'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -450,22 +634,30 @@ Since this is a demo mode, please visit our GitHub repository to download the la
     }
   }
 
-  /// Download and install update (Android only)
-  Future<bool> downloadAndInstallUpdate(String downloadUrl) async {
+  /// Download and install update with progress callback (Android only)
+  Future<bool> downloadAndInstallUpdate(String downloadUrl, {
+    Function(double progress)? onProgress,
+    Function(String status)? onStatusChange,
+  }) async {
     try {
+      onStatusChange?.call('Preparing download...');
+      
       if (downloadUrl.isEmpty) {
         debugPrint('❌ No download URL provided - opening GitHub instead');
+        onStatusChange?.call('No download URL - opening GitHub');
         await openReleasesPage();
         return false;
       }
 
       if (!Platform.isAndroid) {
         debugPrint('❌ Auto-update only supported on Android');
+        onStatusChange?.call('Auto-update only supported on Android');
         await openReleasesPage();
         return false;
       }
 
       debugPrint('📥 Starting download from: $downloadUrl');
+      onStatusChange?.call('Checking download URL...');
       
       // Verify URL is accessible first
       final headResponse = await http.head(Uri.parse(downloadUrl)).timeout(
@@ -474,14 +666,18 @@ Since this is a demo mode, please visit our GitHub repository to download the la
       
       if (headResponse.statusCode != 200) {
         debugPrint('❌ Download URL not accessible: ${headResponse.statusCode}');
+        onStatusChange?.call('Download URL not accessible');
         await openReleasesPage();
         return false;
       }
+      
+      onStatusChange?.call('Requesting permissions...');
       
       // Request storage permission
       final permission = await Permission.storage.request();
       if (!permission.isGranted) {
         debugPrint('❌ Storage permission denied');
+        onStatusChange?.call('Storage permission denied');
         return false;
       }
 
@@ -489,31 +685,80 @@ Since this is a demo mode, please visit our GitHub repository to download the la
       final directory = await getExternalStorageDirectory();
       if (directory == null) {
         debugPrint('❌ Could not access storage directory');
+        onStatusChange?.call('Could not access storage');
         return false;
       }
 
       final filePath = '${directory.path}/gamelog_update.apk';
       final file = File(filePath);
 
-      // Download the APK
-      final response = await http.get(Uri.parse(downloadUrl)).timeout(
-        const Duration(minutes: 5),
-      );
-      
-      if (response.statusCode == 200) {
-        await file.writeAsBytes(response.bodyBytes);
-        debugPrint('✅ Download completed: $filePath');
+      onStatusChange?.call('Starting download...');
+      onProgress?.call(0.0);
 
-        // Install the APK
-        await _installApk(filePath);
-        return true;
-      } else {
+      // Create HTTP client for streaming download
+      final client = http.Client();
+      final request = http.Request('GET', Uri.parse(downloadUrl));
+      final response = await client.send(request);
+      
+      if (response.statusCode != 200) {
         debugPrint('❌ Download failed: ${response.statusCode}');
+        onStatusChange?.call('Download failed: ${response.statusCode}');
         await openReleasesPage();
         return false;
       }
+
+      // Get total file size
+      final totalBytes = response.contentLength ?? 0;
+      int downloadedBytes = 0;
+      
+      // Create file sink
+      final sink = file.openWrite();
+      
+      try {
+        // Stream download with progress updates
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          downloadedBytes += chunk.length;
+          
+          if (totalBytes > 0) {
+            final progress = downloadedBytes / totalBytes;
+            onProgress?.call(progress);
+            
+            final progressPercent = (progress * 100).toInt();
+            final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
+            final totalMB = (totalBytes / 1024 / 1024).toStringAsFixed(1);
+            
+            onStatusChange?.call('Downloading... $progressPercent% ($downloadedMB MB / $totalMB MB)');
+          } else {
+            final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
+            onStatusChange?.call('Downloading... $downloadedMB MB');
+          }
+        }
+        
+        await sink.flush();
+        await sink.close();
+        
+        debugPrint('✅ Download completed: $filePath');
+        onStatusChange?.call('Download completed! Installing...');
+        onProgress?.call(1.0);
+
+        // Install the APK
+        await _installApk(filePath);
+        onStatusChange?.call('Installation started');
+        return true;
+        
+      } catch (e) {
+        await sink.close();
+        debugPrint('❌ Download error: $e');
+        onStatusChange?.call('Download error: $e');
+        return false;
+      } finally {
+        client.close();
+      }
+      
     } catch (e) {
       debugPrint('❌ Error downloading update: $e');
+      onStatusChange?.call('Error: $e');
       // Fallback to GitHub
       await openReleasesPage();
       return false;
