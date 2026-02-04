@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user_rating.dart';
 import 'user_data_service.dart';
+import 'library_service.dart';
 
 class RatingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -252,6 +253,23 @@ class RatingService {
           .collection(_ratingsCollection)
           .doc(ratingId)
           .delete();
+      
+      // Also remove from user's ratings subcollection
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('ratings')
+          .doc(gameId)
+          .delete();
+      
+      // Remove the game from library since rating is deleted
+      try {
+        await LibraryService.instance.removeGameFromLibrary(userId, gameId);
+        debugPrint('✅ Game removed from library after rating deletion: $gameId');
+      } catch (e) {
+        debugPrint('⚠️ Failed to remove game from library after rating deletion: $e');
+        // Don't throw error here as rating deletion was successful
+      }
       
     } catch (e) {
       throw Exception('Failed to delete rating: $e');

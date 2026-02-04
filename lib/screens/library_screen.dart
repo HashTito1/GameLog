@@ -20,7 +20,6 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProviderStateMixin {
-  GameStatus? _selectedFilter;
   List<Map<String, dynamic>> _libraryGames = [];
   Map<String, dynamic> _libraryStats = {};
   bool _isLoading = true;
@@ -35,7 +34,6 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _selectedFilter = null; // Show all games by default
     _tabController = TabController(length: 2, vsync: this);
     
     // If we have an initial playlist ID, switch to playlists tab and expand it
@@ -121,7 +119,6 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
         child: Column(
           children: [
             _buildHeader(theme),
-            if (_libraryStats.isNotEmpty) _buildStats(theme),
             _buildTabBar(theme),
             Expanded(
               child: _isLoading
@@ -202,13 +199,48 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   Widget _buildGamesTab() {
     return Column(
       children: [
-        if (_libraryGames.isNotEmpty) _buildFilters(),
+        // Stats bar at the top
+        if (_libraryStats.isNotEmpty) _buildTopStatsBar(),
         Expanded(
           child: _libraryGames.isEmpty
               ? _buildEmptyState()
-              : _buildGamesList(),
+              : _buildHorizontalSectionsView(),
         ),
       ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.videogame_asset_outlined,
+            size: 64,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Games Yet',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Start building your game library\nby rating and reviewing games',
+            style: TextStyle(
+              fontSize: 14,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 
@@ -1041,159 +1073,6 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  void _showGameOptions(Map<String, dynamic> gameData) {
-    final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
-    
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E293B),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Icon(
-                  Icons.videogame_asset,
-                  color: const Color(0xFF6366F1),
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    gameTitle,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(
-                Icons.delete,
-                color: Colors.red,
-              ),
-              title: const Text(
-                'Remove from Library',
-                style: TextStyle(color: Colors.white),
-              ),
-              subtitle: const Text(
-                'This will remove the game and its rating from your library',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _showRemoveConfirmation(gameData);
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showRemoveConfirmation(Map<String, dynamic> gameData) {
-    final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
-    final gameId = gameData['gameId'] ?? '';
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        title: const Text(
-          'Remove Game',
-          style: TextStyle(color: Colors.white, fontSize: 18),
-        ),
-        content: Text(
-          'Are you sure you want to remove "$gameTitle" from your library? This will also delete your rating and review.',
-          style: const TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              
-              try {
-                final user = FirebaseAuthService().currentUser;
-                if (user != null && gameId.isNotEmpty) {
-                  debugPrint('🗑️ Attempting to remove game: $gameId for user: ${user.id}');
-                  
-                  await LibraryService.instance.removeGameFromLibrary(user.id, gameId);
-                  
-                  debugPrint('✅ Game removed successfully from database');
-                  
-                  if (mounted) {
-                    // Remove the game from local list immediately for better UX
-                    setState(() {
-                      _libraryGames.removeWhere((game) => game['gameId'] == gameId);
-                    });
-                    
-                    // Notify other parts of the app that library was updated
-                    EventBus().fire(LibraryUpdatedEvent(userId: user.id));
-                    
-                    // Use a post-frame callback to ensure the widget is still mounted
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('$gameTitle removed from library'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      }
-                    });
-                    
-                    // Refresh the library to ensure consistency
-                    _loadLibrary();
-                  }
-                }
-              } catch (e) {
-                debugPrint('❌ Error removing game: $e');
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to remove game: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _showAddGamesToPlaylistDialog(Map<String, dynamic> playlist) async {
     final searchController = TextEditingController();
     List<Game> searchResults = [];
@@ -1545,131 +1424,242 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildFilters() {
-    return Container(
-      height: 50, // Reduced height
-      padding: EdgeInsets.symmetric(vertical: 8), // Reduced padding
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: 12), // Reduced padding
+  Widget _buildHorizontalSectionsView() {
+    final theme = Theme.of(context);
+    
+    // Group games by status
+    final wantGames = _libraryGames.where((game) {
+      final status = game['status'] as String?;
+      final userRating = (game['userRating'] ?? 0.0).toDouble();
+      return (status == 'want_to_play' || status == 'planToPlay') && userRating == 0;
+    }).toList();
+    
+    final playingGames = _libraryGames.where((game) {
+      final status = game['status'] as String?;
+      return status == 'playing';
+    }).toList();
+    
+    final beatenGames = _libraryGames.where((game) {
+      final status = game['status'] as String?;
+      final userRating = (game['userRating'] ?? 0.0).toDouble();
+      return status == 'completed' || userRating > 0;
+    }).toList();
+    
+    final backlogGames = _libraryGames.where((game) {
+      final status = game['status'] as String?;
+      return status == 'backlog';
+    }).toList();
+    
+    final droppedGames = _libraryGames.where((game) {
+      final status = game['status'] as String?;
+      return status == 'dropped';
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildFilterChip('All', null),
-          ...GameStatus.values.map((status) => _buildFilterChip(status.displayName, status)),
+          if (wantGames.isNotEmpty)
+            _buildGameSection('Want', wantGames, Icons.bookmark_border, theme),
+          if (playingGames.isNotEmpty)
+            _buildGameSection('Playing', playingGames, Icons.play_circle_outline, theme),
+          if (beatenGames.isNotEmpty)
+            _buildGameSection('Beaten', beatenGames, Icons.check_circle_outline, theme),
+          if (backlogGames.isNotEmpty)
+            _buildGameSection('Backlog', backlogGames, Icons.schedule, theme),
+          if (droppedGames.isNotEmpty)
+            _buildGameSection('Dropped', droppedGames, Icons.cancel_outlined, theme),
+          
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String label, GameStatus? status) {
+  Widget _buildTopStatsBar() {
     final theme = Theme.of(context);
-    final isSelected = _selectedFilter == status;
+    
     return Container(
-      margin: const EdgeInsets.only(right: 8), // Reduced margin
-      child: FilterChip(
-        label: Text(label,
-          style: TextStyle(
-            fontSize: 12, // Smaller text
-            color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-        selected: isSelected,
-        onSelected: (selected) {
-          setState(() {
-            _selectedFilter = selected ? status : null;
-          });
-        },
-        backgroundColor: theme.colorScheme.surface,
-        selectedColor: theme.colorScheme.primary,
-        side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), // Reduced padding
-      ),
-    );
-  }
-
-  Widget _buildStats(ThemeData theme) {
-    final totalGames = _libraryStats['totalGames'] ?? 0;
-    final averageRating = (_libraryStats['averageRating'] ?? 0.0).toDouble();
-    final ratedGames = _libraryStats['ratedGames'] ?? 0;
-    final backlogGames = _libraryStats['backlogGames'] ?? 0;
-
-    return Container(
-      margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primary.withValues(alpha: 0.1),
+            theme.colorScheme.secondary.withValues(alpha: 0.05),
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.2),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _StatItem(number: totalGames.toString(), label: 'Games', theme: theme),
-          _StatItem(number: ratedGames.toString(), label: 'Rated', theme: theme),
-          _StatItem(number: backlogGames.toString(), label: 'Backlog', theme: theme),
-          _StatItem(number: averageRating.toStringAsFixed(1), label: 'Avg Rating', theme: theme),
+          _buildTopStatItem(
+            (_libraryStats['totalGames'] ?? 0).toString(),
+            'Games',
+            Icons.videogame_asset,
+            theme.colorScheme.primary,
+          ),
+          _buildStatDivider(theme),
+          _buildTopStatItem(
+            (_libraryStats['ratedGames'] ?? 0).toString(),
+            'Rated',
+            Icons.star,
+            const Color(0xFFFBBF24),
+          ),
+          _buildStatDivider(theme),
+          _buildTopStatItem(
+            (_libraryStats['backlogGames'] ?? 0).toString(),
+            'Backlog',
+            Icons.bookmark_border,
+            const Color(0xFF8B5CF6),
+          ),
+          _buildStatDivider(theme),
+          _buildTopStatItem(
+            (_libraryStats['averageRating'] ?? 0.0).toStringAsFixed(1),
+            'Avg Rating',
+            Icons.trending_up,
+            const Color(0xFF10B981),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildGamesList() {
-            final filteredGames = _selectedFilter == null 
-        ? _libraryGames 
-        : _libraryGames.where((game) {
-            final statusStr = game['status'] as String?;
-            final userRating = (game['userRating'] ?? 0.0).toDouble();
-            
-                        // Handle different status types
-            if (_selectedFilter == GameStatus.backlog) {
-              return statusStr == 'backlog';
-            } else if (_selectedFilter == GameStatus.completed) {
-              // Show games that are explicitly completed OR have a rating (rated games are considered completed)
-              return statusStr == 'completed' || userRating > 0;
-            } else if (_selectedFilter == GameStatus.rated) {
-              // Show ALL games that have a rating > 0, regardless of status
-              final hasRating = userRating > 0;
-                            return hasRating;
-            } else if (_selectedFilter == GameStatus.playing) {
-              return statusStr == 'playing';
-            } else if (_selectedFilter == GameStatus.dropped) {
-              return statusStr == 'dropped';
-            } else if (_selectedFilter == GameStatus.planToPlay) {
-              // Handle both 'want_to_play' (from game detail screen) and 'planToPlay' (enum name)
-              // BUT exclude games that have been rated (rated games are considered completed)
-              return (statusStr == 'want_to_play' || statusStr == 'planToPlay') && userRating == 0;
-            }
-            // Match stored status string with enum name
-            return statusStr == _selectedFilter!.name;
-          }).toList();
-
-        // Debug: Print filtered games
-    for (final _ in filteredGames) {
-          }
-
-    if (filteredGames.isEmpty) {
-      return _buildEmptyState(isFilterEmpty: true);
-    }
-
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: filteredGames.length,
-      itemBuilder: (context, index) {
-        final gameData = filteredGames[index];
-        return _buildGameItem(gameData);
-      },
+  Widget _buildTopStatItem(String value, String label, IconData icon, Color color) {
+    final theme = Theme.of(context);
+    
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 16,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildGameItem(Map<String, dynamic> gameData) {
-    final theme = Theme.of(context);
+  Widget _buildStatDivider(ThemeData theme) {
+    return Container(
+      height: 40,
+      width: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            theme.colorScheme.outline.withValues(alpha: 0.3),
+            Colors.transparent,
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGameSection(String title, List<Map<String, dynamic>> games, IconData icon, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${games.length}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  // Show all games in this category
+                  _showCategoryGames(title, games);
+                },
+                child: Text(
+                  'See all',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: games.length,
+            itemBuilder: (context, index) {
+              final game = games[index];
+              return _buildHorizontalGameCard(game, theme);
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildHorizontalGameCard(Map<String, dynamic> gameData, ThemeData theme) {
     final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
     final gameCoverImage = gameData['gameCoverImage'] ?? '';
-    final gameDeveloper = gameData['gameDeveloper'] ?? 'Unknown Developer';
     final userRating = (gameData['userRating'] ?? 0.0).toDouble();
-    final userReview = gameData['userReview'];
     final gameId = gameData['gameId'] ?? '';
-    final status = gameData['status'] ?? 'rated';
 
     return GestureDetector(
       onTap: () {
@@ -1683,17 +1673,176 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           );
         }
       },
-      onLongPress: () => _showGameOptions(gameData),
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: gameCoverImage.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: gameCoverImage,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: theme.colorScheme.surface,
+                            child: Icon(
+                              Icons.videogame_asset,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                              size: 32,
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: theme.colorScheme.surface,
+                            child: Icon(
+                              Icons.videogame_asset,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                              size: 32,
+                            ),
+                          ),
+                        )
+                      : Container(
+                          color: theme.colorScheme.surface,
+                          child: Icon(
+                            Icons.videogame_asset,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            size: 32,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              gameTitle,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (userRating > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    Icons.star,
+                    color: const Color(0xFFFBBF24),
+                    size: 12,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    userRating.toStringAsFixed(1),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCategoryGames(String category, List<Map<String, dynamic>> games) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _CategoryGamesScreen(
+          category: category,
+          games: games,
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryGamesScreen extends StatelessWidget {
+  final String category;
+  final List<Map<String, dynamic>> games;
+
+  const _CategoryGamesScreen({
+    required this.category,
+    required this.games,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: Text(
+          '$category (${games.length})',
+          style: TextStyle(
+            fontSize: 18,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        backgroundColor: theme.colorScheme.surface,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios, color: theme.colorScheme.onSurface),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: games.length,
+        itemBuilder: (context, index) {
+          final gameData = games[index];
+          return _buildFullGameItem(gameData, theme, context);
+        },
+      ),
+    );
+  }
+
+  Widget _buildFullGameItem(Map<String, dynamic> gameData, ThemeData theme, BuildContext context) {
+    final gameTitle = gameData['gameTitle'] ?? 'Unknown Game';
+    final gameCoverImage = gameData['gameCoverImage'] ?? '';
+    final gameDeveloper = gameData['gameDeveloper'] ?? 'Unknown Developer';
+    final userRating = (gameData['userRating'] ?? 0.0).toDouble();
+    final userReview = gameData['userReview'];
+    final gameId = gameData['gameId'] ?? '';
+
+    return GestureDetector(
+      onTap: () {
+        if (gameId.isNotEmpty) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => GameDetailScreen(
+                gameId: gameId,
+              ),
+            ),
+          );
+        }
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(10),
-          // Highlight selected category with border
-          border: _selectedFilter != null && _isGameInSelectedCategory(gameData)
-              ? Border.all(color: theme.colorScheme.primary, width: 2)
-              : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [
@@ -1757,128 +1906,27 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Show rating for rated games, status for others
-                  if (status == 'backlog') ...[
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _selectedFilter == GameStatus.backlog 
-                            ? const Color(0xFF6366F1).withValues(alpha: 0.3)
-                            : const Color(0xFF374151),
-                        borderRadius: BorderRadius.circular(12),
-                        border: _selectedFilter == GameStatus.backlog
-                            ? Border.all(color: const Color(0xFF6366F1), width: 1)
-                            : null,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.bookmark,
-                            color: _selectedFilter == GameStatus.backlog 
-                                ? Colors.white
-                                : const Color(0xFF6366F1),
-                            size: 14,
+                  if (userRating > 0) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ...List.generate(5, (index) {
+                          return Icon(
+                            index < userRating ? Icons.star : Icons.star_border,
+                            color: const Color(0xFFFBBF24),
+                            size: 16,
+                          );
+                        }),
+                        const SizedBox(width: 8),
+                        Text(
+                          userRating.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onSurface,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Backlog',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _selectedFilter == GameStatus.backlog 
-                                  ? Colors.white
-                                  : const Color(0xFF6366F1),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else if (userRating > 0) ...[
-                    // Show rating for both 'rated' and 'completed' games
-                    Container(
-                      padding: _selectedFilter == GameStatus.rated 
-                          ? EdgeInsets.all(4)
-                          : EdgeInsets.zero,
-                      decoration: _selectedFilter == GameStatus.rated
-                          ? BoxDecoration(
-                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFF6366F1), width: 1),
-                            )
-                          : null,
-                      child: Row(
-                        children: [
-                          ...List.generate(5, (index) {
-                            return Icon(
-                              index < userRating ? Icons.star : Icons.star_border,
-                              color: Color(0xFFFBBF24),
-                              size: 16,
-                            );
-                          }),
-                          const SizedBox(width: 8),
-                          Text(
-                            userRating.toStringAsFixed(1),
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          if (status == 'completed' || userRating > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: _selectedFilter == GameStatus.completed
-                                    ? const Color(0xFF6366F1).withValues(alpha: 0.4)
-                                    : const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
-                                border: _selectedFilter == GameStatus.completed
-                                    ? Border.all(color: const Color(0xFF6366F1), width: 1)
-                                    : null,
-                              ),
-                              child: Text(
-                                'Completed',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: _selectedFilter == GameStatus.completed
-                                      ? Colors.white
-                                      : const Color(0xFF6366F1),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (status != 'backlog' && userRating == 0) ...[
-                    // Show status for other non-rated games
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _isGameInSelectedCategory(gameData)
-                            ? const Color(0xFF6366F1).withValues(alpha: 0.3)
-                            : const Color(0xFF374151),
-                        borderRadius: BorderRadius.circular(12),
-                        border: _isGameInSelectedCategory(gameData)
-                            ? Border.all(color: const Color(0xFF6366F1), width: 1)
-                            : null,
-                      ),
-                      child: Text(
-                        GameStatus.values
-                            .firstWhere((s) => s.name == status, orElse: () => GameStatus.planToPlay)
-                            .displayName,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _isGameInSelectedCategory(gameData)
-                              ? Colors.white
-                              : Colors.grey,
-                          fontWeight: FontWeight.w600,
                         ),
-                      ),
+                      ],
                     ),
                   ],
                   if (userReview != null && userReview.isNotEmpty) ...[
@@ -1887,7 +1935,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       userReview,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                         fontStyle: FontStyle.italic,
                       ),
                       maxLines: 2,
@@ -1897,131 +1945,14 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 ],
               ),
             ),
-            // Add remove button
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
-              color: const Color(0xFF374151),
-              onSelected: (value) {
-                if (value == 'remove') {
-                  _showRemoveConfirmation(gameData);
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'remove',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete, color: Colors.red, size: 16),
-                      SizedBox(width: 8),
-                      Text('Remove from Library', style: TextStyle(color: Colors.white)),
-                    ],
-                  ),
-                ),
-              ],
+            Icon(
+              Icons.arrow_forward_ios,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              size: 16,
             ),
           ],
         ),
       ),
     );
   }
-
-  // Helper method to check if a game is in the selected category
-  bool _isGameInSelectedCategory(Map<String, dynamic> gameData) {
-    if (_selectedFilter == null) return false;
-    
-    final statusStr = gameData['status'] as String?;
-    final userRating = (gameData['userRating'] ?? 0.0).toDouble();
-    
-    if (_selectedFilter == GameStatus.backlog) {
-      return statusStr == 'backlog';
-    } else if (_selectedFilter == GameStatus.completed) {
-      // Show games that are explicitly completed OR have a rating (rated games are considered completed)
-      return statusStr == 'completed' || userRating > 0;
-    } else if (_selectedFilter == GameStatus.rated) {
-      return userRating > 0;
-    } else if (_selectedFilter == GameStatus.playing) {
-      return statusStr == 'playing';
-    } else if (_selectedFilter == GameStatus.dropped) {
-      return statusStr == 'dropped';
-    } else if (_selectedFilter == GameStatus.planToPlay) {
-      // Handle both 'want_to_play' (from game detail screen) and 'planToPlay' (enum name)
-      // BUT exclude games that have been rated (rated games are considered completed)
-      return (statusStr == 'want_to_play' || statusStr == 'planToPlay') && userRating == 0;
-    }
-    
-    return statusStr == _selectedFilter!.name;
-  }
-
-  Widget _buildEmptyState({bool isFilterEmpty = false}) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            isFilterEmpty ? Icons.filter_list_off : Icons.library_books_outlined,
-            size: 48,
-            color: Colors.grey.shade600,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isFilterEmpty ? 'No games found' : 'Your library is empty',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade300,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isFilterEmpty 
-                ? 'Try selecting a different filter' 
-                : 'Add games from the search tab to build your library',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
 }
-
-class _StatItem extends StatelessWidget {
-  final String number;
-  final String label;
-  final ThemeData theme;
-
-  const _StatItem({
-    required this.number,
-    required this.label,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          number,
-          style: TextStyle(
-            fontSize: 18, // Smaller text
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11, // Smaller text
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-
