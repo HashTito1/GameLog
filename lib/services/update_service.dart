@@ -55,7 +55,10 @@ class UpdateService {
   
   // Check if repository is configured
   static bool get _isRepositoryConfigured => 
-      _repoOwner != 'YOUR_GITHUB_USERNAME' && _repoName != 'YOUR_REPO_NAME';
+      _repoOwner != 'YOUR_GITHUB_USERNAME' && 
+      _repoName != 'YOUR_REPO_NAME' && 
+      _repoOwner.isNotEmpty && 
+      _repoName.isNotEmpty;
   
   // Singleton pattern
   static final UpdateService _instance = UpdateService._internal();
@@ -211,16 +214,50 @@ class UpdateService {
               onPressed: () async {
                 Navigator.of(context).pop();
                 if (updateInfo.downloadUrl.isNotEmpty) {
+                  // Show loading dialog
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => AlertDialog(
+                      backgroundColor: theme.colorScheme.surface,
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Downloading Update...',
+                            style: TextStyle(color: theme.colorScheme.onSurface),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                  
                   final success = await downloadAndInstallUpdate(updateInfo.downloadUrl);
-                  if (!success && context.mounted) {
-                    await openReleasesPage();
+                  
+                  if (context.mounted) {
+                    Navigator.of(context).pop(); // Close loading dialog
+                    
+                    if (!success) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Download failed. Opening GitHub for manual download.'),
+                          backgroundColor: Colors.orange,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    }
                   }
                 } else {
                   await openReleasesPage();
                 }
               },
               icon: const Icon(Icons.download, size: 18),
-              label: const Text('Download'),
+              label: Text(updateInfo.downloadUrl.isEmpty ? 'View on GitHub' : 'Download'),
             ),
           ],
         );
@@ -354,8 +391,8 @@ class UpdateService {
     // Demo response when repository is not configured - simulate update available
     return UpdateInfo(
       version: '1.2.0',
-      buildNumber: '5',
-      downloadUrl: 'https://github.com/HashTito1/GameLog/releases/download/v1.2.0/app-release.apk',
+      buildNumber: '6',
+      downloadUrl: '', // Empty URL will trigger GitHub fallback
       releaseNotes: '''🚀 GameLog v1.2.0 - Major Update!
 
 ✨ New Features:
@@ -374,7 +411,8 @@ class UpdateService {
 - Improved stability
 - Better error handling
 
-Download now to get the latest features!''',
+📥 Download Instructions:
+Since this is a demo mode, please visit our GitHub repository to download the latest release manually.''',
       releaseDate: DateTime.now().subtract(const Duration(days: 1)),
       isUpdateAvailable: true, // Force show update for demo
     );
@@ -415,12 +453,30 @@ Download now to get the latest features!''',
   /// Download and install update (Android only)
   Future<bool> downloadAndInstallUpdate(String downloadUrl) async {
     try {
+      if (downloadUrl.isEmpty) {
+        debugPrint('❌ No download URL provided - opening GitHub instead');
+        await openReleasesPage();
+        return false;
+      }
+
       if (!Platform.isAndroid) {
         debugPrint('❌ Auto-update only supported on Android');
+        await openReleasesPage();
         return false;
       }
 
       debugPrint('📥 Starting download from: $downloadUrl');
+      
+      // Verify URL is accessible first
+      final headResponse = await http.head(Uri.parse(downloadUrl)).timeout(
+        const Duration(seconds: 10),
+      );
+      
+      if (headResponse.statusCode != 200) {
+        debugPrint('❌ Download URL not accessible: ${headResponse.statusCode}');
+        await openReleasesPage();
+        return false;
+      }
       
       // Request storage permission
       final permission = await Permission.storage.request();
@@ -440,7 +496,10 @@ Download now to get the latest features!''',
       final file = File(filePath);
 
       // Download the APK
-      final response = await http.get(Uri.parse(downloadUrl));
+      final response = await http.get(Uri.parse(downloadUrl)).timeout(
+        const Duration(minutes: 5),
+      );
+      
       if (response.statusCode == 200) {
         await file.writeAsBytes(response.bodyBytes);
         debugPrint('✅ Download completed: $filePath');
@@ -450,10 +509,13 @@ Download now to get the latest features!''',
         return true;
       } else {
         debugPrint('❌ Download failed: ${response.statusCode}');
+        await openReleasesPage();
         return false;
       }
     } catch (e) {
       debugPrint('❌ Error downloading update: $e');
+      // Fallback to GitHub
+      await openReleasesPage();
       return false;
     }
   }
