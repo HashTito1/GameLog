@@ -6,6 +6,7 @@ import 'profile_screen.dart';
 import 'discover_screen.dart';
 import 'search_screen.dart';
 import 'forum_screen.dart';
+import '../services/update_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -37,6 +38,15 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
+    
+    // Check for updates after a short delay to let the UI settle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          UpdateService.instance.checkForUpdatesAndShowDialog(context);
+        }
+      });
+    });
   }
 
   @override

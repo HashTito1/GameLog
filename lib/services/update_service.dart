@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UpdateInfo {
   final String version;
@@ -46,6 +48,11 @@ class UpdateService {
   static const String _repoName = 'GameLog'; // Repository name
   static const String _branch = 'Update-test-branch'; // The test branch to check for updates
   
+  // Update check preferences
+  static const String _lastUpdateCheckKey = 'last_update_check';
+  static const String _skipVersionKey = 'skip_version';
+  static const Duration _updateCheckInterval = Duration(hours: 6); // Check every 6 hours
+  
   // Check if repository is configured
   static bool get _isRepositoryConfigured => 
       _repoOwner != 'YOUR_GITHUB_USERNAME' && _repoName != 'YOUR_REPO_NAME';
@@ -56,7 +63,207 @@ class UpdateService {
   UpdateService._internal();
   static UpdateService get instance => _instance;
 
-  /// Check for updates from the GitHub test branch
+  /// Automatically check for updates and show dialog if needed
+  Future<void> checkForUpdatesAndShowDialog(BuildContext context, {bool forceCheck = false}) async {
+    try {
+      // Check if we should skip this check
+      if (!forceCheck && !await _shouldCheckForUpdates()) {
+        return;
+      }
+
+      // Check for updates
+      final updateInfo = await checkForUpdates();
+      
+      if (updateInfo != null && updateInfo.isUpdateAvailable) {
+        // Check if user has skipped this version
+        final prefs = await SharedPreferences.getInstance();
+        final skippedVersion = prefs.getString(_skipVersionKey);
+        
+        if (!forceCheck && skippedVersion == updateInfo.version) {
+          debugPrint('⏭️ User has skipped version ${updateInfo.version}');
+          return;
+        }
+
+        // Show update dialog
+        if (context.mounted) {
+          await showUpdateDialogIfAvailable(context, updateInfo);
+        }
+      }
+
+      // Update last check time
+      await _updateLastCheckTime();
+    } catch (e) {
+      debugPrint('❌ Error in automatic update check: $e');
+    }
+  }
+
+  /// Check if we should perform an update check based on time interval
+  Future<bool> _shouldCheckForUpdates() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastCheckTime = prefs.getInt(_lastUpdateCheckKey);
+      
+      if (lastCheckTime == null) {
+        return true; // First time check
+      }
+      
+      final lastCheck = DateTime.fromMillisecondsSinceEpoch(lastCheckTime);
+      final now = DateTime.now();
+      
+      return now.difference(lastCheck) >= _updateCheckInterval;
+    } catch (e) {
+      debugPrint('Error checking update interval: $e');
+      return true; // Default to checking
+    }
+  }
+
+  /// Update the last check time
+  Future<void> _updateLastCheckTime() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_lastUpdateCheckKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      debugPrint('Error updating last check time: $e');
+    }
+  }
+
+  /// Show the update dialog
+  Future<void> showUpdateDialogIfAvailable(BuildContext context, UpdateInfo updateInfo) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        final theme = Theme.of(context);
+        
+        return AlertDialog(
+          backgroundColor: theme.colorScheme.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: theme.colorScheme.primary,
+                ),
+                child: const Icon(Icons.system_update, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Update Available!')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: theme.colorScheme.primary,
+                ),
+                child: Text(
+                  'Version ${updateInfo.version}',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Build: ${updateInfo.buildNumber}'),
+              Text('Released: ${_formatDate(updateInfo.releaseDate)}'),
+              if (updateInfo.releaseNotes.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text('What\'s New:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: theme.colorScheme.surface,
+                    border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    _formatReleaseNotes(updateInfo.releaseNotes),
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await skipVersion(updateInfo.version);
+                if (context.mounted) Navigator.of(context).pop();
+              },
+              child: const Text('Skip This Version'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Later'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                if (updateInfo.downloadUrl.isNotEmpty) {
+                  final success = await downloadAndInstallUpdate(updateInfo.downloadUrl);
+                  if (!success && context.mounted) {
+                    await openReleasesPage();
+                  }
+                } else {
+                  await openReleasesPage();
+                }
+              },
+              icon: const Icon(Icons.download, size: 18),
+              label: const Text('Download'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  String _formatReleaseNotes(String notes) {
+    return notes
+        .replaceAll(RegExp(r'#{1,6}\s*'), '')
+        .replaceAll(RegExp(r'\*\*(.*?)\*\*'), r'$1')
+        .replaceAll(RegExp(r'\*(.*?)\*'), r'$1')
+        .replaceAll(RegExp(r'`(.*?)`'), r'$1')
+        .replaceAll(RegExp(r'\n\s*\n'), '\n')
+        .trim();
+  }
+
+  /// Skip a specific version
+  Future<void> skipVersion(String version) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_skipVersionKey, version);
+      debugPrint('⏭️ Skipped version: $version');
+    } catch (e) {
+      debugPrint('Error skipping version: $e');
+    }
+  }
+
+  /// Clear skipped version (for testing or manual checks)
+  Future<void> clearSkippedVersion() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_skipVersionKey);
+      debugPrint('🗑️ Cleared skipped version');
+    } catch (e) {
+      debugPrint('Error clearing skipped version: $e');
+    }
+  }
   Future<UpdateInfo?> checkForUpdates() async {
     try {
       debugPrint('🔍 Checking for updates from GitHub test branch...');
@@ -144,14 +351,32 @@ class UpdateService {
 
   /// Create a demo update info for when repository is not configured
   UpdateInfo _createDemoUpdateInfo() {
-    // Demo response when repository is not configured  
+    // Demo response when repository is not configured - simulate update available
     return UpdateInfo(
-      version: '1.0.0',
-      buildNumber: '1',
-      downloadUrl: '',
-      releaseNotes: 'Repository not configured. Please set up GitHub repository information in UpdateService to enable real update checking.',
-      releaseDate: DateTime.now(),
-      isUpdateAvailable: false,
+      version: '1.2.0',
+      buildNumber: '5',
+      downloadUrl: 'https://github.com/HashTito1/GameLog/releases/download/v1.2.0/app-release.apk',
+      releaseNotes: '''🚀 GameLog v1.2.0 - Major Update!
+
+✨ New Features:
+- In-app update system with automatic checking
+- Enhanced UI with better animations
+- Improved performance and bug fixes
+- New social features and recommendations
+
+🔧 Performance Improvements:
+- Faster loading times
+- Better memory management
+- Optimized image caching
+
+🐛 Bug Fixes:
+- Fixed various UI issues
+- Improved stability
+- Better error handling
+
+Download now to get the latest features!''',
+      releaseDate: DateTime.now().subtract(const Duration(days: 1)),
+      isUpdateAvailable: true, // Force show update for demo
     );
   }
 
