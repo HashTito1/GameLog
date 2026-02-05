@@ -87,6 +87,7 @@ class ForumService {
   }) async {
     try {
       debugPrint('Fetching top-level posts from cloud storage...');
+      
       Query query = _firestore
           .collection(_postsCollection)
           .where('parentPostId', isNull: true)
@@ -109,7 +110,85 @@ class ForumService {
           .toList();
     } catch (e) {
       debugPrint('Error getting top level posts from cloud: $e');
-      return [];
+      
+      // Fallback to simpler query if indexes aren't deployed yet
+      try {
+        debugPrint('Trying fallback query without isPinned ordering...');
+        final querySnapshot = await _firestore
+            .collection(_postsCollection)
+            .where('parentPostId', isNull: true)
+            .orderBy('updatedAt', descending: true)
+            .limit(limit)
+            .get();
+        
+        final posts = querySnapshot.docs
+            .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+            .toList();
+        
+        // Sort pinned posts to the top manually
+        posts.sort((a, b) {
+          if (a.isPinned && !b.isPinned) return -1;
+          if (!a.isPinned && b.isPinned) return 1;
+          return b.updatedAt.compareTo(a.updatedAt);
+        });
+
+        return posts;
+      } catch (fallbackError) {
+        debugPrint('Fallback query also failed: $fallbackError');
+        return [];
+      }
+    }
+  }
+
+  // Get real-time stream of top-level posts
+  Stream<List<ForumPost>> getTopLevelPostsStream({
+    int limit = 20,
+    String? gameId,
+    List<String>? tags,
+  }) {
+    try {
+      Query query = _firestore
+          .collection(_postsCollection)
+          .where('parentPostId', isNull: true)
+          .orderBy('isPinned', descending: true)
+          .orderBy('updatedAt', descending: true);
+
+      if (gameId != null) {
+        query = query.where('gameId', isEqualTo: gameId);
+      }
+
+      if (tags != null && tags.isNotEmpty) {
+        query = query.where('tags', arrayContainsAny: tags);
+      }
+
+      return query.limit(limit).snapshots().map((snapshot) {
+        return snapshot.docs
+            .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+            .toList();
+      });
+    } catch (e) {
+      debugPrint('Error creating posts stream: $e');
+      // Return fallback stream
+      return _firestore
+          .collection(_postsCollection)
+          .where('parentPostId', isNull: true)
+          .orderBy('updatedAt', descending: true)
+          .limit(limit)
+          .snapshots()
+          .map((snapshot) {
+        final posts = snapshot.docs
+            .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+            .toList();
+        
+        // Sort pinned posts to the top manually
+        posts.sort((a, b) {
+          if (a.isPinned && !b.isPinned) return -1;
+          if (!a.isPinned && b.isPinned) return 1;
+          return b.updatedAt.compareTo(a.updatedAt);
+        });
+
+        return posts;
+      });
     }
   }
 
@@ -132,6 +211,35 @@ class ForumService {
       debugPrint('Error getting replies from cloud: $e');
       return [];
     }
+  }
+
+  // Get real-time stream of replies for a specific post
+  Stream<List<ForumPost>> getRepliesStream(String parentPostId, {int limit = 50}) {
+    return _firestore
+        .collection(_postsCollection)
+        .where('parentPostId', isEqualTo: parentPostId)
+        .orderBy('createdAt', descending: false)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  // Get real-time stream of a specific post
+  Stream<ForumPost?> getPostStream(String postId) {
+    return _firestore
+        .collection(_postsCollection)
+        .doc(postId)
+        .snapshots()
+        .map((doc) {
+      if (doc.exists && doc.data() != null) {
+        return ForumPost.fromMap(doc.data()!);
+      }
+      return null;
+    });
   }
 
   // Get a specific post by ID

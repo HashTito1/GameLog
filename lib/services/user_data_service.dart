@@ -1197,6 +1197,28 @@ class UserDataService {
     }
   }
 
+  // Get user profile by username
+  static Future<Map<String, dynamic>?> getUserProfileByUsername(String username) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection(_usersCollection)
+          .where('username', isEqualTo: username.toLowerCase())
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data();
+        data['userId'] = doc.id; // Add the document ID as userId
+        return data;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting user profile by username: $e');
+      return null;
+    }
+  }
+
   // Update username while preserving user ID
   static Future<bool> updateUsername(String userId, String newUsername) async {
     try {

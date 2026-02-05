@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
+import '../services/admin_service.dart';
+import '../services/firebase_auth_service.dart';
 import 'forum_post_detail_screen.dart';
 import 'create_forum_post_screen.dart';
 import 'user_profile_screen.dart';
@@ -16,14 +18,25 @@ class ForumScreen extends StatefulWidget {
 class _ForumScreenState extends State<ForumScreen> {
   List<ForumPost> _posts = [];
   bool _isLoading = true;
+  bool _isAdmin = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _checkAdminStatus();
     _loadPosts();
     _verifyCloudStorage();
+  }
+
+  Future<void> _checkAdminStatus() async {
+    final isAdmin = await AdminService.instance.isCurrentUserAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+      });
+    }
   }
 
   Future<void> _verifyCloudStorage() async {
@@ -68,6 +81,131 @@ class _ForumScreenState extends State<ForumScreen> {
       debugPrint('Error loading posts: $e');
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _toggleLike(ForumPost post) async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return;
+
+    try {
+      await ForumService.instance.toggleLike(post.id, currentUser.uid);
+      // Update the local post data immediately for better UX
+      final updatedPosts = _posts.map((p) {
+        if (p.id == post.id) {
+          final isLiked = p.likedBy.contains(currentUser.uid);
+          final newLikedBy = List<String>.from(p.likedBy);
+          if (isLiked) {
+            newLikedBy.remove(currentUser.uid);
+          } else {
+            newLikedBy.add(currentUser.uid);
+          }
+          return p.copyWith(
+            likedBy: newLikedBy,
+            likeCount: isLiked ? p.likeCount - 1 : p.likeCount + 1,
+          );
+        }
+        return p;
+      }).toList();
+      
+      if (mounted) {
+        setState(() {
+          _posts = updatedPosts;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to toggle like: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deletePost(ForumPost post) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Post'),
+        content: const Text('Are you sure you want to delete this post? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await AdminService.instance.deleteForumPost(post.id);
+        _loadPosts(); // Refresh the list
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Post deleted successfully')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete post: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _togglePin(ForumPost post) async {
+    try {
+      await ForumService.instance.togglePin(post.id);
+      _loadPosts(); // Refresh the list
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(post.isPinned ? 'Post unpinned' : 'Post pinned')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to ${post.isPinned ? 'unpin' : 'pin'} post: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleLock(ForumPost post) async {
+    try {
+      await ForumService.instance.toggleLock(post.id);
+      _loadPosts(); // Refresh the list
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(post.isLocked ? 'Post unlocked' : 'Post locked')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to ${post.isLocked ? 'unlock' : 'lock'} post: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
       }
     }
   }
@@ -183,6 +321,9 @@ class _ForumScreenState extends State<ForumScreen> {
   }
 
   Widget _buildPostItem(ForumPost post, ThemeData theme) {
+    final currentUser = FirebaseAuthService().currentUser;
+    final isLiked = currentUser != null && post.likedBy.contains(currentUser.uid);
+
     return GestureDetector(
       onTap: () async {
         final result = await Navigator.of(context).push(
@@ -254,6 +395,54 @@ class _ForumScreenState extends State<ForumScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (_isAdmin)
+                  PopupMenuButton<String>(
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'delete':
+                          _deletePost(post);
+                          break;
+                        case 'pin':
+                          _togglePin(post);
+                          break;
+                        case 'lock':
+                          _toggleLock(post);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'pin',
+                        child: Row(
+                          children: [
+                            Icon(post.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
+                            const SizedBox(width: 8),
+                            Text(post.isPinned ? 'Unpin' : 'Pin'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'lock',
+                        child: Row(
+                          children: [
+                            Icon(post.isLocked ? Icons.lock_open : Icons.lock),
+                            const SizedBox(width: 8),
+                            Text(post.isLocked ? 'Unlock' : 'Lock'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Delete', style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
             const SizedBox(height: 8),
@@ -327,12 +516,14 @@ class _ForumScreenState extends State<ForumScreen> {
                 ),
                 Row(
                   children: [
-                    Icon(
-                      Icons.favorite,
-                      size: 16,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    IconButton(
+                      onPressed: currentUser != null ? () => _toggleLike(post) : null,
+                      icon: Icon(
+                        isLiked ? Icons.favorite : Icons.favorite_border,
+                        size: 16,
+                        color: isLiked ? Colors.red : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
                     ),
-                    const SizedBox(width: 4),
                     Text(
                       post.likeCount.toString(),
                       style: TextStyle(

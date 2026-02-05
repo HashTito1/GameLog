@@ -130,6 +130,8 @@ class ThemeService extends ChangeNotifier {
         onPrimary: Colors.white,
         onSecondary: Colors.white,
         onSurface: config.textColor,
+        outline: config.secondaryTextColor,
+        surfaceContainerHighest: config.cardColor,
       ),
       scaffoldBackgroundColor: config.backgroundColor,
       cardColor: config.cardColor,
@@ -138,6 +140,8 @@ class ThemeService extends ChangeNotifier {
         foregroundColor: config.textColor,
         elevation: 0,
         centerTitle: false,
+        iconTheme: IconThemeData(color: config.textColor),
+        actionsIconTheme: IconThemeData(color: config.textColor),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -152,6 +156,15 @@ class ThemeService extends ChangeNotifier {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: config.primaryColor,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: config.primaryColor,
+          side: BorderSide(color: config.primaryColor),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -169,6 +182,8 @@ class ThemeService extends ChangeNotifier {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: config.primaryColor, width: 2),
         ),
+        labelStyle: TextStyle(color: config.secondaryTextColor),
+        hintStyle: TextStyle(color: config.secondaryTextColor),
       ),
       cardTheme: CardThemeData(
         color: config.surfaceColor,
@@ -178,8 +193,93 @@ class ThemeService extends ChangeNotifier {
           side: BorderSide(color: config.cardColor.withValues(alpha: 0.3)),
         ),
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: config.surfaceColor,
+        titleTextStyle: TextStyle(
+          color: config.textColor,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(
+          color: config.secondaryTextColor,
+          fontSize: 14,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: config.primaryColor,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return config.primaryColor;
+          }
+          return config.secondaryTextColor;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return config.primaryColor.withValues(alpha: 0.3);
+          }
+          return config.cardColor;
+        }),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: config.primaryColor,
+        linearTrackColor: config.cardColor,
+        circularTrackColor: config.cardColor,
+      ),
+      iconTheme: IconThemeData(
+        color: config.textColor,
+      ),
+      primaryIconTheme: IconThemeData(
+        color: config.primaryColor,
+      ),
+      dividerTheme: DividerThemeData(
+        color: config.cardColor,
+        thickness: 1,
+      ),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: config.surfaceColor,
+        selectedItemColor: config.primaryColor,
+        unselectedItemColor: config.secondaryTextColor,
+        type: BottomNavigationBarType.fixed,
+        elevation: 0,
+      ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: config.primaryColor,
+        unselectedLabelColor: config.secondaryTextColor,
+        indicatorColor: config.primaryColor,
+        dividerColor: config.cardColor,
+      ),
+      listTileTheme: ListTileThemeData(
+        textColor: config.textColor,
+        iconColor: config.textColor,
+        tileColor: config.surfaceColor,
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: config.cardColor,
+        labelStyle: TextStyle(color: config.textColor),
+        side: BorderSide(color: config.cardColor),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
     );
   }
+
+  // Helper methods for common theme colors
+  Color get starColor => const Color(0xFFFBBF24); // Keep gold for stars
+  Color get favoriteColor => const Color(0xFFEC4899); // Keep pink for favorites
+  Color get successColor => const Color(0xFF10B981); // Green for success
+  Color get warningColor => const Color(0xFFF59E0B); // Orange for warnings
+  Color get errorColor => const Color(0xFFEF4444); // Red for errors
 }
 
 class ThemeConfig {

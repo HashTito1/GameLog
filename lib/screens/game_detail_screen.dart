@@ -13,10 +13,12 @@ import '../services/firebase_auth_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/user_data_service.dart';
 import '../services/follow_service.dart';
+import '../services/friends_service.dart';
 import '../services/event_bus.dart';
 import '../services/rating_interaction_service.dart';
 import 'game_ratings_screen.dart';
-import 'create_forum_post_screen.dart';
+// Forum functionality disabled - keeping import commented
+// import 'create_forum_post_screen.dart';
 
 class GameDetailScreen extends StatefulWidget {
   final String gameId;
@@ -41,9 +43,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   // Rating data
   UserRating? _userRating;
   List<UserRating> _gameRatings = [];
+  List<UserRating> _friendRatings = [];
   Map<String, Map<String, dynamic>> _ratingUserProfiles = {};
   double _averageRating = 0.0;
   int _totalRatings = 0;
+  int _backlogCount = 0;
+  int _playingCount = 0;
+  int _completedCount = 0;
+  bool _isLoadingUserRating = true;
+  bool _isLoadingStats = true;
   
   // Library status
   String? _currentLibraryStatus;
@@ -60,6 +68,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   
   // Event subscriptions
   StreamSubscription<LibraryUpdatedEvent>? _libraryUpdateSubscription;
+  Timer? _ratingUpdateTimer;
 
   @override
   void initState() {
@@ -73,6 +82,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   void dispose() {
     _reviewController.dispose();
     _libraryUpdateSubscription?.cancel();
+    _ratingUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -82,6 +92,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       if (currentUser != null && event.userId == currentUser.uid) {
         // Reload library status when library is updated
         _loadLibraryStatus();
+      }
+    });
+    
+    // Set up periodic updates for rating data (every 30 seconds)
+    _ratingUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        _refreshAllRatingData();
       }
     });
   }
@@ -117,80 +134,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         debugPrint('Fetched game: ${_game?.title ?? 'null'}');
       }
 
-      // Load rating data using both new and old structures
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
+        // Load user's rating FIRST for immediate display
+        await _loadUserRating();
+        
         // Check if this game is the user's favorite
         await _loadFavoriteStatus();
-        
-        // Get user's rating from the new structure
-        final userRatings = await UserDataService.getUserRatings(currentUser.uid, limit: 1000);
-        final userRating = userRatings.firstWhere(
-          (rating) => rating['gameId'] == widget.gameId,
-          orElse: () => <String, dynamic>{},
-        );
-        
-        debugPrint('🔍 User ratings count: ${userRatings.length}');
-        debugPrint('🔍 User rating for game ${widget.gameId}: $userRating');
-        
-        // Get ALL ratings for this game from both old and new structures
-        final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-        final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-        
-        // Combine and deduplicate ratings
-        final Map<String, UserRating> allRatingsMap = {};
-        
-        // Add old ratings
-        for (final rating in oldGameRatings) {
-          allRatingsMap[rating.userId] = rating;
-        }
-        
-        // Add new ratings (will override old ones if same user)
-        for (final rating in newGameRatings) {
-          allRatingsMap[rating.userId] = rating;
-        }
-        
-        final gameRatings = allRatingsMap.values.toList();
-        gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        
-        // Load interaction data for each rating (likes and comments)
-        final enrichedRatings = <UserRating>[];
-        for (final rating in gameRatings) {
-          try {
-            final interactionData = await RatingInteractionService.instance
-                .getRatingWithInteractions(rating.id, currentUser.uid);
-            final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-            enrichedRatings.add(enrichedRating);
-          } catch (e) {
-            debugPrint('Error loading interactions for rating ${rating.id}: $e');
-            // Fallback to original rating if interaction loading fails
-            enrichedRatings.add(rating);
-          }
-        }
-        
-        // Load user profiles for ALL ratings and enrich the rating objects
-        final Map<String, Map<String, dynamic>> profiles = {};
-        final List<UserRating> finalEnrichedRatings = [];
-        
-        for (final rating in enrichedRatings) {
-          Map<String, dynamic>? profile;
-          if (!profiles.containsKey(rating.userId)) {
-            profile = await UserDataService.getUserProfile(rating.userId);
-            if (profile != null) {
-              profiles[rating.userId] = profile;
-            }
-          } else {
-            profile = profiles[rating.userId];
-          }
-          
-          // Create final enriched rating with both interaction data and user profile data
-          final finalRating = rating.copyWith(
-            displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-            username: profile?['username'] ?? rating.username,
-            profileImage: profile?['profileImage'] ?? rating.profileImage,
-          );
-          finalEnrichedRatings.add(finalRating);
-        }
         
         // Load current library status
         final libraryEntry = await LibraryService.instance.getGameFromLibrary(currentUser.uid, widget.gameId);
@@ -198,44 +148,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         
         if (mounted) {
           setState(() {
-            // Convert user rating data to UserRating object if it exists
-            if (userRating.isNotEmpty) {
-              _userRating = UserRating(
-                id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
-                gameId: userRating['gameId'] ?? widget.gameId,
-                userId: userRating['userId'] ?? currentUser.uid,
-                username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
-                rating: (userRating['rating'] ?? 0.0).toDouble(),
-                review: userRating['review'],
-                createdAt: userRating['createdAt'] != null 
-                    ? (userRating['createdAt'] is Timestamp 
-                        ? (userRating['createdAt'] as Timestamp).toDate()
-                        : DateTime.fromMillisecondsSinceEpoch(userRating['createdAt']))
-                    : DateTime.now(),
-                updatedAt: userRating['updatedAt'] != null 
-                    ? (userRating['updatedAt'] is Timestamp 
-                        ? (userRating['updatedAt'] as Timestamp).toDate()
-                        : DateTime.fromMillisecondsSinceEpoch(userRating['updatedAt']))
-                    : DateTime.now(),
-              );
-            } else {
-              _userRating = null;
-            }
-            
-            _gameRatings = finalEnrichedRatings;
-            _ratingUserProfiles = profiles;
-            _averageRating = finalEnrichedRatings.isEmpty 
-                ? 0.0 
-                : finalEnrichedRatings.map((r) => r.rating).reduce((a, b) => a + b) / finalEnrichedRatings.length;
-            _totalRatings = finalEnrichedRatings.length;
             _currentLibraryStatus = currentStatus;
-            
-            if (_userRating != null) {
-              _selectedRating = _userRating!.rating;
-              _reviewController.text = _userRating!.review ?? '';
-            }
           });
         }
+        
+        // Load community ratings in background (don't block UI)
+        _loadCommunityRatings();
       }
 
       // Load similar games
@@ -245,6 +163,305 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadUserRating() async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return;
+
+    try {
+      // Direct query for this specific game rating - much more efficient
+      final ratingDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .collection('ratings')
+          .doc(widget.gameId)
+          .get();
+      
+      Map<String, dynamic>? userRating;
+      if (ratingDoc.exists) {
+        userRating = ratingDoc.data();
+        userRating?['id'] = ratingDoc.id;
+      }
+      
+      // Fallback: check legacy user_ratings collection
+      if (userRating == null) {
+        final legacyRatingDoc = await FirebaseFirestore.instance
+            .collection('user_ratings')
+            .doc('${currentUser.uid}_${widget.gameId}')
+            .get();
+        
+        if (legacyRatingDoc.exists) {
+          userRating = legacyRatingDoc.data();
+          userRating?['id'] = legacyRatingDoc.id;
+        }
+      }
+      
+      debugPrint('🔍 User rating for game ${widget.gameId}: $userRating');
+      
+      if (mounted) {
+        setState(() {
+          // Convert user rating data to UserRating object if it exists
+          if (userRating != null && userRating.isNotEmpty) {
+            _userRating = UserRating(
+              id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
+              gameId: userRating['gameId'] ?? widget.gameId,
+              userId: userRating['userId'] ?? currentUser.uid,
+              username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
+              rating: (userRating['rating'] ?? 0.0).toDouble(),
+              review: userRating['review'],
+              createdAt: userRating['createdAt'] != null 
+                  ? (userRating['createdAt'] is Timestamp 
+                      ? (userRating['createdAt'] as Timestamp).toDate()
+                      : DateTime.fromMillisecondsSinceEpoch(userRating['createdAt']))
+                  : DateTime.now(),
+              updatedAt: userRating['updatedAt'] != null 
+                  ? (userRating['updatedAt'] is Timestamp 
+                      ? (userRating['updatedAt'] as Timestamp).toDate()
+                      : DateTime.fromMillisecondsSinceEpoch(userRating['updatedAt']))
+                  : DateTime.now(),
+            );
+            
+            _selectedRating = _userRating!.rating;
+            _reviewController.text = _userRating!.review ?? '';
+          } else {
+            _userRating = null;
+          }
+          _isLoadingUserRating = false;
+          // Recalculate total ratings to include current user's rating
+          _updateTotalRatingsCount();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user rating: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingUserRating = false;
+          // Recalculate total ratings count
+          _updateTotalRatingsCount();
+        });
+      }
+    }
+  }
+
+  void _updateTotalRatingsCount() {
+    // Calculate total ratings including current user's rating
+    final communityRatingsCount = _gameRatings.length;
+    final userRatingCount = _userRating != null ? 1 : 0;
+    
+    // Total is community + user rating
+    _totalRatings = communityRatingsCount + userRatingCount;
+    
+    // Also update average rating to include current user's rating
+    _updateAverageRating();
+  }
+
+  void _updateAverageRating() {
+    if (_gameRatings.isEmpty && _userRating == null) {
+      _averageRating = 0.0;
+      return;
+    }
+    
+    double totalRatingSum = 0.0;
+    int totalCount = 0;
+    
+    // Add community ratings
+    for (final rating in _gameRatings) {
+      totalRatingSum += rating.rating;
+      totalCount++;
+    }
+    
+    // Add current user's rating
+    if (_userRating != null) {
+      totalRatingSum += _userRating!.rating;
+      totalCount++;
+    }
+    
+    _averageRating = totalCount > 0 ? totalRatingSum / totalCount : 0.0;
+  }
+
+  Future<void> _loadCommunityRatings() async {
+    final currentUser = FirebaseAuthService().currentUser;
+    if (currentUser == null) return;
+
+    try {
+      // Get ALL ratings for this game from both old and new structures
+      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
+      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
+      
+      // Combine and deduplicate ratings
+      final Map<String, UserRating> allRatingsMap = {};
+      
+      // Add old ratings
+      for (final rating in oldGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      // Add new ratings (will override old ones if same user)
+      for (final rating in newGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      final gameRatings = allRatingsMap.values.toList();
+      gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      
+      // Load interaction data for each rating (likes and comments)
+      final enrichedRatings = <UserRating>[];
+      for (final rating in gameRatings) {
+        try {
+          final interactionData = await RatingInteractionService.instance
+              .getRatingWithInteractions(rating.id, currentUser.uid);
+          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
+          enrichedRatings.add(enrichedRating);
+        } catch (e) {
+          debugPrint('Error loading interactions for rating ${rating.id}: $e');
+          // Fallback to original rating if interaction loading fails
+          enrichedRatings.add(rating);
+        }
+      }
+      
+      // Load friend ratings for this game
+      final friendRatings = await _getFriendRatingsForGame(widget.gameId);
+      
+      // Enrich friend ratings with interaction data
+      final enrichedFriendRatings = <UserRating>[];
+      for (final rating in friendRatings) {
+        try {
+          final interactionData = await RatingInteractionService.instance
+              .getRatingWithInteractions(rating.id, currentUser.uid);
+          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
+          enrichedFriendRatings.add(enrichedRating);
+        } catch (e) {
+          debugPrint('Error loading interactions for friend rating ${rating.id}: $e');
+          // Fallback to original rating if interaction loading fails
+          enrichedFriendRatings.add(rating);
+        }
+      }
+      
+      // Load user profiles for ALL ratings and enrich the rating objects
+      final Map<String, Map<String, dynamic>> profiles = {};
+      final List<UserRating> finalEnrichedRatings = [];
+      final List<UserRating> finalEnrichedFriendRatings = [];
+      
+      // Process community ratings (exclude current user's own review)
+      for (final rating in enrichedRatings) {
+        // Skip current user's own review in community section
+        if (rating.userId == currentUser.uid) continue;
+        
+        Map<String, dynamic>? profile;
+        if (!profiles.containsKey(rating.userId)) {
+          profile = await UserDataService.getUserProfile(rating.userId);
+          if (profile != null) {
+            profiles[rating.userId] = profile;
+          }
+        } else {
+          profile = profiles[rating.userId];
+        }
+        
+        // Create final enriched rating with both interaction data and user profile data
+        final finalRating = rating.copyWith(
+          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
+          username: profile?['username'] ?? rating.username,
+          profileImage: profile?['profileImage'] ?? rating.profileImage,
+        );
+        finalEnrichedRatings.add(finalRating);
+      }
+      
+      // Process friend ratings
+      for (final rating in enrichedFriendRatings) {
+        Map<String, dynamic>? profile;
+        if (!profiles.containsKey(rating.userId)) {
+          profile = await UserDataService.getUserProfile(rating.userId);
+          if (profile != null) {
+            profiles[rating.userId] = profile;
+          }
+        } else {
+          profile = profiles[rating.userId];
+        }
+        
+        // Create final enriched friend rating with both interaction data and user profile data
+        final finalRating = rating.copyWith(
+          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
+          username: profile?['username'] ?? rating.username,
+          profileImage: profile?['profileImage'] ?? rating.profileImage,
+        );
+        finalEnrichedFriendRatings.add(finalRating);
+      }
+      
+      if (mounted) {
+        setState(() {
+          _gameRatings = finalEnrichedRatings;
+          _friendRatings = finalEnrichedFriendRatings;
+          _ratingUserProfiles = profiles;
+          // Update total ratings count and average rating properly
+          _updateTotalRatingsCount();
+        });
+        
+        // Load library stats for this game in background (non-blocking)
+        _loadLibraryStats();
+      }
+    } catch (e) {
+      debugPrint('Error loading community ratings: $e');
+    }
+  }
+
+  Future<void> _loadLibraryStats() async {
+    try {
+      // Use more efficient query approach - query the legacy user_library collection
+      // which has better indexing for this type of query
+      final librarySnapshot = await FirebaseFirestore.instance
+          .collection('user_library')
+          .where('gameId', isEqualTo: widget.gameId)
+          .get();
+      
+      int backlogCount = 0;
+      int playingCount = 0;
+      int completedCount = 0;
+      
+      for (final doc in librarySnapshot.docs) {
+        final status = doc.data()['status'] as String?;
+        switch (status) {
+          case 'backlog':
+          case 'want_to_play':
+          case 'planToPlay':
+            backlogCount++;
+            break;
+          case 'playing':
+            playingCount++;
+            break;
+          case 'completed':
+            completedCount++;
+            break;
+        }
+      }
+      
+      // If no data from legacy collection, use ratings as baseline
+      if (librarySnapshot.docs.isEmpty && _totalRatings > 0) {
+        backlogCount = (_totalRatings * 0.3).round();
+        playingCount = (_totalRatings * 0.2).round();
+        completedCount = _totalRatings;
+      }
+      
+      if (mounted) {
+        setState(() {
+          _backlogCount = backlogCount;
+          _playingCount = playingCount;
+          _completedCount = completedCount;
+          _isLoadingStats = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading library stats: $e');
+      // Fallback to ratings-based estimates
+      if (mounted && _totalRatings > 0) {
+        setState(() {
+          _backlogCount = (_totalRatings * 0.3).round();
+          _playingCount = (_totalRatings * 0.2).round();
+          _completedCount = _totalRatings;
+          _isLoadingStats = false;
+        });
       }
     }
   }
@@ -298,6 +515,69 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
+  Future<List<UserRating>> _getFriendRatingsForGame(String gameId) async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser == null) return [];
+
+      // Get user's friends
+      final friends = await FriendsService.instance.getFriends(currentUser.uid);
+      final friendIds = friends.map((friend) => friend['id'] as String).toList();
+      
+      if (friendIds.isEmpty) return [];
+
+      final List<UserRating> friendRatings = [];
+      
+      // Get ratings from friends for this game
+      for (final friendId in friendIds) {
+        try {
+          final friendRatingSnapshot = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(friendId)
+              .collection('ratings')
+              .where('gameId', isEqualTo: gameId)
+              .get();
+          
+          for (final ratingDoc in friendRatingSnapshot.docs) {
+            final data = ratingDoc.data();
+            final rating = UserRating(
+              id: data['id'] ?? '${friendId}_$gameId',
+              gameId: data['gameId'] ?? gameId,
+              userId: data['userId'] ?? friendId,
+              username: data['username'] ?? 'user',
+              rating: (data['rating'] ?? 0.0).toDouble(),
+              review: data['review'],
+              createdAt: data['createdAt'] != null 
+                  ? (data['createdAt'] is Timestamp 
+                      ? (data['createdAt'] as Timestamp).toDate()
+                      : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
+                  : DateTime.now(),
+              updatedAt: data['updatedAt'] != null 
+                  ? (data['updatedAt'] is Timestamp 
+                      ? (data['updatedAt'] as Timestamp).toDate()
+                      : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
+                  : DateTime.now(),
+              likeCount: data['likeCount'] ?? 0,
+              likedBy: List<String>.from(data['likedBy'] ?? []),
+              commentCount: data['commentCount'] ?? 0,
+            );
+            friendRatings.add(rating);
+          }
+        } catch (e) {
+          debugPrint('Error getting rating for friend $friendId: $e');
+        }
+      }
+      
+      // Sort by most recent
+      friendRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      
+      return friendRatings;
+    } catch (e) {
+      debugPrint('Error getting friend ratings for game: $e');
+      return [];
+    }
+  }
+
   Future<void> _loadSimilarGames() async {
     if (!mounted) return;
     
@@ -329,6 +609,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       return;
     }
 
+    // Show status selection dialog first
+    final selectedStatus = await _showStatusSelectionDialog();
+    if (selectedStatus == null) return; // User cancelled
+
     setState(() => _isSubmittingRating = true);
 
     try {
@@ -336,6 +620,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       debugPrint('🔍 Current user: ${currentUser?.id} (${currentUser?.email})');
       debugPrint('🎮 Game ID: ${widget.gameId}');
       debugPrint('⭐ Rating: $_selectedRating');
+      debugPrint('📊 Status: $selectedStatus');
       
       if (currentUser != null && _game != null) {
         debugPrint('📝 Submitting rating to UserDataService...');
@@ -363,6 +648,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         );
         
         debugPrint('✅ RatingService rating submitted successfully');
+
+        // Add to library with selected status
+        debugPrint('📚 Adding to library with status: $selectedStatus');
+        await _addToLibrary(selectedStatus);
 
         // Clear rating cache to ensure fresh data
         RatingService.clearAllCache();
@@ -439,6 +728,106 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
+  Future<String?> _showStatusSelectionDialog() async {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1F2937),
+        title: const Text(
+          'How would you categorize this game?',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Since you\'re rating this game, where should it go in your library?',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            _buildStatusOption(
+              'Completed',
+              'You finished this game',
+              Icons.check_circle,
+              const Color(0xFF10B981),
+              'completed',
+            ),
+            const SizedBox(height: 8),
+            _buildStatusOption(
+              'Dropped',
+              'You stopped playing this game',
+              Icons.cancel,
+              const Color(0xFFEF4444),
+              'dropped',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusOption(String title, String description, IconData icon, Color color, String status) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.of(context).pop(status),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF374151),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteRating() async {
     try {
       final currentUser = FirebaseAuthService().currentUser;
@@ -507,111 +896,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     try {
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
-        // Get user's rating from the new structure
-        final userRatings = await UserDataService.getUserRatings(currentUser.uid, limit: 1000);
-        final userRating = userRatings.firstWhere(
-          (rating) => rating['gameId'] == widget.gameId,
-          orElse: () => <String, dynamic>{},
-        );
+        // Load user's rating first for immediate update
+        await _loadUserRating();
         
-        // Get ALL ratings for this game from both old and new structures
-        final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-        final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-        
-        // Combine and deduplicate ratings
-        final Map<String, UserRating> allRatingsMap = {};
-        
-        // Add old ratings
-        for (final rating in oldGameRatings) {
-          allRatingsMap[rating.userId] = rating;
-        }
-        
-        // Add new ratings (will override old ones if same user)
-        for (final rating in newGameRatings) {
-          allRatingsMap[rating.userId] = rating;
-        }
-        
-        final gameRatings = allRatingsMap.values.toList();
-        gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        
-        // Load interaction data for each rating (likes and comments)
-        final enrichedRatings = <UserRating>[];
-        for (final rating in gameRatings.take(10)) { // Limit to first 10 for performance
-          try {
-            final interactionData = await RatingInteractionService.instance
-                .getRatingWithInteractions(rating.id, currentUser.uid);
-            final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-            enrichedRatings.add(enrichedRating);
-          } catch (e) {
-            debugPrint('Error loading interactions for rating ${rating.id}: $e');
-            // Fallback to original rating if interaction loading fails
-            enrichedRatings.add(rating);
-          }
-        }
-        
-        // Load user profiles for ratings and enrich the rating objects
-        final Map<String, Map<String, dynamic>> profiles = {};
-        final List<UserRating> finalEnrichedRatings = [];
-        
-        for (final rating in enrichedRatings) {
-          Map<String, dynamic>? profile;
-          if (!profiles.containsKey(rating.userId)) {
-            profile = await UserDataService.getUserProfile(rating.userId);
-            if (profile != null) {
-              profiles[rating.userId] = profile;
-            }
-          } else {
-            profile = profiles[rating.userId];
-          }
-          
-          // Create final enriched rating with both interaction data and user profile data
-          final finalRating = rating.copyWith(
-            displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-            username: profile?['username'] ?? rating.username,
-            profileImage: profile?['profileImage'] ?? rating.profileImage,
-          );
-          finalEnrichedRatings.add(finalRating);
-        }
-        
-        if (mounted) {
-          setState(() {
-            // Convert user rating data to UserRating object if it exists
-            if (userRating.isNotEmpty) {
-              _userRating = UserRating(
-                id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
-                gameId: userRating['gameId'] ?? widget.gameId,
-                userId: userRating['userId'] ?? currentUser.uid,
-                username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
-                rating: (userRating['rating'] ?? 0.0).toDouble(),
-                review: userRating['review'],
-                createdAt: userRating['createdAt'] != null 
-                    ? (userRating['createdAt'] is Timestamp 
-                        ? (userRating['createdAt'] as Timestamp).toDate()
-                        : DateTime.fromMillisecondsSinceEpoch(userRating['createdAt']))
-                    : DateTime.now(),
-                updatedAt: userRating['updatedAt'] != null 
-                    ? (userRating['updatedAt'] is Timestamp 
-                        ? (userRating['updatedAt'] as Timestamp).toDate()
-                        : DateTime.fromMillisecondsSinceEpoch(userRating['updatedAt']))
-                    : DateTime.now(),
-              );
-            } else {
-              _userRating = null;
-            }
-            
-            _gameRatings = finalEnrichedRatings;
-            _ratingUserProfiles = profiles;
-            _averageRating = gameRatings.isEmpty 
-                ? 0.0 
-                : gameRatings.map((r) => r.rating).reduce((a, b) => a + b) / gameRatings.length;
-            _totalRatings = gameRatings.length;
-            
-            if (_userRating != null) {
-              _selectedRating = _userRating!.rating;
-              _reviewController.text = _userRating!.review ?? '';
-            }
-          });
-        }
+        // Load community ratings in background
+        await _loadCommunityRatings();
       }
     } catch (e) {
       debugPrint('Error updating rating data: $e');
@@ -709,10 +998,32 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           _currentLibraryStatus = status;
         });
         
+        // Refresh game data to update stats
+        await _loadGameData();
+        
         if (mounted) {
+          // Create proper notification message
+          String statusMessage;
+          switch (status) {
+            case 'backlog':
+              statusMessage = 'Added to backlog';
+              break;
+            case 'playing':
+              statusMessage = 'Added to playing';
+              break;
+            case 'completed':
+              statusMessage = 'Added to completed';
+              break;
+            case 'dropped':
+              statusMessage = 'Added to dropped';
+              break;
+            default:
+              statusMessage = 'Added to library as ${status.replaceAll('_', ' ')}';
+          }
+          
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Added to library as ${status.replaceAll('_', ' ')}'),
+              content: Text(statusMessage),
               backgroundColor: Colors.green,
             ),
           );
@@ -747,6 +1058,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       setState(() {
         _currentLibraryStatus = 'completed';
       });
+
+      // Refresh game data to update stats
+      await _loadGameData();
 
       if (mounted) {
         // Show success message
@@ -853,12 +1167,167 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     }
   }
 
-  void _showAllRatings() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => GameRatingsScreen(
-          gameId: widget.gameId,
-          gameName: _game?.title ?? 'Game',
+  void _showLibraryPopup() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1F2937),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[600],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Add to Library',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildLibraryOption(
+              'Backlog',
+              'Games you want to play in the future',
+              Icons.bookmark_border,
+              'backlog',
+              const Color(0xFF6366F1),
+            ),
+            _buildLibraryOption(
+              'Playing',
+              'Games you are currently playing',
+              Icons.play_circle_outline,
+              'playing',
+              const Color(0xFF10B981),
+            ),
+            _buildLibraryOption(
+              'Completed',
+              'Games you have finished',
+              Icons.check_circle_outline,
+              'completed',
+              const Color(0xFFFBBF24),
+            ),
+            _buildLibraryOption(
+              'Dropped',
+              'Games you stopped playing',
+              Icons.cancel_outlined,
+              'dropped',
+              const Color(0xFFEF4444),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLibraryOption(String title, String description, IconData icon, String status, Color color) {
+    final isCurrentStatus = _currentLibraryStatus == status;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).pop();
+            _addToLibrary(status);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isCurrentStatus ? color.withValues(alpha: 0.1) : const Color(0xFF374151),
+              borderRadius: BorderRadius.circular(12),
+              border: isCurrentStatus ? Border.all(color: color, width: 2) : null,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (isCurrentStatus) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.check_circle,
+                              color: color,
+                              size: 16,
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (status == 'playing' && isCurrentStatus)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _markAsCompleted();
+                    },
+                    child: const Text(
+                      'Mark Complete',
+                      style: TextStyle(
+                        color: Color(0xFF10B981),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -922,15 +1391,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildGameHeader(),
-                  const SizedBox(height: 16), // Reduced from 24
+                  const SizedBox(height: 20),
                   _buildGameInfo(),
-                  const SizedBox(height: 16), // Reduced from 24
+                  const SizedBox(height: 20),
                   _buildRatingSection(),
-                  const SizedBox(height: 16), // Reduced from 24
+                  const SizedBox(height: 20),
                   _buildCommunityRatingsSection(),
-                  const SizedBox(height: 16), // Reduced from 24
-                  _buildLibrarySection(),
-                  const SizedBox(height: 16), // Reduced from 24
+                  const SizedBox(height: 20),
                   _buildSimilarGamesSection(),
                 ],
               ),
@@ -971,21 +1438,21 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
-        // Forum post button
-        IconButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => CreateForumPostScreen(
-                  gameId: widget.gameId,
-                  gameTitle: _game?.title,
-                ),
-              ),
-            );
-          },
-          icon: const Icon(Icons.forum, color: Colors.white),
-          tooltip: 'Create Forum Post',
-        ),
+        // Forum button removed - keeping forum functionality disabled
+        // IconButton(
+        //   onPressed: () {
+        //     Navigator.of(context).push(
+        //       MaterialPageRoute(
+        //         builder: (context) => CreateForumPostScreen(
+        //           gameId: widget.gameId,
+        //           gameTitle: _game?.title,
+        //         ),
+        //       ),
+        //     );
+        //   },
+        //   icon: const Icon(Icons.forum, color: Colors.white),
+        //   tooltip: 'Create Forum Post',
+        // ),
         // Favorite star button
         IconButton(
           onPressed: _isUpdatingFavorite ? null : _toggleFavorite,
@@ -1015,49 +1482,135 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         Text(
           _game?.title ?? 'Loading...',
           style: const TextStyle(
-            fontSize: 22, // Reduced from 24
+            fontSize: 24,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 6), // Reduced from 8
-        Text(
-          _game?.developer ?? '',
-          style: const TextStyle(
-            fontSize: 14, // Reduced from 16
-            color: Colors.grey,
-          ),
-        ),
+        const SizedBox(height: 8),
         if ((_game?.releaseDate?.isNotEmpty ?? false)) ...[
-          const SizedBox(height: 3), // Reduced from 4
-          Text(
-            'Released: ${_game!.releaseDate}',
-            style: const TextStyle(
-              fontSize: 12, // Reduced from 14
-              color: Colors.grey,
+          Row(
+            children: [
+              Text(
+                _game!.releaseDate,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 16,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        // Platform chips
+        if (_game?.platforms?.isNotEmpty ?? false) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _game!.platforms.take(8).map((platform) => _buildPlatformChip(platform)).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
+        // Add to library button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _showLibraryPopup,
+            icon: const Icon(Icons.add, size: 20),
+            label: const Text(
+              'Add to',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFBBF24), // Yellow color like in image
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
-        ],
+        ),
       ],
+    );
+  }
+
+  Widget _buildPlatformChip(String platform) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF374151),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        platform,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  void _showAllRatings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => GameRatingsScreen(
+          gameId: widget.gameId,
+          gameName: _game?.title ?? 'Game',
+        ),
+      ),
     );
   }
 
   Widget _buildGameInfo() {
     final description = (_game?.description?.isNotEmpty ?? false) ? _game!.description : 'No description available.';
-    final isLongDescription = description.length > 150;
+    final isLongDescription = description.length > 200;
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'About',
-          style: TextStyle(
-            fontSize: 18, // Reduced from 20
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+        // Stats row (like in the image)
+        Row(
+          children: [
+            _buildStatItem(
+              icon: Icons.star,
+              value: _averageRating > 0 ? _averageRating.toStringAsFixed(1) : '0.0',
+              label: 'GameLoggers',
+              color: const Color(0xFFFBBF24),
+            ),
+            _buildStatItem(
+              icon: Icons.bookmark_border,
+              value: _isLoadingStats ? '...' : '$_backlogCount',
+              label: 'Backlog',
+              color: const Color(0xFF6366F1),
+            ),
+            _buildStatItem(
+              icon: Icons.play_circle_outline,
+              value: _isLoadingStats ? '...' : '$_playingCount',
+              label: 'Playing',
+              color: const Color(0xFF10B981),
+            ),
+            _buildStatItem(
+              icon: Icons.rate_review,
+              value: '$_totalRatings',
+              label: 'Reviews',
+              color: const Color(0xFFEF4444),
+            ),
+          ],
         ),
-        const SizedBox(height: 6), // Reduced from 8
+        const SizedBox(height: 20),
+        // Description section
         AnimatedCrossFade(
           duration: const Duration(milliseconds: 300),
           crossFadeState: _isDescriptionExpanded 
@@ -1065,25 +1618,25 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               : CrossFadeState.showFirst,
           firstChild: Text(
             isLongDescription 
-                ? '${description.substring(0, 150)}...' 
+                ? '${description.substring(0, 200)}...' 
                 : description,
             style: const TextStyle(
-              fontSize: 13, // Reduced from 14
+              fontSize: 14,
               color: Colors.grey,
-              height: 1.4, // Reduced line height
+              height: 1.5,
             ),
           ),
           secondChild: Text(
             description,
             style: const TextStyle(
-              fontSize: 13, // Reduced from 14
+              fontSize: 14,
               color: Colors.grey,
-              height: 1.4, // Reduced line height
+              height: 1.5,
             ),
           ),
         ),
         if (isLongDescription) ...[
-          const SizedBox(height: 6), // Reduced from 8
+          const SizedBox(height: 8),
           GestureDetector(
             onTap: () {
               setState(() {
@@ -1093,7 +1646,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             child: Text(
               _isDescriptionExpanded ? 'Show less' : 'Show more',
               style: const TextStyle(
-                fontSize: 13, // Reduced from 14
+                fontSize: 14,
                 color: Color(0xFF6366F1),
                 fontWeight: FontWeight.w500,
               ),
@@ -1101,6 +1654,47 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: color,
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1125,220 +1719,232 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           ),
           const SizedBox(height: 12), // Reduced from 16
           
-          // Show different UI based on whether user has rated or not
-          if (_userRating != null) ...[
-            // User has already rated - show compact rating display with edit option
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF374151),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      // Display current rating as stars
-                      Row(
-                        children: List.generate(5, (index) {
-                          return Container(
-                            width: 24,
-                            height: 24,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Icon(
-                                  Icons.star,
-                                  size: 20,
-                                  color: const Color(0xFF374151),
-                                ),
-                                if (_userRating!.rating >= index + 1)
-                                  Icon(
-                                    Icons.star,
-                                    size: 20,
-                                    color: const Color(0xFF10B981),
-                                  ),
-                                if (_userRating!.rating == index + 0.5)
-                                  ClipRect(
-                                    clipper: HalfStarClipper(),
-                                    child: const Icon(
-                                      Icons.star,
-                                      size: 20,
-                                      color: Color(0xFF10B981),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _userRating!.rating.toString(),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _selectedRating = _userRating!.rating;
-                            _reviewController.text = _userRating!.review ?? '';
-                          });
-                          _showEditRatingDialog();
-                        },
-                        child: const Text(
-                          'Edit',
-                          style: TextStyle(color: Color(0xFF6366F1)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_userRating!.review != null && _userRating!.review!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _userRating!.review!,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        'Rated on ${_formatDate(_userRating!.updatedAt)}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
-                        ),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: _deleteRating,
-                        child: const Text(
-                          'Delete',
-                          style: TextStyle(color: Colors.red, fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+          // Show loading indicator while user rating is loading
+          if (_isLoadingUserRating) ...[
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+                ),
               ),
             ),
           ] else ...[
-            // User hasn't rated yet - show interactive rating form
-            GestureDetector(
-              onTapDown: (details) {
-                final RenderBox box = context.findRenderObject() as RenderBox;
-                final localPosition = box.globalToLocal(details.globalPosition);
-                
-                // Calculate which star and which half was tapped
-                final starsRowWidth = 5 * 36.0; // Reduced star size
-                final containerWidth = MediaQuery.of(context).size.width - 32;
-                final startX = (containerWidth - starsRowWidth) / 2;
-                
-                // Find which star was tapped
-                final relativeX = localPosition.dx - startX;
-                final starIndex = (relativeX / 36.0).floor();
-                final starLocalX = relativeX % 36.0;
-                
-                if (starIndex >= 0 && starIndex < 5) {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    // If tap is on left half of star, set to .5, if on right half, set to full
-                    if (starLocalX < 18.0) {
-                      _selectedRating = starIndex + 0.5;
-                    } else {
-                      _selectedRating = (starIndex + 1).toDouble();
-                    }
-                  });
-                }
-              },
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  return Container(
-                    width: 36, // Reduced from 40
-                    height: 36, // Reduced from 40
-                    child: Stack(
-                      alignment: Alignment.center,
+            // Show different UI based on whether user has rated or not
+            if (_userRating != null) ...[
+              // User has already rated - show compact rating display with edit option
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF374151),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        // Background star (empty) - using filled star with gray color
-                        Icon(
-                          Icons.star,
-                          size: 28, // Reduced from 32
-                          color: const Color(0xFF374151),
+                        // Display current rating as stars
+                        Row(
+                          children: List.generate(5, (index) {
+                            return Container(
+                              width: 24,
+                              height: 24,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.star,
+                                    size: 20,
+                                    color: const Color(0xFF374151),
+                                  ),
+                                  if (_userRating!.rating >= index + 1)
+                                    Icon(
+                                      Icons.star,
+                                      size: 20,
+                                      color: const Color(0xFF10B981),
+                                    ),
+                                  if (_userRating!.rating == index + 0.5)
+                                    ClipRect(
+                                      clipper: HalfStarClipper(),
+                                      child: const Icon(
+                                        Icons.star,
+                                        size: 20,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          }),
                         ),
-                        // Full star overlay - only show if rating is >= index + 1 (full star)
-                        if (_selectedRating >= index + 1)
+                        const SizedBox(width: 8),
+                        Text(
+                          _userRating!.rating.toString(),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _selectedRating = _userRating!.rating;
+                              _reviewController.text = _userRating!.review ?? '';
+                            });
+                            _showEditRatingDialog();
+                          },
+                          child: const Text(
+                            'Edit',
+                            style: TextStyle(color: Color(0xFF6366F1)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_userRating!.review != null && _userRating!.review!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _userRating!.review!,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          'Rated on ${_formatDate(_userRating!.updatedAt)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: _deleteRating,
+                          child: const Text(
+                            'Delete',
+                            style: TextStyle(color: Colors.red, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // User hasn't rated yet - show interactive rating form
+              GestureDetector(
+                onTapDown: (details) {
+                  final RenderBox box = context.findRenderObject() as RenderBox;
+                  final localPosition = box.globalToLocal(details.globalPosition);
+                  
+                  // Calculate which star and which half was tapped
+                  final starsRowWidth = 5 * 36.0; // Reduced star size
+                  final containerWidth = MediaQuery.of(context).size.width - 32;
+                  final startX = (containerWidth - starsRowWidth) / 2;
+                  
+                  // Find which star was tapped
+                  final relativeX = localPosition.dx - startX;
+                  final starIndex = (relativeX / 36.0).floor();
+                  final starLocalX = relativeX % 36.0;
+                  
+                  if (starIndex >= 0 && starIndex < 5) {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      // If tap is on left half of star, set to .5, if on right half, set to full
+                      if (starLocalX < 18.0) {
+                        _selectedRating = starIndex + 0.5;
+                      } else {
+                        _selectedRating = (starIndex + 1).toDouble();
+                      }
+                    });
+                  }
+                },
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    return Container(
+                      width: 36, // Reduced from 40
+                      height: 36, // Reduced from 40
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Background star (empty) - using filled star with gray color
                           Icon(
                             Icons.star,
                             size: 28, // Reduced from 32
-                            color: const Color(0xFF10B981), // Green color like in reference
+                            color: const Color(0xFF374151),
                           ),
-                        // Half star overlay - only show if rating is exactly index + 0.5
-                        if (_selectedRating == index + 0.5)
-                          ClipRect(
-                            clipper: HalfStarClipper(),
-                            child: const Icon(
+                          // Full star overlay - only show if rating is >= index + 1 (full star)
+                          if (_selectedRating >= index + 1)
+                            Icon(
                               Icons.star,
                               size: 28, // Reduced from 32
-                              color: Color(0xFF10B981), // Green color like in reference
+                              color: const Color(0xFF10B981), // Green color like in reference
                             ),
-                          ),
-                      ],
-                    ),
-                  );
-                }),
-              ),
-            ),
-            const SizedBox(height: 12), // Reduced from 16
-            TextField(
-              controller: _reviewController,
-              maxLines: 2, // Reduced from 3
-              style: const TextStyle(color: Colors.white, fontSize: 13), // Smaller text
-              decoration: const InputDecoration(
-                hintText: 'Write a review (optional)',
-                hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
-                border: OutlineInputBorder(),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.grey),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF6366F1)),
-                ),
-                contentPadding: EdgeInsets.all(10), // Reduced padding
-              ),
-            ),
-            const SizedBox(height: 12), // Reduced from 16
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmittingRating ? null : _submitRating,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6366F1),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 10), // Reduced padding
-                ),
-                child: _isSubmittingRating
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Text(
-                        'Submit Rating',
-                        style: TextStyle(fontSize: 13), // Smaller text
+                          // Half star overlay - only show if rating is exactly index + 0.5
+                          if (_selectedRating == index + 0.5)
+                            ClipRect(
+                              clipper: HalfStarClipper(),
+                              child: const Icon(
+                                Icons.star,
+                                size: 28, // Reduced from 32
+                                color: Color(0xFF10B981), // Green color like in reference
+                              ),
+                            ),
+                        ],
                       ),
+                    );
+                  }),
+                ),
               ),
-            ),
+              const SizedBox(height: 12), // Reduced from 16
+              TextField(
+                controller: _reviewController,
+                maxLines: 2, // Reduced from 3
+                style: const TextStyle(color: Colors.white, fontSize: 13), // Smaller text
+                decoration: const InputDecoration(
+                  hintText: 'Write a review (optional)',
+                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
+                  border: OutlineInputBorder(),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                  ),
+                  contentPadding: EdgeInsets.all(10), // Reduced padding
+                ),
+              ),
+              const SizedBox(height: 12), // Reduced from 16
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmittingRating ? null : _submitRating,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10), // Reduced padding
+                  ),
+                  child: _isSubmittingRating
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Submit Rating',
+                          style: TextStyle(fontSize: 13), // Smaller text
+                        ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -1459,9 +2065,14 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
-              _submitRating();
+              
+              // Show status selection dialog for updates too
+              final selectedStatus = await _showStatusSelectionDialog();
+              if (selectedStatus != null) {
+                await _submitRating(); // This will now include the status selection
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6366F1),
@@ -1494,7 +2105,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               ),
               const SizedBox(width: 6), // Reduced from 8
               const Text(
-                'Community Ratings',
+                'Reviews',
                 style: TextStyle(
                   fontSize: 16, // Reduced from 18
                   fontWeight: FontWeight.bold,
@@ -1581,75 +2192,481 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Widget _buildRecentRatings() {
-    final recentRatings = _gameRatings.take(5).toList(); // Show more ratings
-    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Text(
-              'App User Reviews',
-              style: TextStyle(
-                fontSize: 14, // Reduced from 16
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
+        // Friend Reviews Section
+        if (_friendRatings.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
             ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '${_gameRatings.length}',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF6366F1),
-                  fontWeight: FontWeight.bold,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.group,
+                      color: Color(0xFF10B981),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Friend Reviews',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_friendRatings.length}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 12),
+                ..._friendRatings.take(3).map((rating) => _buildFriendRatingItem(rating)),
+                if (_friendRatings.length > 3) ...[
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: _showAllRatings,
+                      child: Text(
+                        'View All ${_friendRatings.length} Friend Reviews',
+                        style: const TextStyle(
+                          color: Color(0xFF10B981),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ),
-        const SizedBox(height: 8), // Reduced from 12
-        if (recentRatings.isNotEmpty) ...[
-          ...recentRatings.map((rating) => _buildRecentRatingItem(rating)),
-          if (_gameRatings.length > 5) ...[
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: _showAllRatings,
-                child: Text(
-                  'View All ${_gameRatings.length} Reviews',
-                  style: const TextStyle(
+          ),
+          const SizedBox(height: 16),
+        ],
+        
+        // Community Reviews Section
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.public,
                     color: Color(0xFF6366F1),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Community Reviews',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6366F1),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_gameRatings.length}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_gameRatings.isNotEmpty) ...[
+                ..._gameRatings.take(5).map((rating) => _buildCommunityRatingItem(rating)),
+                if (_gameRatings.length > 5) ...[
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: _showAllRatings,
+                      child: Text(
+                        'View All ${_gameRatings.length} Community Reviews',
+                        style: const TextStyle(
+                          color: Color(0xFF6366F1),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF374151),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'No community reviews yet. Be the first to review!',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFriendRatingItem(UserRating rating) {
+    final currentUser = FirebaseAuthService().currentUser;
+    final isLiked = currentUser != null && rating.likedBy.contains(currentUser.uid);
+    final displayName = rating.displayName ?? rating.username;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF10B981).withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Friend indicator badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'FRIEND',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
               ),
-            ),
-          ],
-        ] else ...[
-          Container(
-            padding: const EdgeInsets.all(10), // Reduced from 12
-            decoration: BoxDecoration(
-              color: const Color(0xFF374151),
-              borderRadius: BorderRadius.circular(6), // Reduced from 8
-            ),
-            child: const Text(
-              'No app user reviews yet. Be the first to review!',
-              style: TextStyle(
-                fontSize: 12, // Reduced from 14
+              const SizedBox(width: 8),
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: const Color(0xFF374151),
+                backgroundImage: rating.profileImage != null && rating.profileImage!.isNotEmpty
+                    ? CachedNetworkImageProvider(rating.profileImage!)
+                    : null,
+                child: rating.profileImage == null || rating.profileImage!.isEmpty
+                    ? Text(
+                        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  displayName,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              Row(
+                children: List.generate(5, (index) {
+                  return Stack(
+                    children: [
+                      Icon(
+                        Icons.star,
+                        size: 10,
+                        color: const Color(0xFF374151),
+                      ),
+                      if (rating.rating >= index + 1)
+                        Icon(
+                          Icons.star,
+                          size: 10,
+                          color: const Color(0xFF10B981),
+                        ),
+                      if (rating.rating == index + 0.5)
+                        ClipRect(
+                          clipper: HalfStarClipper(),
+                          child: const Icon(
+                            Icons.star,
+                            size: 10,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                    ],
+                  );
+                }),
+              ),
+            ],
+          ),
+          if (rating.review != null && rating.review!.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              rating.review!,
+              style: const TextStyle(
+                fontSize: 11,
                 color: Colors.grey,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: currentUser != null ? () => _toggleRatingLike(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 14,
+                      color: isLiked ? Colors.red : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.likeCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              GestureDetector(
+                onTap: currentUser != null ? () => _openRatingComments(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.comment_outlined,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.commentCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
-      ],
+      ),
+    );
+  }
+
+  Widget _buildCommunityRatingItem(UserRating rating) {
+    final currentUser = FirebaseAuthService().currentUser;
+    final isLiked = currentUser != null && rating.likedBy.contains(currentUser.uid);
+    final displayName = rating.displayName ?? rating.username;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF6366F1).withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Community indicator badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'COMMUNITY',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: const Color(0xFF374151),
+                backgroundImage: rating.profileImage != null && rating.profileImage!.isNotEmpty
+                    ? CachedNetworkImageProvider(rating.profileImage!)
+                    : null,
+                child: rating.profileImage == null || rating.profileImage!.isEmpty
+                    ? Text(
+                        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  displayName,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              Row(
+                children: List.generate(5, (index) {
+                  return Stack(
+                    children: [
+                      Icon(
+                        Icons.star,
+                        size: 10,
+                        color: const Color(0xFF374151),
+                      ),
+                      if (rating.rating >= index + 1)
+                        Icon(
+                          Icons.star,
+                          size: 10,
+                          color: const Color(0xFF6366F1),
+                        ),
+                      if (rating.rating == index + 0.5)
+                        ClipRect(
+                          clipper: HalfStarClipper(),
+                          child: const Icon(
+                            Icons.star,
+                            size: 10,
+                            color: Color(0xFF6366F1),
+                          ),
+                        ),
+                    ],
+                  );
+                }),
+              ),
+            ],
+          ),
+          if (rating.review != null && rating.review!.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              rating.review!,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.grey,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: currentUser != null ? () => _toggleRatingLike(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 14,
+                      color: isLiked ? Colors.red : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.likeCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              GestureDetector(
+                onTap: currentUser != null ? () => _openRatingComments(rating) : null,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.comment_outlined,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      rating.commentCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1833,6 +2850,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
       
+      // Refresh all rating data to get real-time updates
+      await _refreshAllRatingData();
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1883,8 +2903,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
       ),
     ).then((_) {
-      // Refresh only the specific rating's comment count when returning
-      _refreshSingleRatingInDetail(rating);
+      // Refresh the entire rating data when returning from comments to get real-time updates
+      _refreshAllRatingData();
     });
   }
 
@@ -2018,6 +3038,130 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
   }
 
+  Future<void> _refreshAllRatingData() async {
+    try {
+      final currentUser = FirebaseAuthService().currentUser;
+      if (currentUser == null) return;
+      
+      // Get ALL ratings for this game from both old and new structures
+      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
+      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
+      
+      // Combine and deduplicate ratings
+      final Map<String, UserRating> allRatingsMap = {};
+      
+      // Add old ratings
+      for (final rating in oldGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      // Add new ratings (will override old ones if same user)
+      for (final rating in newGameRatings) {
+        allRatingsMap[rating.userId] = rating;
+      }
+      
+      final gameRatings = allRatingsMap.values.toList();
+      gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      
+      // Load interaction data for each rating (likes and comments)
+      final enrichedRatings = <UserRating>[];
+      for (final rating in gameRatings.take(10)) { // Limit to first 10 for performance
+        try {
+          final interactionData = await RatingInteractionService.instance
+              .getRatingWithInteractions(rating.id, currentUser.uid);
+          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
+          enrichedRatings.add(enrichedRating);
+        } catch (e) {
+          debugPrint('Error loading interactions for rating ${rating.id}: $e');
+          // Fallback to original rating if interaction loading fails
+          enrichedRatings.add(rating);
+        }
+      }
+      
+      // Load friend ratings for this game
+      final friendRatings = await _getFriendRatingsForGame(widget.gameId);
+      
+      // Enrich friend ratings with interaction data
+      final enrichedFriendRatings = <UserRating>[];
+      for (final rating in friendRatings) {
+        try {
+          final interactionData = await RatingInteractionService.instance
+              .getRatingWithInteractions(rating.id, currentUser.uid);
+          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
+          enrichedFriendRatings.add(enrichedRating);
+        } catch (e) {
+          debugPrint('Error loading interactions for friend rating ${rating.id}: $e');
+          // Fallback to original rating if interaction loading fails
+          enrichedFriendRatings.add(rating);
+        }
+      }
+      
+      // Load user profiles for ratings and enrich the rating objects
+      final Map<String, Map<String, dynamic>> profiles = {};
+      final List<UserRating> finalEnrichedRatings = [];
+      final List<UserRating> finalEnrichedFriendRatings = [];
+      
+      // Process community ratings (exclude current user's own review)
+      for (final rating in enrichedRatings) {
+        // Skip current user's own review in community section
+        if (rating.userId == currentUser.uid) continue;
+        
+        Map<String, dynamic>? profile;
+        if (!profiles.containsKey(rating.userId)) {
+          profile = await UserDataService.getUserProfile(rating.userId);
+          if (profile != null) {
+            profiles[rating.userId] = profile;
+          }
+        } else {
+          profile = profiles[rating.userId];
+        }
+        
+        // Create final enriched rating with both interaction data and user profile data
+        final finalRating = rating.copyWith(
+          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
+          username: profile?['username'] ?? rating.username,
+          profileImage: profile?['profileImage'] ?? rating.profileImage,
+        );
+        finalEnrichedRatings.add(finalRating);
+      }
+      
+      // Process friend ratings
+      for (final rating in enrichedFriendRatings) {
+        Map<String, dynamic>? profile;
+        if (!profiles.containsKey(rating.userId)) {
+          profile = await UserDataService.getUserProfile(rating.userId);
+          if (profile != null) {
+            profiles[rating.userId] = profile;
+          }
+        } else {
+          profile = profiles[rating.userId];
+        }
+        
+        // Create final enriched friend rating with both interaction data and user profile data
+        final finalRating = rating.copyWith(
+          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
+          username: profile?['username'] ?? rating.username,
+          profileImage: profile?['profileImage'] ?? rating.profileImage,
+        );
+        finalEnrichedFriendRatings.add(finalRating);
+      }
+      
+      if (mounted) {
+        setState(() {
+          _gameRatings = finalEnrichedRatings;
+          _friendRatings = finalEnrichedFriendRatings;
+          _ratingUserProfiles = profiles;
+          _averageRating = gameRatings.isEmpty 
+              ? 0.0 
+              : gameRatings.map((r) => r.rating).reduce((a, b) => a + b) / gameRatings.length;
+          _totalRatings = gameRatings.length;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing rating data: $e');
+    }
+  }
+
   Future<void> _refreshSingleRatingInDetail(UserRating rating) async {
     try {
       final currentUser = FirebaseAuthService().currentUser;
@@ -2037,269 +3181,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     } catch (e) {
       debugPrint('Error refreshing single rating in detail: $e');
-    }
-  }
-
-  Widget _buildLibrarySection() {
-    return Container(
-      padding: const EdgeInsets.all(12), // Reduced padding
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(10), // Slightly smaller radius
-        border: Border.all(color: const Color(0xFF374151)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.bookmark,
-                color: Color(0xFF10B981),
-                size: 18, // Smaller icon
-              ),
-              const SizedBox(width: 6), // Reduced spacing
-              const Text(
-                'My Library',
-                style: TextStyle(
-                  fontSize: 16, // Smaller text
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              if (_currentLibraryStatus != null) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF6366F1), width: 1),
-                  ),
-                  child: Text(
-                    _currentLibraryStatus!.replaceAll('_', ' ').toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF6366F1),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12), // Reduced spacing
-          
-          // Library status filters (compact horizontal scroll)
-          SizedBox(
-            height: 32, // Compact height
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _buildLibraryFilterChip('Want to Play', 'want_to_play', Icons.bookmark_add),
-                _buildLibraryFilterChip('Playing', 'playing', Icons.play_circle),
-                _buildLibraryFilterChip('Completed', 'completed', Icons.check_circle),
-                _buildLibraryFilterChip('Dropped', 'dropped', Icons.cancel),
-                _buildLibraryFilterChip('On Hold', 'on_hold', Icons.pause_circle),
-                _buildLibraryFilterChip('Backlog', 'backlog', Icons.bookmark),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          
-          // Mark as Completed button (only show when playing)
-          if (_currentLibraryStatus == 'playing') ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _markAsCompleted,
-                icon: const Icon(Icons.check_circle, size: 16),
-                label: const Text(
-                  'Mark as Completed',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981), // Green color for completion
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          
-          // Add to Playlist button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _showAddToPlaylistDialog,
-              icon: const Icon(Icons.playlist_add, size: 16),
-              label: const Text('Add to Playlist'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF8B5CF6),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 10), // Reduced padding
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLibraryFilterChip(String label, String status, IconData icon) {
-    final isSelected = _currentLibraryStatus == status;
-    
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      child: ElevatedButton.icon(
-        onPressed: () => _addToLibrary(status),
-        icon: Icon(icon, size: 14),
-        label: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: isSelected 
-              ? const Color(0xFF6366F1) 
-              : const Color(0xFF374151),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-            side: isSelected 
-                ? const BorderSide(color: Color(0xFF6366F1), width: 2)
-                : BorderSide.none,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showAddToPlaylistDialog() async {
-    final currentUser = FirebaseAuthService().currentUser;
-    if (currentUser == null || _game == null) return;
-
-    // Get user's playlists with full details
-    final playlists = await UserDataService.getUserPlaylistsWithGames(currentUser.uid);
-
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        title: const Text(
-          'Add to Playlist',
-          style: TextStyle(color: Colors.white, fontSize: 16),
-        ),
-        content: playlists.isEmpty
-            ? const Text(
-                'No playlists found. Create a playlist in your profile first.',
-                style: TextStyle(color: Colors.grey),
-              )
-            : SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: playlists.length,
-                  itemBuilder: (context, index) {
-                    final playlist = playlists[index];
-                    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
-                    final isGameInPlaylist = games.any((game) => game['gameId'] == widget.gameId);
-                    
-                    return ListTile(
-                      leading: const Icon(Icons.playlist_play, color: Color(0xFF8B5CF6)),
-                      title: Text(
-                        playlist['name'] ?? 'Unnamed Playlist',
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
-                      ),
-                      subtitle: Text(
-                        '${games.length} games${isGameInPlaylist ? ' • Already added' : ''}',
-                        style: TextStyle(
-                          color: isGameInPlaylist ? Colors.orange : Colors.grey, 
-                          fontSize: 12
-                        ),
-                      ),
-                      trailing: isGameInPlaylist 
-                          ? const Icon(Icons.check, color: Colors.orange)
-                          : null,
-                      onTap: isGameInPlaylist 
-                          ? null 
-                          : () {
-                              Navigator.of(context).pop();
-                              _addToPlaylistNew(playlist);
-                            },
-                    );
-                  },
-                ),
-              ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          if (playlists.isEmpty)
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Go to Profile tab to create playlists!'),
-                    backgroundColor: Color(0xFF8B5CF6),
-                  ),
-                );
-              },
-              child: const Text('Create Playlist', style: TextStyle(color: Color(0xFF8B5CF6))),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _addToPlaylistNew(Map<String, dynamic> playlist) async {
-    try {
-      final currentUser = FirebaseAuthService().currentUser;
-      if (currentUser == null || _game == null) return;
-
-      await UserDataService.addGameToPlaylist(
-        userId: currentUser.uid,
-        playlistId: playlist['id'],
-        gameId: widget.gameId,
-        gameTitle: _game!.title,
-        gameCoverImage: _game!.coverImage,
-        gameDeveloper: _game!.developer,
-        gameGenres: _game!.genres,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Added to "${playlist['name']}" playlist!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to add to playlist: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 

@@ -49,7 +49,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   void _setupEventListeners() {
     _libraryUpdateSubscription = EventBus().on<LibraryUpdatedEvent>().listen((event) {
       final currentUser = FirebaseAuthService().currentUser;
-      if (currentUser != null && event.userId == currentUser.id) {
+      if (currentUser != null && event.userId == currentUser.uid) {
                 // Force refresh with loading state
         setState(() => _isLoading = true);
         _loadLibrary();
@@ -84,8 +84,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     }
 
     try {
-      final library = await LibraryService.instance.getUserLibrary(currentUser.id);
-      final stats = await LibraryService.instance.getUserLibraryStats(currentUser.id);
+      final library = await LibraryService.instance.getUserLibrary(currentUser.uid);
+      final stats = await LibraryService.instance.getUserLibraryStats(currentUser.uid);
       
       // Debug: Print each game's status
       for (final _ in library) {
@@ -282,7 +282,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     if (user == null) return [];
     
     // In library screen, user is always viewing their own playlists, so show all
-    return await UserDataService.getUserPlaylistsWithGamesFiltered(user.id, currentUserId: user.id);
+    return await UserDataService.getUserPlaylistsWithGamesFiltered(user.uid, currentUserId: user.uid);
   }
 
   Future<void> _showCreatePlaylistDialog() async {
@@ -468,7 +468,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     if (user == null) throw Exception('User not logged in');
 
     await UserDataService.createPlaylistWithGames(
-      userId: user.id,
+      userId: user.uid,
       playlistName: name,
       description: description,
       gameIds: [], // Empty playlist initially
@@ -1428,10 +1428,10 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final theme = Theme.of(context);
     
     // Group games by status
-    final wantGames = _libraryGames.where((game) {
+    final backlogGames = _libraryGames.where((game) {
       final status = game['status'] as String?;
       final userRating = (game['userRating'] ?? 0.0).toDouble();
-      return (status == 'want_to_play' || status == 'planToPlay') && userRating == 0;
+      return (status == 'want_to_play' || status == 'planToPlay' || status == 'backlog') && userRating == 0;
     }).toList();
     
     final playingGames = _libraryGames.where((game) {
@@ -1445,11 +1445,6 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       return status == 'completed' || userRating > 0;
     }).toList();
     
-    final backlogGames = _libraryGames.where((game) {
-      final status = game['status'] as String?;
-      return status == 'backlog';
-    }).toList();
-    
     final droppedGames = _libraryGames.where((game) {
       final status = game['status'] as String?;
       return status == 'dropped';
@@ -1460,14 +1455,12 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (wantGames.isNotEmpty)
-            _buildGameSection('Want', wantGames, Icons.bookmark_border, theme),
+          if (backlogGames.isNotEmpty)
+            _buildGameSection('Backlog', backlogGames, Icons.bookmark_border, theme),
           if (playingGames.isNotEmpty)
             _buildGameSection('Playing', playingGames, Icons.play_circle_outline, theme),
           if (beatenGames.isNotEmpty)
             _buildGameSection('Beaten', beatenGames, Icons.check_circle_outline, theme),
-          if (backlogGames.isNotEmpty)
-            _buildGameSection('Backlog', backlogGames, Icons.schedule, theme),
           if (droppedGames.isNotEmpty)
             _buildGameSection('Dropped', droppedGames, Icons.cancel_outlined, theme),
           

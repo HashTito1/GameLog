@@ -99,10 +99,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_isCheckingFirstTime) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(
           child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B5CF6)),
+            valueColor: AlwaysStoppedAnimation<Color>(ThemeService().currentThemeConfig.primaryColor),
           ),
         ),
       );
@@ -118,10 +118,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
         final authService = FirebaseAuthService();
         
         if (authService.isLoading) {
-          return const Scaffold(
+          return Scaffold(
             body: Center(
               child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B5CF6)),
+                valueColor: AlwaysStoppedAnimation<Color>(ThemeService().currentThemeConfig.primaryColor),
               ),
             ),
           );

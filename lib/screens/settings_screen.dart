@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/content_filter_service.dart';
+import '../services/theme_service.dart';
 import '../widgets/age_verification_dialog.dart';
 import 'settings/privacy_settings_screen.dart';
 import 'settings/notification_settings_screen.dart';
@@ -229,12 +230,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+              color: ThemeService().warningColor.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.warning_amber_rounded,
-              color: Color(0xFFF59E0B),
+              color: ThemeService().warningColor,
               size: 20,
             ),
           ),
@@ -267,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: _adultContentEnabled,
             onChanged: _toggleAdultContent,
-            activeThumbColor: const Color(0xFFF59E0B),
+            activeThumbColor: ThemeService().warningColor,
             inactiveThumbColor: theme.colorScheme.onSurface.withValues(alpha: 0.5),
             inactiveTrackColor: theme.colorScheme.outline.withValues(alpha: 0.3),
           ),
@@ -300,9 +301,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text('Adult content enabled'),
-              backgroundColor: Color(0xFFF59E0B),
+              backgroundColor: ThemeService().warningColor,
             ),
           );
         }
