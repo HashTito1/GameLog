@@ -241,6 +241,7 @@ class UpdateService {
     String status = 'Preparing download...';
     bool isCompleted = false;
     bool hasError = false;
+    bool downloadStarted = false; // Flag to prevent multiple download starts
     
     return showDialog<void>(
       context: context,
@@ -248,8 +249,9 @@ class UpdateService {
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // Start download immediately when dialog opens
-            if (progress == 0.0 && !isCompleted && !hasError) {
+            // Start download immediately when dialog opens (only once)
+            if (!downloadStarted) {
+              downloadStarted = true; // Set flag immediately to prevent re-entry
               Future.microtask(() async {
                 final success = await downloadAndInstallUpdate(
                   updateInfo.downloadUrl,
