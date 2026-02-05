@@ -332,67 +332,8 @@ class _AboutScreenState extends State<AboutScreen> {
       return;
     }
 
-    // Show download progress dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Downloading Update...',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Version ${updateInfo.version}',
-              style: const TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    try {
-      final success = await UpdateService.instance.downloadAndInstallUpdate(updateInfo.downloadUrl);
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close progress dialog
-        
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Update downloaded successfully! Please install the APK.'),
-              backgroundColor: Color(0xFF10B981),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Download failed. Please try again or download manually from GitHub.'),
-              backgroundColor: Color(0xFFEF4444),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop(); // Close progress dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Download error: $e'),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
-      }
-    }
+    // Use the new instant download dialog with progress tracking
+    await UpdateService.instance.showDownloadDialog(context, updateInfo);
   }
 
   @override

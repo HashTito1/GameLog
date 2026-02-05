@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
+import '../services/theme_service.dart';
 import 'game_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -17,11 +18,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
   List<Game> _searchResults = [];
-  List<Game> _popularGames = [];
   bool _isLoading = false;
-  bool _showFilters = false;
-  bool _isLoadingPopular = false;
-  
   // Filter options
   String _selectedGenre = 'all';
   String _selectedPlatform = 'all';
@@ -29,54 +26,9 @@ class _SearchScreenState extends State<SearchScreen> {
   RangeValues _metacriticRange = const RangeValues(0, 100);
   RangeValues _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2); // Focus on recent games including upcoming
 
-  // Quick filter options
-  final List<Map<String, String>> _quickFilters = [
-    {'label': 'Popular', 'ordering': '-rating', 'icon': 'star'},
-    {'label': 'Recent', 'ordering': '-released', 'icon': 'schedule'},
-    {'label': 'Top Rated', 'ordering': '-metacritic', 'icon': 'trending_up'},
-    {'label': 'Most Played', 'ordering': '-added', 'icon': 'people'},
-  ];
-
-  final List<Map<String, String>> _genreOptions = [
-    {'label': 'All Genres', 'value': 'all'},
-    {'label': 'Adventure', 'value': 'Adventure'},
-    {'label': 'Fighting', 'value': 'Fighting'},
-    {'label': 'Indie', 'value': 'Indie'},
-    {'label': 'Platform', 'value': 'Platform'},
-    {'label': 'Puzzle', 'value': 'Puzzle'},
-    {'label': 'Racing', 'value': 'Racing'},
-    {'label': 'RPG', 'value': 'Role-playing (RPG)'},
-    {'label': 'Shooter', 'value': 'Shooter'},
-    {'label': 'Sport', 'value': 'Sport'},
-    {'label': 'Strategy', 'value': 'Strategy'},
-    {'label': 'Simulator', 'value': 'Simulator'},
-  ];
-
-  final List<Map<String, String>> _platformOptions = [
-    {'label': 'All Platforms', 'value': 'all'},
-    {'label': 'PC', 'value': '4'},
-    {'label': 'PlayStation 5', 'value': '187'},
-    {'label': 'PlayStation 4', 'value': '18'},
-    {'label': 'Xbox Series X/S', 'value': '186'},
-    {'label': 'Xbox One', 'value': '1'},
-    {'label': 'Nintendo Switch', 'value': '7'},
-    {'label': 'iOS', 'value': '3'},
-    {'label': 'Android', 'value': '21'},
-  ];
-
-  final List<Map<String, String>> _orderingOptions = [
-    {'label': 'Best Match', 'value': '-rating'},
-    {'label': 'Most Popular', 'value': '-added'},
-    {'label': 'Newest First', 'value': '-released'},
-    {'label': 'Highest Rated', 'value': '-metacritic'},
-    {'label': 'Name A-Z', 'value': 'name'},
-    {'label': 'Name Z-A', 'value': '-name'},
-  ];
-
   @override
   void initState() {
     super.initState();
-    _loadPopularGames();
   }
 
   @override
@@ -84,27 +36,6 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _loadPopularGames() async {
-    setState(() => _isLoadingPopular = true);
-    try {
-      final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
-      final games = await IGDBService.instance.getPopularGames(
-        limit: 20,
-        includeAdultContent: adultContentEnabled,
-      );
-      if (mounted) {
-        setState(() {
-          _popularGames = games;
-          _isLoadingPopular = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoadingPopular = false);
-      }
-    }
   }
 
   void _onSearchChanged(String query) {
@@ -201,23 +132,42 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchGames(_searchController.text);
   }
 
-  void _applyQuickFilter(String ordering) {
-    setState(() {
-      _selectedOrdering = ordering;
-      _showFilters = false; // Hide filters after applying quick filter
-    });
-    _searchGames(_searchController.text);
+
+
+  Future<void> _openAdvancedSearch(BuildContext context) async {
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (context) => AdvancedSearchScreen(
+          initialGenre: _selectedGenre,
+          initialPlatform: _selectedPlatform,
+          initialOrdering: _selectedOrdering,
+          initialMetacriticRange: _metacriticRange,
+          initialReleasedYearRange: _releasedYearRange,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedGenre = result['genre'] ?? _selectedGenre;
+        _selectedPlatform = result['platform'] ?? _selectedPlatform;
+        _selectedOrdering = result['ordering'] ?? _selectedOrdering;
+        _metacriticRange = result['metacriticRange'] ?? _metacriticRange;
+        _releasedYearRange = result['releasedYearRange'] ?? _releasedYearRange;
+      });
+      _searchGames(_searchController.text);
+    }
   }
 
   Widget _buildHeader(ThemeData theme) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced vertical padding
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           Text(
             'Search Games',
             style: TextStyle(
-              fontSize: 18, // Reduced from 20
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: theme.colorScheme.onSurface,
             ),
@@ -225,17 +175,15 @@ class _SearchScreenState extends State<SearchScreen> {
           const Spacer(),
           IconButton(
             icon: Icon(
-              _showFilters ? Icons.filter_list : Icons.filter_list_outlined,
+              Icons.filter_list,
               color: theme.colorScheme.onSurface,
-              size: 22, // Slightly smaller icon
+              size: 22,
             ),
             onPressed: () {
-              setState(() {
-                _showFilters = !_showFilters;
-              });
+              _openAdvancedSearch(context);
             },
-            padding: const EdgeInsets.all(8), // Reduced padding
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40), // Smaller button
+            padding: const EdgeInsets.all(8),
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
         ],
       ),
@@ -254,27 +202,10 @@ class _SearchScreenState extends State<SearchScreen> {
             // Fixed header section
             _buildHeader(theme),
             _buildSearchBar(theme),
-            _buildQuickFilters(theme),
             
             // Scrollable content area
             Expanded(
-              child: CustomScrollView(
-                slivers: [
-                  // Filters section (if shown)
-                  if (_showFilters)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildFilters(),
-                      ),
-                    ),
-                  
-                  // Main content
-                  SliverFillRemaining(
-                    child: _buildSearchContent(theme),
-                  ),
-                ],
-              ),
+              child: _buildSearchContent(theme),
             ),
           ],
         ),
@@ -282,76 +213,11 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildQuickFilters(ThemeData theme) {
-    return Container(
-      height: 45, // Reduced from 50
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8), // Added bottom margin
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _quickFilters.length,
-        itemBuilder: (context, index) {
-          final filter = _quickFilters[index];
-          final isSelected = _selectedOrdering == filter['ordering'];
-          
-          return Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _getIconData(filter['icon']!),
-                    size: 14, // Reduced from 16
-                    color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    filter['label']!,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      fontSize: 11, // Reduced from 12
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-              selected: isSelected,
-              onSelected: (selected) {
-                if (selected) {
-                  _applyQuickFilter(filter['ordering']!);
-                }
-              },
-              backgroundColor: theme.colorScheme.surface,
-              selectedColor: theme.colorScheme.primary,
-              side: BorderSide(
-                color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.3),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // Reduced padding
-            ),
-          );
-        },
-      ),
-    );
-  }
 
-  IconData _getIconData(String iconName) {
-    switch (iconName) {
-      case 'star':
-        return Icons.star;
-      case 'schedule':
-        return Icons.schedule;
-      case 'trending_up':
-        return Icons.trending_up;
-      case 'people':
-        return Icons.people;
-      default:
-        return Icons.games;
-    }
-  }
 
   Widget _buildSearchBar(ThemeData theme) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8), // Reduced vertical margins
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
@@ -366,182 +232,13 @@ class _SearchScreenState extends State<SearchScreen> {
           hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
           prefixIcon: Icon(Icons.search, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), // Reduced vertical padding
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         ),
       ),
     );
   }
 
-  Widget _buildFilters() {
-    final theme = Theme.of(context);
-    
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Filters',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              TextButton(
-                onPressed: _clearFilters,
-                child: Text(
-                  'Clear All',
-                  style: TextStyle(color: theme.colorScheme.primary),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          // Genre and Platform dropdowns
-          Row(
-            children: [
-              Expanded(
-                child: _buildDropdownFilter(
-                  'Genre',
-                  _selectedGenre,
-                  _genreOptions,
-                  (value) {
-                    setState(() => _selectedGenre = value!);
-                    _searchGames(_searchController.text);
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildDropdownFilter(
-                  'Platform',
-                  _selectedPlatform,
-                  _platformOptions,
-                  (value) {
-                    setState(() => _selectedPlatform = value!);
-                    _searchGames(_searchController.text);
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          // Ordering dropdown
-          _buildDropdownFilter(
-            'Sort By',
-            _selectedOrdering,
-            _orderingOptions,
-            (value) {
-              setState(() => _selectedOrdering = value!);
-              _searchGames(_searchController.text);
-            },
-          ),
-          const SizedBox(height: 16),
-          
-          // Metacritic score range
-          const Text(
-            'Metacritic Score',
-            style: TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          RangeSlider(
-            values: _metacriticRange,
-            min: 0,
-            max: 100,
-            divisions: 20,
-            activeColor: const Color(0xFF6366F1),
-            inactiveColor: const Color(0xFF374151),
-            labels: RangeLabels(
-              _metacriticRange.start.round().toString(),
-              _metacriticRange.end.round().toString(),
-            ),
-            onChanged: (values) {
-              setState(() => _metacriticRange = values);
-            },
-            onChangeEnd: (values) {
-              _searchGames(_searchController.text);
-            },
-          ),
-          
-          // Release year range
-          const Text(
-            'Release Year',
-            style: TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          RangeSlider(
-            values: _releasedYearRange,
-            min: 1990,
-            max: (DateTime.now().year + 2).toDouble(), // Dynamic max year (current year + 2 for upcoming games)
-            divisions: (DateTime.now().year + 2 - 1990), // Dynamic division count
-            activeColor: const Color(0xFF6366F1),
-            inactiveColor: const Color(0xFF374151),
-            labels: RangeLabels(
-              _releasedYearRange.start.round().toString(),
-              _releasedYearRange.end.round().toString(),
-            ),
-            onChanged: (values) {
-              setState(() => _releasedYearRange = values);
-            },
-            onChangeEnd: (values) {
-              _searchGames(_searchController.text);
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildDropdownFilter(
-    String label,
-    String selectedValue,
-    List<Map<String, String>> options,
-    ValueChanged<String?> onChanged,
-  ) {
-    final theme = Theme.of(context);
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: selectedValue,
-              onChanged: onChanged,
-              dropdownColor: theme.colorScheme.surface,
-              style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-              icon: Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurface),
-              isExpanded: true,
-              items: options.map((option) => DropdownMenuItem<String>(
-                value: option['value'],
-                child: Text(option['label']!),
-              )).toList(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildSearchContent(ThemeData theme) {
     if (_searchController.text.isEmpty) {
@@ -564,84 +261,37 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmptyState(ThemeData theme) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Search prompt section
-          Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.search,
-                  size: 64,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Discover Amazing Games',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Search for your favorite games or explore popular titles below',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search,
+              size: 64,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
             ),
-          ),
-          
-          // Popular games section
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Popular Games',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
+            const SizedBox(height: 16),
+            Text(
+              'Discover Amazing Games',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 400, // Fixed height to prevent overflow
-                child: _isLoadingPopular
-                    ? Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                        ),
-                      )
-                    : _popularGames.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No popular games available',
-                              style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _popularGames.length,
-                            itemBuilder: (context, index) {
-                              return _buildGameItem(_popularGames[index], theme);
-                            },
-                          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Search for your favorite games using the search bar above',
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
-            ],
-          ),
-          const SizedBox(height: 20), // Bottom padding
-        ],
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -796,10 +446,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   Row(
                     children: [
                       if (game.averageRating > 0) ...[
-                        const Icon(
+                        Icon(
                           Icons.star,
                           size: 16,
-                          color: Color(0xFFFBBF24),
+                          color: ThemeService().starColor,
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -833,6 +483,504 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class AdvancedSearchScreen extends StatefulWidget {
+  final String initialGenre;
+  final String initialPlatform;
+  final String initialOrdering;
+  final RangeValues initialMetacriticRange;
+  final RangeValues initialReleasedYearRange;
+
+  const AdvancedSearchScreen({
+    super.key,
+    required this.initialGenre,
+    required this.initialPlatform,
+    required this.initialOrdering,
+    required this.initialMetacriticRange,
+    required this.initialReleasedYearRange,
+  });
+
+  @override
+  State<AdvancedSearchScreen> createState() => _AdvancedSearchScreenState();
+}
+
+class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
+  late String _selectedGenre;
+  late String _selectedPlatform;
+  late String _selectedOrdering;
+  late RangeValues _metacriticRange;
+  late RangeValues _releasedYearRange;
+
+  final List<Map<String, String>> _genreOptions = [
+    {'label': 'All Genres', 'value': 'all'},
+    {'label': 'Adventure', 'value': 'Adventure'},
+    {'label': 'Fighting', 'value': 'Fighting'},
+    {'label': 'Indie', 'value': 'Indie'},
+    {'label': 'Platform', 'value': 'Platform'},
+    {'label': 'Puzzle', 'value': 'Puzzle'},
+    {'label': 'Racing', 'value': 'Racing'},
+    {'label': 'RPG', 'value': 'Role-playing (RPG)'},
+    {'label': 'Shooter', 'value': 'Shooter'},
+    {'label': 'Sport', 'value': 'Sport'},
+    {'label': 'Strategy', 'value': 'Strategy'},
+    {'label': 'Simulator', 'value': 'Simulator'},
+  ];
+
+  final List<Map<String, String>> _platformOptions = [
+    {'label': 'All Platforms', 'value': 'all'},
+    {'label': 'PC', 'value': '4'},
+    {'label': 'PlayStation 5', 'value': '187'},
+    {'label': 'PlayStation 4', 'value': '18'},
+    {'label': 'Xbox Series X/S', 'value': '186'},
+    {'label': 'Xbox One', 'value': '1'},
+    {'label': 'Nintendo Switch', 'value': '7'},
+    {'label': 'iOS', 'value': '3'},
+    {'label': 'Android', 'value': '21'},
+  ];
+
+  final List<Map<String, String>> _orderingOptions = [
+    {'label': 'Best Match', 'value': '-rating'},
+    {'label': 'Most Popular', 'value': '-added'},
+    {'label': 'Newest First', 'value': '-released'},
+    {'label': 'Highest Rated', 'value': '-metacritic'},
+    {'label': 'Name A-Z', 'value': 'name'},
+    {'label': 'Name Z-A', 'value': '-name'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedGenre = widget.initialGenre;
+    _selectedPlatform = widget.initialPlatform;
+    _selectedOrdering = widget.initialOrdering;
+    _metacriticRange = widget.initialMetacriticRange;
+    _releasedYearRange = widget.initialReleasedYearRange;
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedGenre = 'all';
+      _selectedPlatform = 'all';
+      _selectedOrdering = '-rating';
+      _metacriticRange = const RangeValues(0, 100);
+      _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2);
+    });
+  }
+
+  void _applyFilters() {
+    Navigator.of(context).pop({
+      'genre': _selectedGenre,
+      'platform': _selectedPlatform,
+      'ordering': _selectedOrdering,
+      'metacriticRange': _metacriticRange,
+      'releasedYearRange': _releasedYearRange,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.close, color: theme.colorScheme.onSurface),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Advanced Search',
+          style: TextStyle(
+            color: theme.colorScheme.onSurface,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _clearFilters,
+            child: Text(
+              'Clear All',
+              style: TextStyle(color: theme.colorScheme.primary),
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSection(
+                    'Genre',
+                    _buildGenreSelector(theme),
+                    theme,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSection(
+                    'Platform',
+                    _buildPlatformSelector(theme),
+                    theme,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSection(
+                    'Sort By',
+                    _buildOrderingSelector(theme),
+                    theme,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSection(
+                    'Metacritic Score',
+                    _buildMetacriticSlider(theme),
+                    theme,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSection(
+                    'Release Year',
+                    _buildReleaseYearSlider(theme),
+                    theme,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _buildBottomActions(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, Widget content, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 12),
+        content,
+      ],
+    );
+  }
+
+  Widget _buildGenreSelector(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: _genreOptions.map((genre) {
+          final isSelected = _selectedGenre == genre['value'];
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedGenre = genre['value']!;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    genre['label']!,
+                    style: TextStyle(
+                      color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildPlatformSelector(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: _platformOptions.map((platform) {
+          final isSelected = _selectedPlatform == platform['value'];
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedPlatform = platform['value']!;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    platform['label']!,
+                    style: TextStyle(
+                      color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildOrderingSelector(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: _orderingOptions.map((ordering) {
+          final isSelected = _selectedOrdering == ordering['value'];
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedOrdering = ordering['value']!;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    ordering['label']!,
+                    style: TextStyle(
+                      color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildMetacriticSlider(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Min: ${_metacriticRange.start.round()}',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                'Max: ${_metacriticRange.end.round()}',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          RangeSlider(
+            values: _metacriticRange,
+            min: 0,
+            max: 100,
+            divisions: 20,
+            activeColor: theme.colorScheme.primary,
+            inactiveColor: theme.colorScheme.outline.withValues(alpha: 0.3),
+            labels: RangeLabels(
+              _metacriticRange.start.round().toString(),
+              _metacriticRange.end.round().toString(),
+            ),
+            onChanged: (values) {
+              setState(() => _metacriticRange = values);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReleaseYearSlider(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'From: ${_releasedYearRange.start.round()}',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                'To: ${_releasedYearRange.end.round()}',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          RangeSlider(
+            values: _releasedYearRange,
+            min: 1990,
+            max: (DateTime.now().year + 2).toDouble(),
+            divisions: (DateTime.now().year + 2 - 1990),
+            activeColor: theme.colorScheme.primary,
+            inactiveColor: theme.colorScheme.outline.withValues(alpha: 0.3),
+            labels: RangeLabels(
+              _releasedYearRange.start.round().toString(),
+              _releasedYearRange.end.round().toString(),
+            ),
+            onChanged: (values) {
+              setState(() => _releasedYearRange = values);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomActions(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.outline.withValues(alpha: 0.3),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: theme.colorScheme.outline),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _applyFilters,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Apply Filters',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

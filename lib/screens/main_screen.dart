@@ -5,7 +5,8 @@ import 'library_screen.dart';
 import 'profile_screen.dart';
 import 'discover_screen.dart';
 import 'search_screen.dart';
-import 'forum_screen.dart';
+// Forum functionality disabled - keeping import commented
+// import 'forum_screen.dart';
 import '../services/update_service.dart';
 
 class MainScreen extends StatefulWidget {
@@ -25,7 +26,8 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     const HomeScreen(),
     const DiscoverScreen(),
     const SearchScreen(),
-    const ForumScreen(),
+    // Forum disabled - keeping code but removing from navigation
+    // const ForumScreen(),
     LibraryScreen(initialPlaylistId: _libraryPlaylistId),
     ProfileScreen(userId: FirebaseAuth.instance.currentUser?.uid ?? ''),
   ];
@@ -64,7 +66,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     setState(() {
       _libraryPlaylistId = playlistId;
     });
-    _onTabTapped(4); // Switch to library tab (now index 4)
+    _onTabTapped(3); // Switch to library tab (now index 3, forum removed)
   }
 
   void _onTabTapped(int index) {
@@ -73,7 +75,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     
     // Clear library playlist ID when switching away from library
-    if (_currentIndex == 4 && index != 4) {
+    if (_currentIndex == 3 && index != 3) { // Library is now index 3
       _libraryPlaylistId = null;
     }
     
@@ -123,9 +125,10 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _buildNavItem(Icons.home_filled, 'Home', 0, theme),
                 _buildNavItem(Icons.explore, 'Discover', 1, theme),
                 _buildNavItem(Icons.search, 'Search', 2, theme),
-                _buildNavItem(Icons.forum, 'Forum', 3, theme),
-                _buildNavItem(Icons.bookmark, 'Library', 4, theme),
-                _buildNavItem(Icons.person, 'Profile', 5, theme),
+                // Forum removed from navigation
+                // _buildNavItem(Icons.forum, 'Forum', 3, theme),
+                _buildNavItem(Icons.bookmark, 'Library', 3, theme), // Now index 3
+                _buildNavItem(Icons.person, 'Profile', 4, theme), // Now index 4
               ],
             ),
           ),

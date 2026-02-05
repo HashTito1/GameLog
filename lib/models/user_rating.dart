@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class UserRating {
   final String id;
   final String gameId;
@@ -57,8 +59,16 @@ class UserRating {
       displayName: map['displayName'],
       rating: (map['rating'] ?? 0.0).toDouble(),
       review: map['review'],
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
-      updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updatedAt'] ?? 0),
+      createdAt: map['createdAt'] != null 
+          ? (map['createdAt'] is Timestamp 
+              ? (map['createdAt'] as Timestamp).toDate()
+              : DateTime.fromMillisecondsSinceEpoch(map['createdAt']))
+          : DateTime.now(),
+      updatedAt: map['updatedAt'] != null 
+          ? (map['updatedAt'] is Timestamp 
+              ? (map['updatedAt'] as Timestamp).toDate()
+              : DateTime.fromMillisecondsSinceEpoch(map['updatedAt']))
+          : DateTime.now(),
       likeCount: map['likeCount'] ?? 0,
       likedBy: List<String>.from(map['likedBy'] ?? []),
       commentCount: map['commentCount'] ?? 0,

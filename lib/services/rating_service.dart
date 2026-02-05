@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user_rating.dart';
 import 'user_data_service.dart';
+import 'library_service.dart';
+import 'friends_service.dart';
 
 class RatingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -199,7 +201,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
       return [];
@@ -253,6 +255,23 @@ class RatingService {
           .doc(ratingId)
           .delete();
       
+      // Also remove from user's ratings subcollection
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('ratings')
+          .doc(gameId)
+          .delete();
+      
+      // Remove the game from library since rating is deleted
+      try {
+        await LibraryService.instance.removeGameFromLibrary(userId, gameId);
+        debugPrint('✅ Game removed from library after rating deletion: $gameId');
+      } catch (e) {
+        debugPrint('⚠️ Failed to remove game from library after rating deletion: $e');
+        // Don't throw error here as rating deletion was successful
+      }
+      
     } catch (e) {
       throw Exception('Failed to delete rating: $e');
     }
@@ -269,7 +288,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
       return [];
@@ -336,7 +355,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
       
       debugPrint('Found ${ratings.length} total ratings in database');
@@ -358,7 +377,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
       
       debugPrint('Found ${ratings.length} community ratings (limited for performance)');
@@ -382,7 +401,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
       
       debugPrint('Found ${ratings.length} top rated reviews');
@@ -406,7 +425,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
+          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
       
       debugPrint('Found ${ratings.length} popular reviews');
@@ -417,7 +436,46 @@ class RatingService {
     }
   }
 
-  // Debug method to check database contents
+  // Get recent ratings from friends
+  static Future<List<UserRating>> getFriendRecentRatings(String userId, {int limit = 10}) async {
+    try {
+      debugPrint('🔍 Getting friend reviews for user: $userId');
+      
+      // Get user's friends first
+      final friendsService = FriendsService.instance;
+      final friends = await friendsService.getFriends(userId);
+      debugPrint('👥 Found ${friends.length} friends');
+      
+      if (friends.isEmpty) {
+        debugPrint('❌ No friends found');
+        return [];
+      }
+
+      // Get friend IDs
+      final friendIds = friends.map((friend) => friend['id'] as String).toList();
+      debugPrint('📋 Friend IDs: $friendIds');
+
+      // Get recent reviews from friends
+      final querySnapshot = await _firestore
+          .collection(_ratingsCollection)
+          .where('userId', whereIn: friendIds.take(10).toList()) // Firestore limit for whereIn
+          .orderBy('updatedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      debugPrint('📊 Found ${querySnapshot.docs.length} friend ratings in database');
+
+      final ratings = querySnapshot.docs
+          .map((doc) => UserRating.fromMap(doc.data()))
+          .toList();
+      
+      debugPrint('✅ Processed ${ratings.length} friend ratings');
+      return ratings;
+    } catch (e) {
+      debugPrint('❌ Error in getFriendRecentRatings: $e');
+      return [];
+    }
+  }
   static Future<Map<String, dynamic>> getDatabaseStats() async {
     try {
       final querySnapshot = await _firestore

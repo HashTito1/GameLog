@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
+import '../services/admin_service.dart';
 import '../services/firebase_auth_service.dart';
 import 'user_profile_screen.dart';
 
@@ -22,13 +23,24 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
   List<ForumPost> _replies = [];
   bool _isLoading = true;
   bool _isSubmittingReply = false;
+  bool _isAdmin = false;
   final TextEditingController _replyController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _checkAdminStatus();
     _loadPostAndReplies();
+  }
+
+  Future<void> _checkAdminStatus() async {
+    final isAdmin = await AdminService.instance.isCurrentUserAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+      });
+    }
   }
 
   @override
@@ -68,7 +80,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
     try {
       debugPrint('Saving reply to cloud storage...');
       final replyId = await ForumService.instance.createPost(
-        authorId: currentUser.id,
+        authorId: currentUser.uid,
         authorUsername: currentUser.username,
         title: '', // Replies don't need titles
         content: _replyController.text.trim(),
@@ -118,8 +130,46 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
     if (currentUser == null) return;
 
     try {
-      await ForumService.instance.toggleLike(post.id, currentUser.id);
-      await _loadPostAndReplies();
+      await ForumService.instance.toggleLike(post.id, currentUser.uid);
+      
+      // Update the local data immediately for better UX
+      if (post.id == _post?.id) {
+        final isLiked = _post!.likedBy.contains(currentUser.uid);
+        final newLikedBy = List<String>.from(_post!.likedBy);
+        if (isLiked) {
+          newLikedBy.remove(currentUser.uid);
+        } else {
+          newLikedBy.add(currentUser.uid);
+        }
+        setState(() {
+          _post = _post!.copyWith(
+            likedBy: newLikedBy,
+            likeCount: isLiked ? _post!.likeCount - 1 : _post!.likeCount + 1,
+          );
+        });
+      } else {
+        // Update reply
+        final updatedReplies = _replies.map((reply) {
+          if (reply.id == post.id) {
+            final isLiked = reply.likedBy.contains(currentUser.uid);
+            final newLikedBy = List<String>.from(reply.likedBy);
+            if (isLiked) {
+              newLikedBy.remove(currentUser.uid);
+            } else {
+              newLikedBy.add(currentUser.uid);
+            }
+            return reply.copyWith(
+              likedBy: newLikedBy,
+              likeCount: isLiked ? reply.likeCount - 1 : reply.likeCount + 1,
+            );
+          }
+          return reply;
+        }).toList();
+        
+        setState(() {
+          _replies = updatedReplies;
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -128,6 +178,56 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _deletePost(ForumPost post) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Post'),
+        content: Text(post.isReply ? 'Are you sure you want to delete this reply?' : 'Are you sure you want to delete this post?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await AdminService.instance.deleteForumPost(post.id);
+        
+        if (post.id == _post?.id) {
+          // Main post was deleted, go back
+          Navigator.of(context).pop(true);
+        } else {
+          // Reply was deleted, refresh
+          _loadPostAndReplies();
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(post.isReply ? 'Reply deleted successfully' : 'Post deleted successfully')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete ${post.isReply ? 'reply' : 'post'}: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
       }
     }
   }
@@ -188,7 +288,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
 
   Widget _buildMainPost(ForumPost post, ThemeData theme) {
     final currentUser = FirebaseAuthService().currentUser;
-    final isLiked = currentUser != null && post.likedBy.contains(currentUser.id);
+    final isLiked = currentUser != null && post.likedBy.contains(currentUser.uid);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -235,6 +335,29 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
                       color: theme.colorScheme.error,
                     ),
                   ),
+                ),
+              const Spacer(),
+              if (_isAdmin)
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'delete':
+                        _deletePost(post);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('Delete Post', style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
             ],
           ),
@@ -372,7 +495,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
 
   Widget _buildReplyItem(ForumPost reply, ThemeData theme) {
     final currentUser = FirebaseAuthService().currentUser;
-    final isLiked = currentUser != null && reply.likedBy.contains(currentUser.id);
+    final isLiked = currentUser != null && reply.likedBy.contains(currentUser.uid);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -437,6 +560,26 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
+                  if (_isAdmin)
+                    PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'delete') {
+                          _deletePost(reply);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, color: Colors.red, size: 16),
+                              SizedBox(width: 8),
+                              Text('Delete', style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ],

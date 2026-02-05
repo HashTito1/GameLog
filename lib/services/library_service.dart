@@ -379,7 +379,7 @@ class LibraryService {
       for (final game in libraryGames) {
         final status = game['status'] ?? 'rated';
         
-        if (status == 'backlog') {
+        if (status == 'backlog' || status == 'want_to_play' || status == 'planToPlay') {
           backlogGames++;
         }
         

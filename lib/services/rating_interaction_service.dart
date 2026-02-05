@@ -147,19 +147,22 @@ class RatingInteractionService {
   Future<List<RatingComment>> getCommentsForRating(String ratingId, {int limit = 50}) async {
     try {
       debugPrint('Fetching comments for rating: $ratingId');
+      
+      // Use a simpler query that doesn't require a composite index
       final querySnapshot = await _firestore
           .collection(_commentsCollection)
           .where('ratingId', isEqualTo: ratingId)
-          .orderBy('createdAt', descending: false) // Oldest first
-          .limit(limit)
           .get();
 
       final comments = querySnapshot.docs
-          .map((doc) => RatingComment.fromMap(doc.data()))
+          .map((doc) => RatingComment.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
 
+      // Sort in memory to avoid index requirement
+      comments.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
       debugPrint('Found ${comments.length} comments for rating');
-      return comments;
+      return comments.take(limit).toList();
     } catch (e) {
       debugPrint('Error getting comments: $e');
       return [];
@@ -304,7 +307,7 @@ class RatingInteractionService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => RatingComment.fromMap(doc.data()))
+          .map((doc) => RatingComment.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
       debugPrint('Error getting user comments: $e');
