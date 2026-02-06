@@ -1,47 +1,67 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/admins/list) &&
+             request.auth.uid in get(/databases/$(database)/documents/admins/list).data.adminIds;
+    }
+    
     // Users can read their own user document and other users' public data
     match /users/{userId} {
       allow read: if true; // Public user profiles
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
       
       // User ratings subcollection
       match /ratings/{ratingId} {
         allow read: if true; // Public ratings
-        allow write: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null && request.auth.uid == userId;
+        allow delete: if request.auth != null && request.auth.uid == userId;
       }
       
       // User library subcollection
       match /library/{gameId} {
         allow read: if request.auth != null && request.auth.uid == userId; // Private library
-        allow write: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null && request.auth.uid == userId;
+        allow delete: if request.auth != null && request.auth.uid == userId;
       }
       
-      // User playlists subcollection
+      // User playlists subcollection - simplified permissions
       match /playlists/{playlistId} {
+        // Allow read if user owns it OR if it exists and is public
         allow read: if request.auth != null && 
-                   (request.auth.uid == userId || // Owner can always read
-                    resource.data.isPublic == true); // Others can read if public
-        allow write: if request.auth != null && request.auth.uid == userId;
+                   (request.auth.uid == userId || 
+                    (resource != null && resource.data.isPublic == true));
+        // Allow write only if user owns it
+        allow create: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null && request.auth.uid == userId;
+        allow delete: if request.auth != null && request.auth.uid == userId;
       }
     }
     
     // Legacy user library collection - allow authenticated users to manage their own entries
     match /user_library/{entryId} {
       allow read: if request.auth != null && 
-                 request.auth.uid == resource.data.userId;
-      allow write: if request.auth != null && 
-                  request.auth.uid == request.resource.data.userId;
+                 resource.data.userId == request.auth.uid;
       allow create: if request.auth != null && 
-                   request.auth.uid == request.resource.data.userId;
+                   request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && 
+                  resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
     }
     
     // User ratings collection (legacy) - allow authenticated users to manage their own ratings
     match /user_ratings/{ratingId} {
       allow read: if true; // Public ratings
-      allow write: if request.auth != null;
       allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
     // Forum posts - public read, authenticated write
@@ -50,11 +70,9 @@ service cloud.firestore {
       allow create: if request.auth != null && 
                    request.auth.uid == request.resource.data.authorId;
       allow update: if request.auth != null && 
-                   (request.auth.uid == resource.data.authorId || 
-                    request.auth.uid in get(/databases/$(database)/documents/admins/list).data.adminIds);
+                   (request.auth.uid == resource.data.authorId || isAdmin());
       allow delete: if request.auth != null && 
-                   (request.auth.uid == resource.data.authorId || 
-                    request.auth.uid in get(/databases/$(database)/documents/admins/list).data.adminIds);
+                   (request.auth.uid == resource.data.authorId || isAdmin());
     }
     
     // Rating comments
@@ -68,21 +86,50 @@ service cloud.firestore {
                    request.auth.uid == resource.data.authorId;
     }
     
-    // Game ratings (legacy)
+    // Rating interactions (likes on ratings/comments)
+    match /rating_interactions/{interactionId} {
+      allow read: if true; // Public interactions
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Game ratings (main collection)
     match /game_ratings/{ratingId} {
       allow read: if true; // Public ratings
-      allow write: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
     // Friends system
     match /friends/{friendshipId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
     match /friend_requests/{requestId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Following system
+    match /following/{followId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    match /followers/{followId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
     // Admin collection - allow authenticated users to read for admin checks
@@ -91,17 +138,18 @@ service cloud.firestore {
       // Allow initial creation of admin document or updates by super admin
       allow create: if request.auth != null && doc == 'list';
       allow update: if request.auth != null && 
-                   (request.auth.uid == get(/databases/$(database)/documents/admins/list).data.superAdminId ||
-                    !exists(/databases/$(database)/documents/admins/list));
+                   (exists(/databases/$(database)/documents/admins/list) &&
+                    (request.auth.uid == get(/databases/$(database)/documents/admins/list).data.superAdminId ||
+                     !exists(/databases/$(database)/documents/admins/list)));
     }
     
     // Banned users collection
     match /banned_users/{userId} {
       allow read: if request.auth != null && 
-                 (request.auth.uid == userId || 
-                  request.auth.uid in get(/databases/$(database)/documents/admins/list).data.adminIds);
-      allow write: if request.auth != null && 
-                  request.auth.uid in get(/databases/$(database)/documents/admins/list).data.adminIds;
+                 (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
     
     // Default deny all other documents
