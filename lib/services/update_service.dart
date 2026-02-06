@@ -28,12 +28,31 @@ class UpdateInfo {
   });
 
   factory UpdateInfo.fromJson(Map<String, dynamic> json) {
+    // Find the APK file in assets
+    String downloadUrl = '';
+    if (json['assets'] != null && json['assets'].isNotEmpty) {
+      // Look for APK file specifically
+      for (var asset in json['assets']) {
+        final String assetName = asset['name'] ?? '';
+        if (assetName.endsWith('.apk')) {
+          downloadUrl = asset['browser_download_url'] ?? '';
+          debugPrint('📦 Found APK asset: $assetName');
+          debugPrint('🔗 Download URL: $downloadUrl');
+          break;
+        }
+      }
+      
+      // Fallback to first asset if no APK found
+      if (downloadUrl.isEmpty && json['assets'].isNotEmpty) {
+        downloadUrl = json['assets'][0]['browser_download_url'] ?? '';
+        debugPrint('⚠️ No APK found, using first asset: ${json['assets'][0]['name']}');
+      }
+    }
+    
     return UpdateInfo(
       version: json['tag_name'] ?? '1.0.0',
       buildNumber: json['name'] ?? '1',
-      downloadUrl: json['assets']?.isNotEmpty == true 
-          ? json['assets'][0]['browser_download_url'] ?? ''
-          : '',
+      downloadUrl: downloadUrl,
       releaseNotes: json['body'] ?? 'No release notes available.',
       releaseDate: DateTime.tryParse(json['published_at'] ?? '') ?? DateTime.now(),
       isUpdateAvailable: false, // Will be set by comparison logic
@@ -643,6 +662,7 @@ Since this is a demo mode, please visit our GitHub repository to download the la
   }) async {
     try {
       onStatusChange?.call('Preparing download...');
+      debugPrint('🔄 Download URL: $downloadUrl');
       
       if (downloadUrl.isEmpty) {
         debugPrint('❌ No download URL provided - opening GitHub instead');
@@ -672,6 +692,7 @@ Since this is a demo mode, please visit our GitHub repository to download the la
           await openReleasesPage();
           return false;
         }
+        debugPrint('📁 Storage directory: ${directory.path}');
       }
 
       final filePath = '${directory!.path}/gamelog_update.apk';
@@ -680,6 +701,7 @@ Since this is a demo mode, please visit our GitHub repository to download the la
       // Delete old file if exists
       if (await file.exists()) {
         await file.delete();
+        debugPrint('🗑️ Deleted old APK file');
       }
 
       onStatusChange?.call('Downloading update...');
@@ -689,10 +711,16 @@ Since this is a demo mode, please visit our GitHub repository to download the la
       final client = http.Client();
       
       try {
+        debugPrint('🌐 Creating HTTP request...');
         final request = http.Request('GET', Uri.parse(downloadUrl));
+        request.headers['User-Agent'] = 'GameLog-App';
+        
+        debugPrint('📡 Sending request...');
         final response = await client.send(request).timeout(
           const Duration(seconds: 30),
         );
+        
+        debugPrint('📊 Response status: ${response.statusCode}');
         
         if (response.statusCode != 200) {
           debugPrint('❌ Download failed: ${response.statusCode}');
@@ -703,12 +731,14 @@ Since this is a demo mode, please visit our GitHub repository to download the la
 
         // Get total file size
         final totalBytes = response.contentLength ?? 0;
+        debugPrint('📦 File size: ${(totalBytes / 1024 / 1024).toStringAsFixed(2)} MB');
         int downloadedBytes = 0;
         
         // Create file sink
         final sink = file.openWrite();
         
         try {
+          debugPrint('⬇️ Starting download stream...');
           // Stream download with progress updates
           await for (final chunk in response.stream) {
             sink.add(chunk);
@@ -722,6 +752,10 @@ Since this is a demo mode, please visit our GitHub repository to download the la
               final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
               final totalMB = (totalBytes / 1024 / 1024).toStringAsFixed(1);
               
+              if (progressPercent % 10 == 0) {
+                debugPrint('📥 Progress: $progressPercent% ($downloadedMB MB / $totalMB MB)');
+              }
+              
               onStatusChange?.call('Downloading... $progressPercent% ($downloadedMB MB / $totalMB MB)');
             } else {
               final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
@@ -733,17 +767,22 @@ Since this is a demo mode, please visit our GitHub repository to download the la
           await sink.close();
           
           debugPrint('✅ Download completed: $filePath');
+          debugPrint('📄 File exists: ${await file.exists()}');
+          debugPrint('📏 File size: ${await file.length()} bytes');
+          
           onStatusChange?.call('Download completed! Installing...');
           onProgress?.call(1.0);
 
           // Install the APK
+          debugPrint('📲 Starting APK installation...');
           await _installApk(filePath);
           onStatusChange?.call('Installation started');
           return true;
           
-        } catch (e) {
+        } catch (e, stackTrace) {
           await sink.close();
-          debugPrint('❌ Download error: $e');
+          debugPrint('❌ Download stream error: $e');
+          debugPrint('Stack trace: $stackTrace');
           onStatusChange?.call('Download error: $e');
           await openReleasesPage();
           return false;
@@ -752,8 +791,9 @@ Since this is a demo mode, please visit our GitHub repository to download the la
         client.close();
       }
       
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ Error downloading update: $e');
+      debugPrint('Stack trace: $stackTrace');
       onStatusChange?.call('Error: $e');
       // Fallback to GitHub
       await openReleasesPage();
