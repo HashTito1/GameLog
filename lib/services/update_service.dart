@@ -642,37 +642,120 @@ Since this is a demo mode, please visit our GitHub repository to download the la
     Function(String status)? onStatusChange,
   }) async {
     try {
-      onStatusChange?.call('Opening download page...');
+      onStatusChange?.call('Preparing download...');
       
       if (downloadUrl.isEmpty) {
         debugPrint('❌ No download URL provided - opening GitHub instead');
+        onStatusChange?.call('No download URL - opening GitHub');
         await openReleasesPage();
         return false;
       }
 
-      // For now, just open the download URL in browser for more reliable downloads
-      debugPrint('📥 Opening download URL: $downloadUrl');
-      
-      try {
-        final uri = Uri.parse(downloadUrl);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-          onStatusChange?.call('Download started in browser');
-          return true;
-        } else {
-          debugPrint('❌ Cannot launch download URL');
+      if (!Platform.isAndroid) {
+        debugPrint('❌ Auto-update only supported on Android');
+        onStatusChange?.call('Auto-update only supported on Android');
+        await openReleasesPage();
+        return false;
+      }
+
+      debugPrint('📥 Starting download from: $downloadUrl');
+      onStatusChange?.call('Starting download...');
+
+      // Get downloads directory (works better on newer Android)
+      Directory? directory;
+      if (Platform.isAndroid) {
+        // Try to get external storage directory first
+        directory = await getExternalStorageDirectory();
+        if (directory == null) {
+          debugPrint('❌ Could not access storage directory');
+          onStatusChange?.call('Could not access storage');
           await openReleasesPage();
           return false;
         }
-      } catch (e) {
-        debugPrint('❌ Error launching download URL: $e');
-        await openReleasesPage();
-        return false;
+      }
+
+      final filePath = '${directory!.path}/gamelog_update.apk';
+      final file = File(filePath);
+
+      // Delete old file if exists
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      onStatusChange?.call('Downloading update...');
+      onProgress?.call(0.0);
+
+      // Create HTTP client for streaming download
+      final client = http.Client();
+      
+      try {
+        final request = http.Request('GET', Uri.parse(downloadUrl));
+        final response = await client.send(request).timeout(
+          const Duration(seconds: 30),
+        );
+        
+        if (response.statusCode != 200) {
+          debugPrint('❌ Download failed: ${response.statusCode}');
+          onStatusChange?.call('Download failed: ${response.statusCode}');
+          await openReleasesPage();
+          return false;
+        }
+
+        // Get total file size
+        final totalBytes = response.contentLength ?? 0;
+        int downloadedBytes = 0;
+        
+        // Create file sink
+        final sink = file.openWrite();
+        
+        try {
+          // Stream download with progress updates
+          await for (final chunk in response.stream) {
+            sink.add(chunk);
+            downloadedBytes += chunk.length;
+            
+            if (totalBytes > 0) {
+              final progress = downloadedBytes / totalBytes;
+              onProgress?.call(progress);
+              
+              final progressPercent = (progress * 100).toInt();
+              final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
+              final totalMB = (totalBytes / 1024 / 1024).toStringAsFixed(1);
+              
+              onStatusChange?.call('Downloading... $progressPercent% ($downloadedMB MB / $totalMB MB)');
+            } else {
+              final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
+              onStatusChange?.call('Downloading... $downloadedMB MB');
+            }
+          }
+          
+          await sink.flush();
+          await sink.close();
+          
+          debugPrint('✅ Download completed: $filePath');
+          onStatusChange?.call('Download completed! Installing...');
+          onProgress?.call(1.0);
+
+          // Install the APK
+          await _installApk(filePath);
+          onStatusChange?.call('Installation started');
+          return true;
+          
+        } catch (e) {
+          await sink.close();
+          debugPrint('❌ Download error: $e');
+          onStatusChange?.call('Download error: $e');
+          await openReleasesPage();
+          return false;
+        }
+      } finally {
+        client.close();
       }
       
     } catch (e) {
       debugPrint('❌ Error downloading update: $e');
       onStatusChange?.call('Error: $e');
+      // Fallback to GitHub
       await openReleasesPage();
       return false;
     }

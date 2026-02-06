@@ -398,19 +398,31 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
 
     setState(() {
       _isDownloading = true;
+      _downloadProgress = 0.0;
     });
 
     try {
-      // Open download URL in browser
+      // Attempt to download and install with progress tracking
       final success = await UpdateService.instance.downloadAndInstallUpdate(
         widget.updateInfo.downloadUrl,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _downloadProgress = progress;
+            });
+          }
+        },
+        onStatusChange: (status) {
+          debugPrint('Download status: $status');
+        },
       );
 
       if (mounted) {
         if (success) {
+          // Show success message
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Download started! Check your browser downloads.'),
+              content: const Text('Update downloaded! Please install the APK.'),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -418,21 +430,23 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
           );
           Navigator.of(context).pop();
         } else {
+          // Fallback to GitHub
           setState(() {
             _isDownloading = false;
+            _downloadProgress = 0.0;
           });
-          _openGitHub();
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isDownloading = false;
+          _downloadProgress = 0.0;
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not start download: $e'),
+            content: Text('Download failed: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
