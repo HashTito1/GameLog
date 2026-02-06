@@ -398,31 +398,19 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
 
     setState(() {
       _isDownloading = true;
-      _downloadProgress = 0.0;
     });
 
     try {
-      // Simulate download progress
-      for (int i = 0; i <= 100; i += 10) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        if (mounted) {
-          setState(() {
-            _downloadProgress = i / 100;
-          });
-        }
-      }
-
-      // Attempt to download and install
+      // Open download URL in browser
       final success = await UpdateService.instance.downloadAndInstallUpdate(
         widget.updateInfo.downloadUrl,
       );
 
       if (mounted) {
         if (success) {
-          // Show success message
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Update downloaded successfully!'),
+              content: const Text('Download started! Check your browser downloads.'),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -430,7 +418,9 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
           );
           Navigator.of(context).pop();
         } else {
-          // Fallback to GitHub
+          setState(() {
+            _isDownloading = false;
+          });
           _openGitHub();
         }
       }
@@ -438,12 +428,11 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _downloadProgress = 0.0;
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Download failed: $e'),
+            content: Text('Could not start download: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
