@@ -1,7 +1,7 @@
 name: gamelog
 description: A social platform for gamers to track, rate, and review games - like Letterboxd but for video games!
 publish_to: 'none'
-version: 1.2.2+12
+version: 1.2.2+13
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
