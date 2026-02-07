@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
@@ -19,6 +20,8 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounceTimer;
   List<Game> _searchResults = [];
   bool _isLoading = false;
+  List<Game> _recentGames = [];
+  
   // Filter options
   String _selectedGenre = 'all';
   String _selectedPlatform = 'all';
@@ -29,6 +32,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _loadRecentGames();
   }
 
   @override
@@ -36,6 +40,75 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadRecentGames() async {
+    final prefs = await SharedPreferences.getInstance();
+    final gamesJson = prefs.getStringList('recent_viewed_games') ?? [];
+    setState(() {
+      _recentGames = gamesJson.map((json) {
+        try {
+          final parts = json.split('|||');
+          if (parts.length >= 5) {
+            return Game(
+              id: parts[0],
+              title: parts[1],
+              coverImage: parts[2],
+              developer: parts[3],
+              releaseDate: parts[4],
+              averageRating: parts.length > 5 ? double.tryParse(parts[5]) ?? 0.0 : 0.0,
+              publisher: '',
+              platforms: [],
+              genres: [],
+              description: '',
+              totalReviews: 0,
+            );
+          }
+        } catch (e) {
+          // Skip invalid entries
+        }
+        return null;
+      }).whereType<Game>().toList();
+    });
+  }
+
+  Future<void> _saveRecentGame(Game game) async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Create a simple string representation
+    final gameString = '${game.id}|||${game.title}|||${game.coverImage}|||${game.developer}|||${game.releaseDate}|||${game.averageRating}';
+    
+    var gamesJson = prefs.getStringList('recent_viewed_games') ?? [];
+    
+    // Remove if exists
+    gamesJson.removeWhere((g) => g.startsWith('${game.id}|||'));
+    
+    // Add to beginning
+    gamesJson.insert(0, gameString);
+    
+    // Keep only 10
+    if (gamesJson.length > 10) {
+      gamesJson = gamesJson.take(10).toList();
+    }
+    
+    await prefs.setStringList('recent_viewed_games', gamesJson);
+    await _loadRecentGames();
+  }
+
+  Future<void> _clearRecentGames() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('recent_viewed_games');
+    setState(() {
+      _recentGames = [];
+    });
+  }
+
+  Future<void> _removeRecentGame(String gameId) async {
+    final prefs = await SharedPreferences.getInstance();
+    var gamesJson = prefs.getStringList('recent_viewed_games') ?? [];
+    gamesJson.removeWhere((g) => g.startsWith('$gameId|||'));
+    await prefs.setStringList('recent_viewed_games', gamesJson);
+    await _loadRecentGames();
   }
 
   void _onSearchChanged(String query) {
@@ -261,34 +334,207 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    if (_recentGames.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.search,
+                size: 64,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Discover Amazing Games',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Search for your favorite games using the search bar above',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Show recently viewed games
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(
-              Icons.search,
-              size: 64,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
             Text(
-              'Discover Amazing Games',
+              'Recently Viewed',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: theme.colorScheme.onSurface,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Search for your favorite games using the search bar above',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            TextButton(
+              onPressed: _clearRecentGames,
+              child: Text(
+                'Clear All',
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontSize: 14,
+                ),
               ),
-              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ..._recentGames.map((game) => _buildRecentGameItem(game, theme)),
+      ],
+    );
+  }
+
+  Widget _buildRecentGameItem(Game game, ThemeData theme) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => GameDetailScreen(
+              gameId: game.id,
+              initialGame: game,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: game.coverImage.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: game.coverImage,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.games, color: theme.colorScheme.onSurface, size: 24),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.games, color: theme.colorScheme.onSurface, size: 24),
+                      ),
+                    )
+                  : Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.games, color: theme.colorScheme.onSurface, size: 24),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    game.title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    game.developer,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (game.averageRating > 0) ...[
+                        Icon(
+                          Icons.star,
+                          size: 16,
+                          color: ThemeService().starColor,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          game.averageRating.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      if (game.releaseDate.isNotEmpty) ...[
+                        Icon(
+                          Icons.calendar_today,
+                          size: 14,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          game.releaseDate.split('-')[0],
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(
+                Icons.close,
+                size: 18,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+              onPressed: () => _removeRecentGame(game.id),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
           ],
         ),
@@ -359,7 +605,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildGameItem(Game game, ThemeData theme) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
+        // Save to recent games
+        await _saveRecentGame(game);
+        
         // Navigate to game detail screen
         Navigator.of(context).push(
           MaterialPageRoute(

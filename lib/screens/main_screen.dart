@@ -106,30 +106,33 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           physics: const NeverScrollableScrollPhysics(),
           children: _screens,
         ),
-        bottomNavigationBar: Container(
-          height: 58, // Reduced from 65
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 10, // Reduced from 12
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildNavItem(Icons.home_filled, 'Home', 0, theme),
-                _buildNavItem(Icons.explore, 'Discover', 1, theme),
-                _buildNavItem(Icons.search, 'Search', 2, theme),
-                // Forum removed from navigation
-                // _buildNavItem(Icons.forum, 'Forum', 3, theme),
-                _buildNavItem(Icons.bookmark, 'Library', 3, theme), // Now index 3
-                _buildNavItem(Icons.person, 'Profile', 4, theme), // Now index 4
+        bottomNavigationBar: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
               ],
+            ),
+            child: SafeArea(
+              child: SizedBox(
+                height: 56,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildNavItem(Icons.home_rounded, 'Home', 0, theme),
+                    _buildNavItem(Icons.explore_rounded, 'Discover', 1, theme),
+                    _buildNavItem(Icons.search_rounded, 'Search', 2, theme),
+                    _buildNavItem(Icons.bookmark_rounded, 'Library', 3, theme),
+                    _buildNavItem(Icons.person_rounded, 'Profile', 4, theme),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -140,27 +143,46 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Widget _buildNavItem(IconData icon, String label, int index, ThemeData theme) {
     final isActive = _currentIndex == index;
     
-    return GestureDetector(
-      onTap: () => _onTabTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 44, // Reduced from 50
-        height: 44, // Reduced from 50
-        decoration: BoxDecoration(
-          color: isActive ? theme.colorScheme.primary : Colors.transparent,
-          shape: BoxShape.circle,
-          boxShadow: isActive ? [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.3),
-              blurRadius: 4, // Reduced from 6
-              offset: const Offset(0, 1), // Reduced from 2
+    return Expanded(
+      child: InkWell(
+        onTap: () => _onTabTapped(index),
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: isActive ? BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+            ) : null,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  color: isActive 
+                      ? theme.colorScheme.primary 
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  size: 22,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                    color: isActive 
+                        ? theme.colorScheme.primary 
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-          ] : null,
-        ),
-        child: Icon(
-          icon,
-          color: isActive ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          size: 20, // Reduced from 22
+          ),
         ),
       ),
     );
