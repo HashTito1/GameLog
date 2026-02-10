@@ -1,14 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/theme_service.dart';
+import 'services/widget_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/welcome_screen.dart';
 import 'screens/main_screen.dart';
+import 'screens/game_detail_screen.dart';
 import 'firebase_options.dart';
+
+// Global navigator key for navigation from anywhere
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +35,31 @@ void main() async {
   await FirebaseAuthService().initialize();
   await ThemeService().initialize();
   
+  // Initialize widget service
+  await WidgetService.initialize();
+  
+  // Set up widget deep link listener
+  _setupWidgetListener();
+  
   runApp(const GameLogApp());
+}
+
+void _setupWidgetListener() {
+  const platform = MethodChannel('com.example.gamelog/widget');
+  
+  platform.setMethodCallHandler((call) async {
+    if (call.method == 'openGameDetail') {
+      final gameId = call.arguments as String?;
+      if (gameId != null && navigatorKey.currentContext != null) {
+        // Navigate to game detail screen
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (context) => GameDetailScreen(gameId: gameId),
+          ),
+        );
+      }
+    }
+  });
 }
 
 class GameLogApp extends StatelessWidget {
@@ -44,6 +74,7 @@ class GameLogApp extends StatelessWidget {
         final themeData = themeService.getThemeData();
         
         return MaterialApp(
+          navigatorKey: navigatorKey,
           title: 'GameLog',
           debugShowCheckedModeBanner: false,
           theme: themeData.copyWith(

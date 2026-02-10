@@ -166,6 +166,8 @@ class FollowService {
         
         if (userDoc.exists) {
           final userData = userDoc.data()!;
+          userData['id'] = targetUserId; // Ensure id field is set
+          userData['userId'] = targetUserId; // Also set userId for compatibility
           userData['followedAt'] = followData['followedAt'];
           following.add(userData);
         }
@@ -202,6 +204,8 @@ class FollowService {
         
         if (userDoc.exists) {
           final userData = userDoc.data()!;
+          userData['id'] = followerUserId; // Ensure id field is set
+          userData['userId'] = followerUserId; // Also set userId for compatibility
           userData['followedAt'] = followData['followedAt'];
           followers.add(userData);
         }

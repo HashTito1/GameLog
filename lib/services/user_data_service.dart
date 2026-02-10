@@ -1268,14 +1268,10 @@ class UserDataService {
     return _firestore
         .collection(_usersCollection)
         .doc(userId)
+        .collection('followers')
         .snapshots()
-        .map((doc) {
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        final followersList = data['followersList'] as List<dynamic>?;
-        return followersList?.cast<String>() ?? [];
-      }
-      return <String>[];
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => doc.data()['userId'] as String).toList();
     });
   }
 
@@ -1284,14 +1280,10 @@ class UserDataService {
     return _firestore
         .collection(_usersCollection)
         .doc(userId)
+        .collection('following')
         .snapshots()
-        .map((doc) {
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        final followingList = data['followingList'] as List<dynamic>?;
-        return followingList?.cast<String>() ?? [];
-      }
-      return <String>[];
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => doc.data()['userId'] as String).toList();
     });
   }
 

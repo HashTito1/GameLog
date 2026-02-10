@@ -4,6 +4,7 @@ import '../models/user_rating.dart';
 import 'user_data_service.dart';
 import 'library_service.dart';
 import 'friends_service.dart';
+import 'follow_service.dart';
 
 class RatingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -441,38 +442,73 @@ class RatingService {
     try {
       debugPrint('🔍 Getting friend reviews for user: $userId');
       
-      // Get user's friends first
+      // Get user's friends
       final friendsService = FriendsService.instance;
       final friends = await friendsService.getFriends(userId);
       debugPrint('👥 Found ${friends.length} friends');
       
-      if (friends.isEmpty) {
-        debugPrint('❌ No friends found');
+      // Get users that current user is following
+      final following = await FollowService.getFollowing(userId);
+      debugPrint('👤 Found ${following.length} following');
+      
+      // Combine friend IDs and following IDs
+      final friendIds = friends.map((friend) => friend['id'] as String? ?? friend['userId'] as String).toSet();
+      final followingIds = following.map((user) => user['id'] as String? ?? user['userId'] as String).toSet();
+      final allUserIds = {...friendIds, ...followingIds}.toList();
+      
+      debugPrint('📋 Total user IDs (friends + following): ${allUserIds.length}');
+      debugPrint('📋 User IDs: $allUserIds');
+      
+      if (allUserIds.isEmpty) {
+        debugPrint('❌ No friends or following found');
         return [];
       }
 
-      // Get friend IDs
-      final friendIds = friends.map((friend) => friend['id'] as String).toList();
-      debugPrint('📋 Friend IDs: $friendIds');
-
-      // Get recent reviews from friends
-      final querySnapshot = await _firestore
-          .collection(_ratingsCollection)
-          .where('userId', whereIn: friendIds.take(10).toList()) // Firestore limit for whereIn
-          .orderBy('updatedAt', descending: true)
-          .limit(limit)
-          .get();
-
-      debugPrint('📊 Found ${querySnapshot.docs.length} friend ratings in database');
-
-      final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
-          .toList();
+      // Get ALL ratings first, then filter in memory (to avoid Firestore whereIn limit)
+      final allRatings = <UserRating>[];
       
-      debugPrint('✅ Processed ${ratings.length} friend ratings');
-      return ratings;
+      // Split into batches of 10 (Firestore whereIn limit)
+      for (var i = 0; i < allUserIds.length; i += 10) {
+        final batch = allUserIds.skip(i).take(10).toList();
+        debugPrint('🔄 Fetching batch ${i ~/ 10 + 1} with ${batch.length} user IDs');
+        
+        try {
+          final querySnapshot = await _firestore
+              .collection(_ratingsCollection)
+              .where('userId', whereIn: batch)
+              .get();
+          
+          debugPrint('📊 Batch ${i ~/ 10 + 1}: Found ${querySnapshot.docs.length} ratings');
+          
+          final batchRatings = querySnapshot.docs
+              .map((doc) {
+                try {
+                  return UserRating.fromMap(doc.data());
+                } catch (e) {
+                  debugPrint('⚠️ Error parsing rating: $e');
+                  return null;
+                }
+              })
+              .whereType<UserRating>()
+              .toList();
+          
+          allRatings.addAll(batchRatings);
+        } catch (e) {
+          debugPrint('❌ Error fetching batch ${i ~/ 10 + 1}: $e');
+        }
+      }
+      
+      debugPrint('📊 Total ratings found: ${allRatings.length}');
+      
+      // Sort by updatedAt and take limit
+      allRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      final result = allRatings.take(limit).toList();
+      
+      debugPrint('✅ Returning ${result.length} ratings');
+      return result;
     } catch (e) {
       debugPrint('❌ Error in getFriendRecentRatings: $e');
+      debugPrint('❌ Stack trace: ${StackTrace.current}');
       return [];
     }
   }

@@ -9,6 +9,7 @@ import '../services/cache_service.dart';
 import '../services/rating_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/theme_service.dart';
+import '../services/widget_service.dart';
 import 'notifications_screen.dart';
 import 'game_detail_screen.dart';
 import 'category_games_screen.dart';
@@ -22,7 +23,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   List<Game> _trendingGames = [];
   List<Game> _popularGames = [];
   List<Game> _actionGames = [];
@@ -34,15 +35,40 @@ class _HomeScreenState extends State<HomeScreen> {
   List<UserRating> _friendReviews = [];
   bool _isLoading = true; // Hot reload trigger - Updated UI
   bool _isLoadingInProgress = false; // Prevent multiple simultaneous loads
+  
+  // Animation controller for new reviews
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  int _previousReviewCount = 0;
 
   @override
   void initState() {
     super.initState();
+    
+    // Initialize animation controller
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(-0.3, 0),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+    
     _loadAllGames();
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -304,10 +330,23 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('📊 Found ${friendReviews.length} friend reviews');
       
       if (mounted) {
+        // Check if there are new reviews
+        final hasNewReviews = friendReviews.length > _previousReviewCount;
+        _previousReviewCount = friendReviews.length;
+        
         setState(() {
           _friendReviews = friendReviews;
         });
+        
+        // Trigger animation if there are new reviews
+        if (hasNewReviews && friendReviews.isNotEmpty) {
+          _animationController.forward(from: 0.0);
+        }
+        
         debugPrint('🔄 Updated UI with ${_friendReviews.length} friend reviews');
+        
+        // Update widget with new data
+        WidgetService.updateWidget();
       }
     } catch (e) {
       debugPrint('❌ Error loading friend reviews: $e');
@@ -1131,11 +1170,22 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else
             SizedBox(
-              height: 180,
+              height: 220, // Reduced from 280
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
                 itemCount: _friendReviews.length,
                 itemBuilder: (context, index) {
+                  // Apply animation only to the first item (newest review)
+                  if (index == 0) {
+                    return FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: SlideTransition(
+                        position: _slideAnimation,
+                        child: _buildRecentReviewCard(_friendReviews[index], theme),
+                      ),
+                    );
+                  }
                   return _buildRecentReviewCard(_friendReviews[index], theme);
                 },
               ),
@@ -1153,7 +1203,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return GestureDetector(
       onTap: () {
-        // Navigate to game detail screen using gameId
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => GameDetailScreen(
@@ -1163,27 +1212,150 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       child: Container(
-        width: 200,
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.all(8), // Reduced from 10
+        width: 180,
+        height: 220,
+        margin: const EdgeInsets.only(right: 12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: theme.colorScheme.outline.withValues(alpha: 0.2),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // User info and rating
+            // Top row: Game cover on left, rating/likes on right
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Game cover with shadow effect
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: FutureBuilder<Game?>(
+                      future: _getGameDetails(review.gameId),
+                      builder: (context, snapshot) {
+                        return Container(
+                          height: 80,
+                          width: 60,
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: snapshot.hasData && snapshot.data != null
+                              ? CachedNetworkImage(
+                                  imageUrl: snapshot.data!.coverImage,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Center(
+                                    child: Icon(
+                                      Icons.games,
+                                      size: 24,
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) => Center(
+                                    child: Icon(
+                                      Icons.games,
+                                      size: 24,
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                )
+                              : Center(
+                                  child: Icon(
+                                    Icons.games,
+                                    size: 24,
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                
+                // Rating and likes on the right
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.star,
+                          color: ThemeService().starColor,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          rating.toStringAsFixed(0),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.thumb_up,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${review.likeCount}',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            
+            // Review text
+            Expanded(
+              child: reviewText != null && reviewText.isNotEmpty
+                  ? Text(
+                      reviewText,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  : Text(
+                      'No review text',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 10),
+            
+            // User info at bottom
             Row(
               children: [
                 CircleAvatar(
@@ -1194,129 +1366,26 @@ class _HomeScreenState extends State<HomeScreen> {
                       : null,
                   child: profileImage == null || profileImage.isEmpty
                       ? Text(
-                          username.isNotEmpty ? username[0].toUpperCase() : 'F',
+                          username.isNotEmpty ? username[0].toUpperCase() : 'U',
                           style: TextStyle(
                             color: theme.colorScheme.primary,
-                            fontSize: 10,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
                         )
                       : null,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        username,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Row(
-                        children: [
-                          ...List.generate(5, (starIndex) {
-                            return Icon(
-                              starIndex < rating.floor()
-                                  ? Icons.star
-                                  : (starIndex < rating ? Icons.star_half : Icons.star_border),
-                              color: ThemeService().starColor,
-                              size: 10,
-                            );
-                          }),
-                          const SizedBox(width: 2),
-                          Text(
-                            rating.toStringAsFixed(1),
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4), // Reduced from 6
-            
-            // Review text
-            Expanded(
-              child: Text(
-                reviewText ?? 'No review text',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                  fontSize: 11,
-                  height: 1.1,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            
-            const SizedBox(height: 4), // Reduced from 6
-            
-            // Like and comment counts
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.thumb_up_outlined,
-                        size: 9,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 1),
-                      Text(
-                        '${review.likeCount}',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.comment_outlined,
-                        size: 9,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(width: 1),
-                      Text(
-                        '${review.commentCount}',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    username,
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1325,6 +1394,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  // Helper method to get game details for cover image
+  Future<Game?> _getGameDetails(String gameId) async {
+    try {
+      final game = await IGDBService.instance.getGameDetails(gameId);
+      return game;
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildSuggestedSection(ThemeData theme) {

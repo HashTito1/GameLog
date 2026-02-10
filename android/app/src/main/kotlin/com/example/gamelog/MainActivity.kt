@@ -10,10 +10,12 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.gamelog/update"
+    private val WIDGET_CHANNEL = "com.example.gamelog/widget"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
+        // Update channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "installApk" -> {
@@ -28,6 +30,35 @@ class MainActivity : FlutterActivity() {
                 else -> {
                     result.notImplemented()
                 }
+            }
+        }
+        
+        // Widget channel for deep links
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getInitialGameId" -> {
+                    val gameId = intent?.getStringExtra("gameId")
+                    result.success(gameId)
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
+    }
+    
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        
+        // Handle widget click
+        val gameId = intent.getStringExtra("gameId")
+        val openGameDetail = intent.getBooleanExtra("openGameDetail", false)
+        
+        if (gameId != null && openGameDetail) {
+            // Send to Flutter
+            flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                MethodChannel(messenger, WIDGET_CHANNEL).invokeMethod("openGameDetail", gameId)
             }
         }
     }

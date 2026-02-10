@@ -14,6 +14,7 @@ class UserRating {
   final int likeCount;
   final List<String> likedBy;
   final int commentCount;
+  final String? gameTitle; // Added game title
 
   UserRating({
     required this.id,
@@ -29,6 +30,7 @@ class UserRating {
     this.likeCount = 0,
     this.likedBy = const [],
     this.commentCount = 0,
+    this.gameTitle,
   });
 
   Map<String, dynamic> toMap() {
@@ -46,6 +48,7 @@ class UserRating {
       'likeCount': likeCount,
       'likedBy': likedBy,
       'commentCount': commentCount,
+      'gameTitle': gameTitle,
     };
   }
 
@@ -72,6 +75,7 @@ class UserRating {
       likeCount: map['likeCount'] ?? 0,
       likedBy: List<String>.from(map['likedBy'] ?? []),
       commentCount: map['commentCount'] ?? 0,
+      gameTitle: map['gameTitle'],
     );
   }
 
@@ -89,6 +93,7 @@ class UserRating {
     int? likeCount,
     List<String>? likedBy,
     int? commentCount,
+    String? gameTitle,
   }) {
     return UserRating(
       id: id ?? this.id,
@@ -104,6 +109,7 @@ class UserRating {
       likeCount: likeCount ?? this.likeCount,
       likedBy: likedBy ?? this.likedBy,
       commentCount: commentCount ?? this.commentCount,
+      gameTitle: gameTitle ?? this.gameTitle,
     );
   }
 }
