@@ -79,79 +79,52 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       setState(() => _isLoadingInProgress = true);
       
-      // Clear cache to ensure fresh data with current year
-      await CacheService.clearAllCache();
+      // DON'T clear cache - let it work! Only clear on manual refresh
+      // await CacheService.clearAllCache(); // REMOVED - this was killing performance
       
       // Check if adult content is enabled
       final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
       
-      // Load the most important sections first
-      final popularGames = await IGDBService.instance.getPopularGames(
-        limit: 12,
-        includeAdultContent: includeAdultContent,
-      );
+      // Load critical sections in parallel for faster initial display
+      final results = await Future.wait([
+        IGDBService.instance.getPopularGames(
+          limit: 12,
+          includeAdultContent: includeAdultContent,
+        ),
+        IGDBService.instance.getHighlyRatedGames(
+          limit: 20,
+          includeAdultContent: includeAdultContent,
+        ),
+        _loadFriendReviewsAsync(), // Load friend reviews in parallel
+      ]);
       
-      // Get highly rated games for featured section
-      final highlyRatedGames = await IGDBService.instance.getHighlyRatedGames(
-        limit: 20,
-        includeAdultContent: includeAdultContent,
-      );
+      final popularGames = results[0] as List<Game>;
+      final highlyRatedGames = results[1] as List<Game>;
+      final friendReviews = results[2] as List<UserRating>;
       
       // Create daily randomized featured games
       final featuredGames = _getDailyRandomizedGames(highlyRatedGames, 10);
       
+      // Apply cross-section deduplication
+      final deduplicatedPopular = _deduplicateAcrossSections(popularGames, []);
+      final deduplicatedFeatured = _deduplicateAcrossSections(featuredGames, deduplicatedPopular);
+      
       setState(() {
-        _popularGames = popularGames;
-        _featuredGames = featuredGames;
+        _popularGames = deduplicatedPopular;
+        _featuredGames = deduplicatedFeatured;
+        _friendReviews = friendReviews;
         _isLoading = false;
         _isLoadingInProgress = false;
       });
-
-      // Load trending games
-      Future.delayed(const Duration(milliseconds: 500), () async {
-        if (mounted) {
-          try {
-            final trendingGames = await IGDBService.instance.getTrendingGames(
-              limit: 12,
-              includeAdultContent: includeAdultContent,
-            );
-            
-            if (mounted) {
-              setState(() {
-                _trendingGames = trendingGames;
-              });
-            }
-          } catch (e) {
-            debugPrint('Error loading trending games: $e');
-          }
-        }
-      });
-
-      // Load genre-specific games in the background
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (mounted) {
-          _loadGenreGamesInBackground();
-        }
-      });
-
-      // Load GOTY games in the background
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          _loadGOTYGames();
-        }
-      });
-
-      // Load personalized suggestions in the background
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (mounted) {
-          _loadPersonalizedSuggestions();
-        }
-      });
-
-      // Load friend reviews in the background (immediate for refresh)
-      if (mounted) {
-        _loadFriendReviews();
+      
+      // Update widget with friend reviews
+      if (friendReviews.isNotEmpty) {
+        WidgetService.updateWidget();
       }
+
+      // Load remaining sections in parallel batches for better performance
+      _loadRemainingContentInBackground(includeAdultContent);
+      
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -168,6 +141,159 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         );
       }
     }
+  }
+  
+  // Deduplicate games across sections to avoid showing same game multiple times
+  List<Game> _deduplicateAcrossSections(List<Game> newGames, List<Game> existingGames) {
+    final existingNormalizedTitles = existingGames.map((g) => _normalizeGameTitle(g.title)).toSet();
+    
+    return newGames.where((game) {
+      final normalized = _normalizeGameTitle(game.title);
+      return !existingNormalizedTitles.contains(normalized);
+    }).toList();
+  }
+  
+  // Normalize game title for deduplication
+  String _normalizeGameTitle(String title) {
+    String normalized = title.toLowerCase().trim();
+    
+    // Remove common separators and extra text
+    normalized = normalized.split(':').first.trim();
+    normalized = normalized.split('-').first.trim();
+    normalized = normalized.split('–').first.trim();
+    normalized = normalized.split('—').first.trim();
+    
+    // Remove edition suffixes
+    final editionSuffixes = [
+      r'\s+goty\s+edition$',
+      r'\s+game of the year\s+edition$',
+      r'\s+complete\s+edition$',
+      r'\s+definitive\s+edition$',
+      r'\s+ultimate\s+edition$',
+      r'\s+gold\s+edition$',
+      r'\s+deluxe\s+edition$',
+      r'\s+premium\s+edition$',
+      r'\s+enhanced\s+edition$',
+      r'\s+special\s+edition$',
+      r'\s+remastered$',
+      r'\s+remake$',
+      r'\s+edition$',
+    ];
+    
+    for (final pattern in editionSuffixes) {
+      normalized = normalized.replaceAll(RegExp(pattern, caseSensitive: false), '');
+    }
+    
+    // Remove extra whitespace and special characters
+    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+    normalized = normalized.replaceAll(RegExp(r'[^\w\s]'), '');
+    
+    // Remove "the" at the beginning
+    if (normalized.startsWith('the ')) {
+      normalized = normalized.substring(4);
+    }
+    
+    return normalized;
+  }
+  
+  // Load friend reviews and return the result (for parallel loading)
+  Future<List<UserRating>> _loadFriendReviewsAsync() async {
+    try {
+      final currentUser = FirebaseAuthService.instance.currentUser;
+      if (currentUser == null) return [];
+      
+      return await RatingService.getFriendRecentRatings(
+        currentUser.uid,
+        limit: 10,
+      );
+    } catch (e) {
+      debugPrint('❌ Error loading friend reviews: $e');
+      return [];
+    }
+  }
+  
+  // Load remaining content in optimized parallel batches
+  Future<void> _loadRemainingContentInBackground(bool includeAdultContent) async {
+    if (!mounted) return;
+    
+    // Batch 1: Trending and genre games (load in parallel) - reduced limits for faster loading
+    Future.wait([
+      IGDBService.instance.getTrendingGames(
+        limit: 10, // Reduced from 12
+        includeAdultContent: includeAdultContent,
+      ),
+      IGDBService.instance.getGamesByGenre(
+        'Shooter',
+        limit: 10, // Reduced from 12
+        includeAdultContent: includeAdultContent,
+      ),
+    ]).then((results) {
+      if (mounted) {
+        // Deduplicate against already loaded games
+        final allExisting = [..._popularGames, ..._featuredGames];
+        final deduplicatedTrending = _deduplicateAcrossSections(results[0], allExisting);
+        final deduplicatedAction = _deduplicateAcrossSections(results[1], [...allExisting, ...deduplicatedTrending]);
+        
+        setState(() {
+          _trendingGames = deduplicatedTrending;
+          _actionGames = deduplicatedAction;
+        });
+      }
+    }).catchError((e) {
+      debugPrint('Error loading batch 1: $e');
+    });
+    
+    // Batch 2: More genre games (load in parallel) - reduced limits
+    Future.wait([
+      IGDBService.instance.getGamesByGenre(
+        'Role-playing (RPG)',
+        limit: 10, // Reduced from 12
+        includeAdultContent: includeAdultContent,
+      ),
+      IGDBService.instance.getGamesByGenre(
+        'Strategy',
+        limit: 10, // Reduced from 12
+        includeAdultContent: includeAdultContent,
+      ),
+    ]).then((results) {
+      if (mounted) {
+        // Deduplicate against already loaded games
+        final allExisting = [..._popularGames, ..._featuredGames, ..._trendingGames, ..._actionGames];
+        final deduplicatedRpg = _deduplicateAcrossSections(results[0], allExisting);
+        final deduplicatedStrategy = _deduplicateAcrossSections(results[1], [...allExisting, ...deduplicatedRpg]);
+        
+        setState(() {
+          _rpgGames = deduplicatedRpg;
+          _strategyGames = deduplicatedStrategy;
+        });
+      }
+    }).catchError((e) {
+      debugPrint('Error loading batch 2: $e');
+    });
+    
+    // Batch 3: GOTY and personalized (load in parallel) - reduced limits
+    Future.wait([
+      IGDBService.instance.getGOTYCandidates(
+        year: DateTime.now().year - 1,
+        limit: 10, // Reduced from 12
+        includeAdultContent: includeAdultContent,
+      ),
+      RecommendationService.instance.getPersonalizedRecommendations(limit: 8), // Reduced from 10
+    ]).then((results) {
+      if (mounted) {
+        // Deduplicate against already loaded games
+        final allExisting = [..._popularGames, ..._featuredGames, ..._trendingGames, ..._actionGames, ..._rpgGames, ..._strategyGames];
+        final deduplicatedGoty = _deduplicateAcrossSections(results[0] as List<Game>, allExisting);
+        final deduplicatedSuggested = _deduplicateAcrossSections(results[1] as List<Game>, [...allExisting, ...deduplicatedGoty]);
+        
+        setState(() {
+          _gotyGames = deduplicatedGoty;
+          _suggestedGames = deduplicatedSuggested;
+        });
+      }
+    }).catchError((e) {
+      debugPrint('Error loading batch 3: $e');
+    });
   }
 
   // Generate daily randomized games using date as seed
@@ -195,162 +321,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     
     // Return the requested number of games
     return shuffledGames.take(count).toList();
-  }
-
-  Future<void> _loadGenreGamesInBackground() async {
-    try {
-      // Check if adult content is enabled
-      final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
-      
-      // Load genre games with staggered delays for better performance
-      
-      // Shooter games first
-      try {
-        final shooterGames = await IGDBService.instance.getGamesByGenre(
-          'Shooter', 
-          limit: 12, 
-          includeAdultContent: includeAdultContent
-        );
-        
-        if (mounted) {
-          setState(() {
-            _actionGames = shooterGames;
-          });
-        }
-      } catch (e) {
-        debugPrint('Error loading Shooter games: $e');
-      }
-
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // RPG games
-      if (mounted) {
-        try {
-          final rpgGames = await IGDBService.instance.getGamesByGenre(
-            'Role-playing (RPG)', 
-            limit: 12, 
-            includeAdultContent: includeAdultContent
-          );
-          
-          if (mounted) {
-            setState(() {
-              _rpgGames = rpgGames;
-            });
-          }
-        } catch (e) {
-          debugPrint('Error loading RPG games: $e');
-        }
-      }
-
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Strategy games
-      if (mounted) {
-        try {
-          final strategyGames = await IGDBService.instance.getGamesByGenre(
-            'Strategy', 
-            limit: 12, 
-            includeAdultContent: includeAdultContent
-          );
-          
-          if (mounted) {
-            setState(() {
-              _strategyGames = strategyGames;
-            });
-          }
-        } catch (e) {
-          debugPrint('Error loading Strategy games: $e');
-        }
-      }
-    } catch (e) {
-      debugPrint('Error loading genre games: $e');
-    }
-  }
-
-  Future<void> _loadGOTYGames() async {
-    try {
-      // Check if adult content is enabled
-      final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
-      
-      // Load GOTY candidates from last year
-      try {
-        final gotyGames = await IGDBService.instance.getGOTYCandidates(
-          year: DateTime.now().year - 1,
-          limit: 12, 
-          includeAdultContent: includeAdultContent
-        );
-        
-        if (mounted) {
-          setState(() {
-            _gotyGames = gotyGames;
-          });
-        }
-      } catch (e) {
-        debugPrint('Error loading GOTY games: $e');
-      }
-    } catch (e) {
-      debugPrint('Error in _loadGOTYGames: $e');
-    }
-  }
-
-  Future<void> _loadPersonalizedSuggestions() async {
-    try {
-      // Load personalized recommendations based on user's library
-      try {
-        final suggestions = await RecommendationService.instance.getPersonalizedRecommendations(limit: 10);
-        
-        if (mounted) {
-          setState(() {
-            _suggestedGames = suggestions;
-          });
-        }
-      } catch (e) {
-        debugPrint('Error loading personalized suggestions: $e');
-      }
-    } catch (e) {
-      debugPrint('Error in _loadPersonalizedSuggestions: $e');
-    }
-  }
-
-  Future<void> _loadFriendReviews() async {
-    try {
-      debugPrint('🔍 Loading friend reviews...');
-      final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser == null) {
-        debugPrint('❌ No current user found');
-        return;
-      }
-
-      debugPrint('✅ Current user: ${currentUser.uid}');
-      final friendReviews = await RatingService.getFriendRecentRatings(
-        currentUser.uid,
-        limit: 10,
-      );
-      
-      debugPrint('📊 Found ${friendReviews.length} friend reviews');
-      
-      if (mounted) {
-        // Check if there are new reviews
-        final hasNewReviews = friendReviews.length > _previousReviewCount;
-        _previousReviewCount = friendReviews.length;
-        
-        setState(() {
-          _friendReviews = friendReviews;
-        });
-        
-        // Trigger animation if there are new reviews
-        if (hasNewReviews && friendReviews.isNotEmpty) {
-          _animationController.forward(from: 0.0);
-        }
-        
-        debugPrint('🔄 Updated UI with ${_friendReviews.length} friend reviews');
-        
-        // Update widget with new data
-        WidgetService.updateWidget();
-      }
-    } catch (e) {
-      debugPrint('❌ Error loading friend reviews: $e');
-    }
   }
 
   @override
@@ -1640,7 +1610,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1648,8 +1618,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 title,
                 style: TextStyle(
                   color: theme.colorScheme.onSurface,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               GestureDetector(
@@ -1666,121 +1636,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: Icon(
                   Icons.arrow_forward,
                   color: theme.colorScheme.primary,
-                  size: 18,
+                  size: 20,
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         SizedBox(
-          height: 200,
+          height: 240,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: games.length,
             itemBuilder: (context, index) {
-              return _buildPlayStoreGameCard(games[index], theme);
+              return Container(
+                margin: const EdgeInsets.only(right: 16),
+                child: _buildPopularGameCard(games[index], theme),
+              );
             },
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildPlayStoreGameCard(Game game, ThemeData theme) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => GameDetailScreen(
-              gameId: game.id,
-              initialGame: game,
-            ),
-          ),
-        );
-      },
-      child: Container(
-        width: 140,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: game.coverImage.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: game.coverImage,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          placeholder: (context, url) => Container(
-                            color: theme.colorScheme.surface,
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                                strokeWidth: 2,
-                              ),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            color: theme.colorScheme.surface,
-                            child: Icon(Icons.videogame_asset, color: theme.colorScheme.onSurface.withValues(alpha: 0.5), size: 32),
-                          ),
-                        )
-                      : Container(
-                          color: theme.colorScheme.surface,
-                          child: Icon(Icons.videogame_asset, color: theme.colorScheme.onSurface.withValues(alpha: 0.5), size: 32),
-                        ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              game.title,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              game.developer,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                fontSize: 12,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            if (game.averageRating > 0)
-              Row(
-                children: [
-                  Icon(Icons.star, color: ThemeService().starColor, size: 12),
-                  const SizedBox(width: 2),
-                  Text(
-                    game.averageRating.toStringAsFixed(1),
-                    style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
     );
   }
 

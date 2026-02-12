@@ -58,9 +58,9 @@ class IGDBService {
 
       // Build IGDB query - start with basic structure
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
       ''';
 
@@ -71,6 +71,9 @@ class IGDBService {
 
       // Build where clause components
       List<String> whereConditions = [];
+      
+      // For search, don't filter by category at all - let users find anything
+      // Client-side deduplication will handle grouping similar results
 
       // Add genre filter
       if (genres != null && genres.isNotEmpty) {
@@ -204,12 +207,12 @@ class IGDBService {
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
       
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
         offset $offset;
-        where rating >= 75 & rating_count >= 5 & first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow;
+        where rating >= 75 & rating_count >= 5 & first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow & category = (0,4,8,9,10,11) & parent_game = null;
         sort rating desc;
       ''';
 
@@ -277,12 +280,12 @@ class IGDBService {
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
       
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
         offset $offset;
-        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow;
+        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow & category = (0,4,8,9,10,11) & parent_game = null;
         sort first_release_date desc;
       ''';
 
@@ -303,12 +306,12 @@ class IGDBService {
         if (results.isEmpty) {
           // Try a broader query with just recent games (no rating requirement)
           String fallbackQuery = '''
-            fields name, summary, cover.url, first_release_date, rating, rating_count, 
+            fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                    involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-                   genres.name, platforms.name, screenshots.url;
+                   genres.name, platforms.name;
             limit $limit;
             offset $offset;
-            where first_release_date >= $timestampTwoYearsAgo;
+            where first_release_date >= $timestampTwoYearsAgo & category = (0,4,8,9,10,11) & parent_game = null;
             sort first_release_date desc;
           ''';
           
@@ -387,9 +390,9 @@ class IGDBService {
       }
 
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         where id = $gameId;
       ''';
 
@@ -443,14 +446,20 @@ class IGDBService {
       }
 
       final offset = (page - 1) * limit;
+      
+      // Get recent games from last 5 years
+      final now = DateTime.now();
+      final fiveYearsAgo = now.subtract(const Duration(days: 1825)); // 5 years
+      final timestampFiveYearsAgo = (fiveYearsAgo.millisecondsSinceEpoch / 1000).round();
+      final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
 
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
         offset $offset;
-        where genres.name = "$genre";
+        where genres.name = "$genre" & category = (0,4,8,9,10,11) & parent_game = null & rating >= 70 & rating_count >= 10 & first_release_date >= $timestampFiveYearsAgo & first_release_date <= $timestampNow;
         sort rating desc;
       ''';
 
@@ -485,12 +494,12 @@ class IGDBService {
           if (alternativeGenre != genre) {
             // Try with alternative genre name
             String alternativeQuery = '''
-              fields name, summary, cover.url, first_release_date, rating, rating_count, 
+              fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                      involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-                     genres.name, platforms.name, screenshots.url;
+                     genres.name, platforms.name;
               limit $limit;
               offset $offset;
-              where genres.name = "$alternativeGenre";
+              where genres.name = "$alternativeGenre" & category = (0,4,8,9,10,11) & parent_game = null & rating >= 70 & rating_count >= 10 & first_release_date >= $timestampFiveYearsAgo & first_release_date <= $timestampNow;
               sort rating desc;
             ''';
             
@@ -520,14 +529,14 @@ class IGDBService {
             }
           }
           
-          // Try a broader search without rating requirement
+          // Try a broader search with lower requirements
           String broadQuery = '''
-            fields name, summary, cover.url, first_release_date, rating, rating_count, 
+            fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                    involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-                   genres.name, platforms.name, screenshots.url;
+                   genres.name, platforms.name;
             limit $limit;
             offset $offset;
-            where genres.name = "$genre";
+            where genres.name = "$genre" & category = (0,4,8,9,10,11) & parent_game = null & rating >= 60 & rating_count >= 5 & first_release_date >= $timestampFiveYearsAgo;
             sort rating desc;
           ''';
           
@@ -644,12 +653,12 @@ class IGDBService {
       final offset = (page - 1) * limit;
 
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
         offset $offset;
-        where rating >= 70;
+        where rating >= 70 & category = (0,4,8,9,10,11) & parent_game = null;
         sort rating desc;
       ''';
 
@@ -665,12 +674,12 @@ class IGDBService {
         if (results.isEmpty) {
           // Try with lower rating threshold
           String fallbackQuery = '''
-            fields name, summary, cover.url, first_release_date, rating, rating_count, 
+            fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                    involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-                   genres.name, platforms.name, screenshots.url;
+                   genres.name, platforms.name;
             limit $limit;
             offset $offset;
-            where rating >= 65;
+            where rating >= 65 & category = (0,4,8,9,10,11) & parent_game = null;
             sort rating desc;
           ''';
           
@@ -955,6 +964,92 @@ class IGDBService {
     );
   }
 
+  // Check if a game is a DLC/expansion based on category or title patterns
+  // IGDB category field values:
+  // 0 = main_game (KEEP)
+  // 1 = dlc_addon (FILTER OUT)
+  // 2 = expansion (FILTER OUT)
+  // 3 = bundle (FILTER OUT)
+  // 4 = standalone_expansion (KEEP - these are full games)
+  // 8 = remake (KEEP)
+  // 9 = remaster (KEEP)
+  // 10 = expanded_game (KEEP)
+  // 11 = port (KEEP)
+  // 
+  // We filter at the API level using: category = (0,4,8,9,10,11)
+  // This ensures we only get main games, standalone expansions, remakes, remasters, expanded games, and ports
+  bool _isDLC(Map<String, dynamic> data) {
+    // IGDB category field values:
+    // 0 = main_game
+    // 1 = dlc_addon
+    // 2 = expansion
+    // 3 = bundle
+    // 4 = standalone_expansion
+    // 8 = remake
+    // 9 = remaster
+    // 10 = expanded_game
+    // 11 = port
+    
+    final category = data['category'];
+    if (category != null) {
+      // Filter out DLCs (1), expansions (2), and bundles (3)
+      // Keep standalone expansions (4) as they're full games
+      if (category == 1 || category == 2 || category == 3) {
+        return true;
+      }
+    }
+    
+    // Also check title patterns for DLC indicators
+    final title = (data['name'] ?? '').toString().toLowerCase();
+    
+    // Common DLC/expansion patterns
+    final dlcPatterns = [
+      'dlc',
+      'expansion pack',
+      'season pass',
+      'downloadable content',
+      'add-on',
+      'addon',
+      'content pack',
+      'cosmetic pack',
+      'skin pack',
+      'character pack',
+      'weapon pack',
+      'map pack',
+      'soundtrack',
+      'artbook',
+      'digital deluxe',
+      'upgrade',
+      'bundle',
+    ];
+    
+    for (final pattern in dlcPatterns) {
+      if (title.contains(pattern)) {
+        return true;
+      }
+    }
+    
+    // Check for edition patterns that are just re-releases
+    final editionPatterns = [
+      'goty edition',
+      'game of the year edition',
+      'complete edition',
+      'definitive edition',
+      'ultimate edition',
+      'gold edition',
+      'deluxe edition',
+      'premium edition',
+      'enhanced edition',
+      'remastered',
+      'remake',
+    ];
+    
+    // These are typically the same game, so we'll filter duplicates later
+    // but not mark them as DLC
+    
+    return false;
+  }
+
   // Filter and deduplicate games to improve quality
   List<Game> _filterAndDeduplicateGames(List<Game> games) {
     // Remove games with poor data quality
@@ -973,33 +1068,123 @@ class IGDBService {
         return false;
       }
       
+      // Filter out obvious DLC patterns from title
+      final dlcKeywords = [
+        ' - dlc',
+        ': dlc',
+        'season pass',
+        'cosmetic pack',
+        'skin pack',
+        'soundtrack only',
+        'artbook only',
+      ];
+      
+      for (final keyword in dlcKeywords) {
+        if (title.contains(keyword)) {
+          return false;
+        }
+      }
+      
       return true;
     }).toList();
     
     // Deduplicate by title (keep the one with better data)
     final Map<String, Game> uniqueGames = {};
+    final Map<String, List<Game>> gameEditions = {};
     
     for (final game in filteredGames) {
-      final normalizedTitle = game.title.toLowerCase().trim();
+      final normalizedTitle = _normalizeGameTitle(game.title);
       
-      if (!uniqueGames.containsKey(normalizedTitle)) {
-        uniqueGames[normalizedTitle] = game;
+      // Group editions together
+      if (!gameEditions.containsKey(normalizedTitle)) {
+        gameEditions[normalizedTitle] = [];
+      }
+      gameEditions[normalizedTitle]!.add(game);
+    }
+    
+    // For each group of editions, pick the best one
+    for (final entry in gameEditions.entries) {
+      final editions = entry.value;
+      
+      if (editions.length == 1) {
+        uniqueGames[entry.key] = editions.first;
       } else {
-        // Keep the game with better data quality
-        final existing = uniqueGames[normalizedTitle]!;
-        final current = game;
+        // Multiple editions found - pick the best one
+        Game bestEdition = editions.first;
+        int bestScore = _calculateGameQualityScore(bestEdition);
         
-        // Scoring system for data quality
-        int existingScore = _calculateGameQualityScore(existing);
-        int currentScore = _calculateGameQualityScore(current);
-        
-        if (currentScore > existingScore) {
-          uniqueGames[normalizedTitle] = current;
+        for (final edition in editions.skip(1)) {
+          final score = _calculateGameQualityScore(edition);
+          
+          // Prefer "complete" or "definitive" editions
+          final title = edition.title.toLowerCase();
+          int editionBonus = 0;
+          if (title.contains('complete edition')) editionBonus = 5;
+          else if (title.contains('definitive edition')) editionBonus = 4;
+          else if (title.contains('goty') || title.contains('game of the year')) editionBonus = 4;
+          else if (title.contains('ultimate edition')) editionBonus = 3;
+          else if (title.contains('gold edition')) editionBonus = 2;
+          else if (title.contains('deluxe edition')) editionBonus = 1;
+          
+          if (score + editionBonus > bestScore) {
+            bestEdition = edition;
+            bestScore = score + editionBonus;
+          }
         }
+        
+        uniqueGames[entry.key] = bestEdition;
       }
     }
     
     return uniqueGames.values.toList();
+  }
+  
+  // Normalize game title for deduplication (remove edition suffixes, etc.)
+  String _normalizeGameTitle(String title) {
+    String normalized = title.toLowerCase().trim();
+    
+    // Remove common separators and extra text
+    // Handle cases like "Grand Theft Auto V: Premium Edition" -> "grand theft auto v"
+    normalized = normalized.split(':').first.trim();
+    normalized = normalized.split('-').first.trim();
+    normalized = normalized.split('–').first.trim(); // em dash
+    normalized = normalized.split('—').first.trim(); // en dash
+    
+    // Remove common edition suffixes at the end
+    final editionSuffixes = [
+      r'\s+goty\s+edition$',
+      r'\s+game of the year\s+edition$',
+      r'\s+complete\s+edition$',
+      r'\s+definitive\s+edition$',
+      r'\s+ultimate\s+edition$',
+      r'\s+gold\s+edition$',
+      r'\s+deluxe\s+edition$',
+      r'\s+premium\s+edition$',
+      r'\s+enhanced\s+edition$',
+      r'\s+special\s+edition$',
+      r'\s+collectors\s+edition$',
+      r'\s+remastered$',
+      r'\s+remake$',
+      r'\s+hd$',
+      r'\s+edition$',
+    ];
+    
+    for (final pattern in editionSuffixes) {
+      normalized = normalized.replaceAll(RegExp(pattern, caseSensitive: false), '');
+    }
+    
+    // Remove extra whitespace
+    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+    
+    // Remove special characters for better matching
+    normalized = normalized.replaceAll(RegExp(r'[^\w\s]'), '');
+    
+    // Remove "the" at the beginning for better matching
+    if (normalized.startsWith('the ')) {
+      normalized = normalized.substring(4);
+    }
+    
+    return normalized;
   }
   
   // Calculate quality score for a game (higher is better)
@@ -1078,9 +1263,9 @@ class IGDBService {
 
       // Build IGDB query - start with basic structure
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
       ''';
 
@@ -1091,6 +1276,9 @@ class IGDBService {
 
       // Build where clause components
       List<String> whereConditions = [];
+      
+      // Super optimized DLC filtering
+      whereConditions.add('category = (0,4,8,9,10,11) & parent_game = null');
 
       if (genre != null && genre != 'all') {
         whereConditions.add('genres.name = "$genre"');
@@ -1269,11 +1457,11 @@ class IGDBService {
       final timestampEnd = (yearEnd.millisecondsSinceEpoch / 1000).round();
       
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         limit $limit;
-        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd & rating >= 85 & rating_count >= 10;
+        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd & rating >= 85 & rating_count >= 10 & category = (0,4,8,9,10,11) & parent_game = null;
         sort rating desc;
       ''';
 
@@ -1328,10 +1516,11 @@ class IGDBService {
       }
 
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count, category, parent_game,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
-               genres.name, platforms.name, screenshots.url;
+               genres.name, platforms.name;
         search "Game of the Year Edition";
+        where category = (0,4,8,9,10,11) & parent_game = null;
         limit $limit;
       ''';
 

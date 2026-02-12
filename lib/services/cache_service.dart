@@ -13,7 +13,7 @@ class CacheService {
   static const String _indieKey = 'indie_games';
   
   // Cache duration in minutes
-  static const int _cacheDuration = 30;
+  static const int _cacheDuration = 120; // Increased from 30 to 120 minutes (2 hours)
 
   static Future<SharedPreferences> get _prefs async => await SharedPreferences.getInstance();
 
