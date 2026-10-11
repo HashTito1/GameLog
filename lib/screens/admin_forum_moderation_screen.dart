@@ -3,7 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
 import '../services/admin_service.dart';
-import '../services/firebase_auth_service.dart';
+import '../services/report_service.dart';
 import 'forum_post_detail_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -44,6 +44,10 @@ class _AdminForumModerationScreenState extends State<AdminForumModerationScreen>
         posts = await ForumService.instance.getTopLevelPosts(limit: 50);
       }
       
+      final reportedIds = _filterType == 'reported'
+          ? await ReportService.getReportedTargetIds(ReportType.forumPost)
+          : <String>{};
+
       // Apply filters
       if (_filterType != 'all') {
         posts = posts.where((post) {
@@ -53,8 +57,7 @@ class _AdminForumModerationScreenState extends State<AdminForumModerationScreen>
             case 'locked':
               return post.isLocked;
             case 'reported':
-              // TODO: Add reported posts logic
-              return false;
+              return reportedIds.contains(post.id);
             default:
               return true;
           }

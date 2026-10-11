@@ -72,6 +72,7 @@ class AdminService {
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
       'updatedBy': FirebaseAuthService().currentUser?.uid,
     });
+    await _log('add_admin', userId, null);
   }
 
   // Remove admin (only super admin can do this)
@@ -94,6 +95,7 @@ class AdminService {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
         'updatedBy': FirebaseAuthService().currentUser?.uid,
       });
+      await _log('remove_admin', userId, null);
     } catch (e) {
       throw Exception('Failed to remove admin: $e');
     }
@@ -202,7 +204,7 @@ class AdminService {
           .doc(postId)
           .delete();
 
-      debugPrint('Admin deleted forum post: $postId');
+      await _log('delete_forum_post', postId, postData['title'] ?? postData['content']);
     } catch (e) {
       throw Exception('Failed to delete forum post: $e');
     }
@@ -215,12 +217,23 @@ class AdminService {
     }
 
     try {
-      await _firestore
-          .collection('game_ratings')
-          .doc(ratingId)
-          .delete();
+      final ratingRef = _firestore.collection('game_ratings').doc(ratingId);
+      final rating = (await ratingRef.get()).data();
+      await ratingRef.delete();
 
-      debugPrint('Admin deleted game rating: $ratingId');
+      // Ratings are mirrored under users/{userId}/ratings/{gameId}.
+      final userId = rating?['userId'] as String?;
+      final gameId = rating?['gameId'] as String?;
+      if (userId != null && gameId != null) {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('ratings')
+            .doc(gameId)
+            .delete();
+      }
+
+      await _log('delete_rating', ratingId, rating?['review'] ?? rating?['gameTitle']);
     } catch (e) {
       throw Exception('Failed to delete game rating: $e');
     }
@@ -233,12 +246,11 @@ class AdminService {
     }
 
     try {
-      await _firestore
-          .collection('rating_comments')
-          .doc(commentId)
-          .delete();
+      final commentRef = _firestore.collection('rating_comments').doc(commentId);
+      final comment = (await commentRef.get()).data();
+      await commentRef.delete();
 
-      debugPrint('Admin deleted rating comment: $commentId');
+      await _log('delete_comment', commentId, comment?['content']);
     } catch (e) {
       throw Exception('Failed to delete rating comment: $e');
     }
@@ -261,7 +273,7 @@ class AdminService {
         'bannedBy': FirebaseAuthService().currentUser?.uid,
       });
 
-      debugPrint('Admin banned user: $userId for reason: $reason');
+      await _log('ban_user', userId, reason);
     } catch (e) {
       throw Exception('Failed to ban user: $e');
     }
@@ -279,7 +291,7 @@ class AdminService {
           .doc(userId)
           .delete();
 
-      debugPrint('Admin unbanned user: $userId');
+      await _log('unban_user', userId, null);
     } catch (e) {
       throw Exception('Failed to unban user: $e');
     }
@@ -329,6 +341,18 @@ class AdminService {
 
       final adminCount = (await getAllAdminIds()).length;
 
+      int openReports = 0;
+      try {
+        final reports = await _firestore
+            .collection('reports')
+            .where('status', isEqualTo: 'open')
+            .count()
+            .get();
+        openReports = reports.count ?? 0;
+      } catch (e) {
+        debugPrint('Error counting reports: $e');
+      }
+
       return {
         'totalForumPosts': forumPostsCount,
         'totalGameRatings': gameRatingsCount,
@@ -336,12 +360,64 @@ class AdminService {
         'totalBannedUsers': bannedUsersCount,
         'totalUsers': usersCount,
         'totalAdmins': adminCount,
+        'openReports': openReports,
         'isSuperAdmin': await isCurrentUserSuperAdmin(),
         'lastUpdated': DateTime.now().toIso8601String(),
       };
     } catch (e) {
       throw Exception('Failed to get moderation stats: $e');
     }
+  }
+
+  // ========== MODERATION QUEUES ==========
+
+  /// Most recent game ratings, for the moderation tab.
+  Future<List<Map<String, dynamic>>> getRecentRatings({int limit = 50}) async {
+    final snapshot = await _firestore
+        .collection('game_ratings')
+        .orderBy('updatedAt', descending: true)
+        .limit(limit)
+        .get();
+    return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+  }
+
+  /// Most recent comments on ratings, for the moderation tab.
+  Future<List<Map<String, dynamic>>> getRecentComments({int limit = 50}) async {
+    final snapshot = await _firestore
+        .collection('rating_comments')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+  }
+
+  // ========== ADMIN LOG ==========
+
+  /// Record a moderation action. Logging must never block the action itself.
+  Future<void> _log(String action, String targetId, String? details) async {
+    try {
+      final admin = FirebaseAuthService().currentUser;
+      await _firestore.collection('admin_logs').add({
+        'action': action,
+        'targetId': targetId,
+        'details': details == null || details.length <= 200 ? details : '${details.substring(0, 200)}…',
+        'adminId': admin?.uid,
+        'adminName': admin?.displayName,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      debugPrint('Error writing admin log: $e');
+    }
+  }
+
+  /// Most recent moderation actions, newest first.
+  Future<List<Map<String, dynamic>>> getRecentLogs({int limit = 100}) async {
+    final snapshot = await _firestore
+        .collection('admin_logs')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
   }
 
   // The admin list can no longer be created from the app: whoever got there

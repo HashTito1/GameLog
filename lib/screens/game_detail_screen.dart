@@ -468,47 +468,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Future<List<UserRating>> _getAllRatingsForGame(String gameId) async {
     try {
-      // Get all users who have rated this game from the new structure
-      final usersSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .get();
-      
-      final List<UserRating> ratings = [];
-      
-      for (final userDoc in usersSnapshot.docs) {
-        final ratingsSnapshot = await userDoc.reference
-            .collection('ratings')
-            .where('gameId', isEqualTo: gameId)
-            .get();
-        
-        for (final ratingDoc in ratingsSnapshot.docs) {
-          final data = ratingDoc.data();
-          final rating = UserRating(
-            id: data['id'] ?? '${userDoc.id}_$gameId',
-            gameId: data['gameId'] ?? gameId,
-            userId: data['userId'] ?? userDoc.id,
-            username: data['username'] ?? 'user',
-            rating: (data['rating'] ?? 0.0).toDouble(),
-            review: data['review'],
-            createdAt: data['createdAt'] != null 
-                ? (data['createdAt'] is Timestamp 
-                    ? (data['createdAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
-                : DateTime.now(),
-            updatedAt: data['updatedAt'] != null 
-                ? (data['updatedAt'] is Timestamp 
-                    ? (data['updatedAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
-                : DateTime.now(),
-            likeCount: data['likeCount'] ?? 0,
-            likedBy: List<String>.from(data['likedBy'] ?? []),
-            commentCount: data['commentCount'] ?? 0,
-          );
-          ratings.add(rating);
-        }
-      }
-      
-      return ratings;
+      return await RatingService.getUserRatingsForGame(gameId);
     } catch (e) {
       debugPrint('Error getting all ratings for game: $e');
       return [];

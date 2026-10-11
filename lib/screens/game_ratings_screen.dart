@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../services/rating_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rating_interaction_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/report_service.dart';
+import '../widgets/report_dialog.dart';
 import 'user_profile_screen.dart';
 
 class GameRatingsScreen extends StatefulWidget {
@@ -112,47 +114,7 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
   Future<List<UserRating>> _getAllRatingsForGame(String gameId) async {
     try {
-      // Get all users who have rated this game from the new structure
-      final usersSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .get();
-      
-      final List<UserRating> ratings = [];
-      
-      for (final userDoc in usersSnapshot.docs) {
-        final ratingsSnapshot = await userDoc.reference
-            .collection('ratings')
-            .where('gameId', isEqualTo: gameId)
-            .get();
-        
-        for (final ratingDoc in ratingsSnapshot.docs) {
-          final data = ratingDoc.data();
-          final rating = UserRating(
-            id: data['id'] ?? '${userDoc.id}_$gameId',
-            gameId: data['gameId'] ?? gameId,
-            userId: data['userId'] ?? userDoc.id,
-            username: data['username'] ?? 'user',
-            rating: (data['rating'] ?? 0.0).toDouble(),
-            review: data['review'],
-            createdAt: data['createdAt'] != null 
-                ? (data['createdAt'] is Timestamp 
-                    ? (data['createdAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
-                : DateTime.now(),
-            updatedAt: data['updatedAt'] != null 
-                ? (data['updatedAt'] is Timestamp 
-                    ? (data['updatedAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
-                : DateTime.now(),
-            likeCount: data['likeCount'] ?? 0,
-            likedBy: List<String>.from(data['likedBy'] ?? []),
-            commentCount: data['commentCount'] ?? 0,
-          );
-          ratings.add(rating);
-        }
-      }
-      
-      return ratings;
+      return await RatingService.getUserRatingsForGame(gameId);
     } catch (e) {
       debugPrint('Error getting all ratings for game: $e');
       return [];
@@ -565,6 +527,17 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     );
   }
 
+  void _shareRating(UserRating rating) {
+    final author = rating.displayName ?? rating.username;
+    final stars = rating.rating % 1 == 0 ? rating.rating.toInt().toString() : rating.rating.toString();
+    final review = rating.review?.trim();
+    final text = [
+      '$author rated ${widget.gameName} $stars/5 on GameLog',
+      if (review != null && review.isNotEmpty) '"$review"',
+    ].join('\n\n');
+    SharePlus.instance.share(ShareParams(text: text, subject: '${widget.gameName} review'));
+  }
+
   void _showRatingOptions(UserRating rating) {
     final theme = Theme.of(context);
     showModalBottomSheet(
@@ -592,23 +565,25 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
               title: Text('Share Review', style: TextStyle(color: theme.colorScheme.onSurface)),
               onTap: () {
                 Navigator.pop(context);
-                // Implement share functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Share feature coming soon!')),
-                );
+                _shareRating(rating);
               },
             ),
-            ListTile(
-              leading: Icon(Icons.report, color: theme.colorScheme.error),
-              title: Text('Report Review', style: TextStyle(color: theme.colorScheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                // Implement report functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Report feature coming soon!')),
-                );
-              },
-            ),
+            if (rating.userId != FirebaseAuthService().currentUser?.uid)
+              ListTile(
+                leading: Icon(Icons.flag_outlined, color: theme.colorScheme.error),
+                title: Text('Report Review', style: TextStyle(color: theme.colorScheme.error)),
+                onTap: () {
+                  Navigator.pop(context);
+                  showReportDialog(
+                    this.context,
+                    type: ReportType.rating,
+                    targetId: '${rating.userId}_${rating.gameId}',
+                    targetOwnerId: rating.userId,
+                    targetPreview: rating.review ?? '${rating.rating}★ for ${widget.gameName}',
+                    title: 'Report review',
+                  );
+                },
+              ),
           ],
         ),
       ),

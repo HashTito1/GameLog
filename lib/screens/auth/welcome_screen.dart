@@ -145,45 +145,27 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                                   
                                   // Title
                                   Text(
-                                    'Never Get Bored',
+                                    'Every game you play,\nin one place',
                                     style: TextStyle(
-                                      fontSize: 32,
+                                      fontSize: 30,
                                       fontWeight: FontWeight.bold,
+                                      height: 1.2,
                                       color: theme.colorScheme.onSurface,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Game On the Go',
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w600,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Bet on the GO!',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w500,
-                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 32),
-                                  
+                                  const SizedBox(height: 16),
+
                                   // Description
                                   Padding(
                                     padding: const EdgeInsets.symmetric(horizontal: 24),
                                     child: Text(
-                                      'Welcome to GameLog - Your ultimate gaming companion',
+                                      'Track your library, rate and review games, and see what your friends are playing.',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                                         fontSize: 16,
+                                        height: 1.4,
                                       ),
                                     ),
                                   ),

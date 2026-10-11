@@ -154,6 +154,29 @@ class RatingService {
     }
   }
   
+  /// Every user's rating for [gameId] from the per-user ratings
+  /// (users/{userId}/ratings), in one collection-group query instead of one
+  /// query per user. Needs the `ratings.gameId` collection-group index in
+  /// firestore.indexes.json.
+  static Future<List<UserRating>> getUserRatingsForGame(String gameId) async {
+    final snapshot = await _firestore
+        .collectionGroup('ratings')
+        .where('gameId', isEqualTo: gameId)
+        .get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final userId = data['userId'] ?? doc.reference.parent.parent?.id ?? '';
+      return UserRating.fromMap({
+        ...data,
+        'id': data['id'] ?? '${userId}_$gameId',
+        'gameId': data['gameId'] ?? gameId,
+        'userId': userId,
+        'username': data['username'] ?? 'user',
+      });
+    }).toList();
+  }
+
   // Get user's rating for a specific game (fast method using document ID)
   Future<UserRating?> getUserRating(String userId, String gameId) async {
     try {

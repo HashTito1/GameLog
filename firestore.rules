@@ -67,7 +67,8 @@ service cloud.firestore {
 
       match /ratings/{gameId} {
         allow read: if signedIn();
-        allow create, delete: if isSelf(userId);
+        allow create: if isSelf(userId);
+        allow delete: if isSelf(userId) || isAdmin();
         allow update: if isSelf(userId) ||
                       (signedIn() && (isOwnLikeToggle() || onlyChanges(['commentCount'])));
       }
@@ -97,6 +98,12 @@ service cloud.firestore {
         allow read, update, delete: if isSelf(userId);
         allow create: if signedIn() && request.resource.data.fromUserId == request.auth.uid;
       }
+    }
+
+    // Collection-group reads of every user's ratings (all reviews for a game).
+    // Ratings are public to signed-in users, same as users/{userId}/ratings.
+    match /{path=**}/ratings/{gameId} {
+      allow read: if signedIn();
     }
 
     // ---------- Legacy flat collections (doc ID = "<uid>_<gameId>") ----------
@@ -194,6 +201,29 @@ service cloud.firestore {
                     request.resource.data.superAdminId == resource.data.superAdminId &&
                     request.resource.data.superAdminId in request.resource.data.adminIds;
       allow create, delete: if false;
+    }
+
+    // User reports (content and bugs). Anyone signed in can file one as
+    // themselves; only admins can read and close them.
+    match /reports/{reportId} {
+      allow create: if signedIn() &&
+                    request.resource.data.reporterId == request.auth.uid &&
+                    request.resource.data.status == 'open' &&
+                    request.resource.data.type in ['rating', 'comment', 'forum_post', 'bug'] &&
+                    request.resource.data.reason is string &&
+                    request.resource.data.reason.size() <= 100 &&
+                    (request.resource.data.get('details', null) == null ||
+                     request.resource.data.details.size() <= 2000);
+      allow read: if isAdmin();
+      allow update: if isAdmin() && onlyChanges(['status', 'closedAt', 'closedBy']);
+      allow delete: if isAdmin();
+    }
+
+    // Append-only record of moderation actions.
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && request.resource.data.adminId == request.auth.uid;
+      allow update, delete: if false;
     }
 
     match /banned_users/{userId} {

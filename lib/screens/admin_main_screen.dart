@@ -5,6 +5,7 @@ import '../services/firebase_auth_service.dart';
 import 'admin_user_management_screen.dart';
 import 'admin_forum_moderation_screen.dart';
 import 'admin_content_moderation_screen.dart';
+import 'admin_logs_screen.dart';
 
 class AdminMainScreen extends StatefulWidget {
   const AdminMainScreen({super.key});
@@ -353,6 +354,13 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
             ),
             _buildStatCard(
               theme,
+              'Open Reports',
+              (_stats!['openReports'] ?? 0).toString(),
+              Icons.flag,
+              Colors.deepOrange,
+            ),
+            _buildStatCard(
+              theme,
               'Banned Users',
               _stats!['totalBannedUsers'].toString(),
               Icons.block,
@@ -450,6 +458,28 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
                   }
                 },
               ),
+              const Divider(),
+              _buildActionTile(
+                theme,
+                'User Reports',
+                '${_stats?['openReports'] ?? 0} open · reported content and bug reports',
+                Icons.flag_outlined,
+                () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AdminContentModerationScreen(initialTab: 'reports'),
+                  ),
+                ),
+              ),
+              const Divider(),
+              _buildActionTile(
+                theme,
+                'Forum Moderation',
+                'Pin, lock or delete forum posts',
+                Icons.forum_outlined,
+                () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const AdminForumModerationScreen()),
+                ),
+              ),
               if (_isSuperAdmin) ...[
                 const Divider(),
                 _buildActionTile(
@@ -474,11 +504,9 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
                 'System Logs',
                 'View admin actions and system events',
                 Icons.history,
-                () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('System logs feature coming soon!')),
-                  );
-                },
+                () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const AdminLogsScreen()),
+                ),
               ),
             ],
           ),

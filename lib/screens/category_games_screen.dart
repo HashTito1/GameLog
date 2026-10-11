@@ -26,6 +26,31 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
   int _currentPage = 1;
   final int _pageSize = 20;
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  String _sortBy = 'default'; // default, rating, newest, name
+
+  /// Loaded games after the search filter and sort are applied.
+  List<Game> get _visibleGames {
+    final query = _searchController.text.trim().toLowerCase();
+    final games = query.isEmpty
+        ? List<Game>.of(_games)
+        : _games.where((g) => g.title.toLowerCase().contains(query)).toList();
+
+    switch (_sortBy) {
+      case 'rating':
+        games.sort((a, b) => b.averageRating.compareTo(a.averageRating));
+        break;
+      case 'newest':
+        // releaseDate is a year or 'TBA'; unknown years go last.
+        games.sort((a, b) => (int.tryParse(b.releaseDate) ?? 0).compareTo(int.tryParse(a.releaseDate) ?? 0));
+        break;
+      case 'name':
+        games.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+    }
+    return games;
+  }
 
   @override
   void initState() {
@@ -37,6 +62,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -242,7 +268,8 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+    final visibleGames = _visibleGames;
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -252,20 +279,33 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
           onPressed: () => Navigator.of(context).pop(),
           icon: Icon(Icons.arrow_back, color: theme.colorScheme.onSurface),
         ),
-        title: Text(
-          widget.categoryTitle,
-          style: TextStyle(
-            color: theme.colorScheme.onSurface,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+                style: TextStyle(color: theme.colorScheme.onSurface),
+                decoration: InputDecoration(
+                  hintText: 'Search ${widget.categoryTitle}',
+                  border: InputBorder.none,
+                ),
+              )
+            : Text(
+                widget.categoryTitle,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
         actions: [
           IconButton(
-            onPressed: () {
-              // TODO: Add search functionality
-            },
-            icon: Icon(Icons.search, color: theme.colorScheme.onSurface),
+            onPressed: () => setState(() {
+              _isSearching = !_isSearching;
+              if (!_isSearching) _searchController.clear();
+            }),
+            icon: Icon(_isSearching ? Icons.close : Icons.search, color: theme.colorScheme.onSurface),
+            tooltip: _isSearching ? 'Close search' : 'Search',
           ),
         ],
       ),
@@ -284,14 +324,41 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                       child: Row(
                         children: [
                           Text(
-                            '${_games.length} games found',
+                            _searchController.text.isEmpty
+                                ? '${_games.length} games'
+                                : '${_visibleGames.length} of ${_games.length} games',
                             style: TextStyle(
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                               fontSize: 14,
                             ),
                           ),
                           const Spacer(),
-                          // TODO: Add sort/filter options
+                          PopupMenuButton<String>(
+                            initialValue: _sortBy,
+                            onSelected: (value) => setState(() => _sortBy = value),
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(value: 'default', child: Text('Default order')),
+                              PopupMenuItem(value: 'rating', child: Text('Highest rated')),
+                              PopupMenuItem(value: 'newest', child: Text('Newest first')),
+                              PopupMenuItem(value: 'name', child: Text('Name (A–Z)')),
+                            ],
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.sort, size: 18, color: theme.colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  switch (_sortBy) {
+                                    'rating' => 'Highest rated',
+                                    'newest' => 'Newest',
+                                    'name' => 'A–Z',
+                                    _ => 'Sort',
+                                  },
+                                  style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -305,13 +372,13 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                           crossAxisSpacing: 12,
                           mainAxisSpacing: 12,
                         ),
-                        itemCount: _games.length + (_isLoadingMore ? 2 : 0),
+                        itemCount: visibleGames.length + (_isLoadingMore ? 2 : 0),
                         itemBuilder: (context, index) {
-                          if (index >= _games.length) {
+                          if (index >= visibleGames.length) {
                             return _buildLoadingCard();
                           }
-                          
-                          final game = _games[index];
+
+                          final game = visibleGames[index];
                           return _buildGameCard(game);
                         },
                       ),
