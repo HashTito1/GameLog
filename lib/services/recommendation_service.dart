@@ -56,14 +56,23 @@ class RecommendationService {
         return [];
       }
 
-      // Search for games with similar genres
+      // IGDB's curated list is the best signal; fall back to genres if it's short.
       List<Game> similarGames = [];
-      
+      try {
+        similarGames.addAll(await IGDBService.instance.getSimilarGames(gameId, limit: limit));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error fetching IGDB similar games: $e');
+        }
+      }
+
       // Try to find games with matching genres
       for (final genre in originalGame.genres.take(2)) { // Use top 2 genres
+        if (similarGames.length >= limit) break;
         try {
+          // getGamesByGenre matches IGDB genre names exactly (e.g. "Racing").
           final genreGames = await IGDBService.instance.getGamesByGenre(
-            genre.toLowerCase().replaceAll(' ', '-').replaceAll('(', '').replaceAll(')', ''),
+            genre,
             limit: 10,
           );
           

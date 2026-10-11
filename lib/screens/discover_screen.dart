@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_rating.dart';
@@ -802,7 +803,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return _shortDate(date);
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} days ago';
     } else if (difference.inHours > 0) {
@@ -1749,7 +1750,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return _shortDate(date);
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {
@@ -1760,10 +1761,4 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
       return 'Just now';
     }
   }
-}
-/// Unambiguous short date, e.g. "Sep 2, 2026" (not 9/2/2026, which reads
-/// differently in the US and elsewhere).
-String _shortDate(DateTime date) {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }

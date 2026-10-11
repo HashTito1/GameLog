@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/friends_service.dart';
@@ -515,7 +516,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } else if (difference.inDays < 7) {
       return '${difference.inDays}d ago';
     } else {
-      return '${time.day}/${time.month}/${time.year}';
+      return formatShortDate(time);
     }
   }
 }

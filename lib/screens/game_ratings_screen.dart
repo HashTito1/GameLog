@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/user_rating.dart';
@@ -595,7 +596,7 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} days ago';
     } else if (difference.inHours > 0) {
@@ -1442,7 +1443,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

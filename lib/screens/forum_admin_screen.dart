@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import '../services/forum_service.dart';
 
 class ForumAdminScreen extends StatefulWidget {
@@ -365,7 +366,7 @@ class _ForumAdminScreenState extends State<ForumAdminScreen> {
   String _formatDateTime(String isoString) {
     try {
       final dateTime = DateTime.parse(isoString);
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+      return '${formatShortDate(dateTime)} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return isoString;
     }

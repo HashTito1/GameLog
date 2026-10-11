@@ -427,6 +427,52 @@ class IGDBService {
     }
   }
 
+  /// IGDB's curated "similar games" for [gameId], with games that share a
+  /// genre with the original ranked first.
+  Future<List<Game>> getSimilarGames(String gameId, {int limit = 10}) async {
+    if (!isConfigured) return [];
+
+    const sub = 'similar_games';
+    final igdbQuery = '''
+      fields genres.name,
+             $sub.name, $sub.summary, $sub.cover.url, $sub.first_release_date, $sub.rating, $sub.rating_count,
+             $sub.involved_companies.company.name, $sub.involved_companies.developer,
+             $sub.involved_companies.publisher, $sub.genres.name, $sub.platforms.name;
+      where id = $gameId;
+    ''';
+
+    final response = await http.post(Uri.parse('$_baseUrl/games'), headers: _headers, body: igdbQuery);
+    if (response.statusCode != 200) {
+      throw Exception('IGDB API request failed with status: ${response.statusCode}');
+    }
+
+    final List<dynamic> results = json.decode(response.body);
+    if (results.isEmpty) return [];
+
+    final original = results.first as Map<String, dynamic>;
+    final originalGenres = ((original['genres'] as List<dynamic>?) ?? [])
+        .map((g) => g['name'] as String?)
+        .whereType<String>()
+        .toSet();
+
+    final similar = ((original[sub] as List<dynamic>?) ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map((data) => _parseGameFromIGDB(data))
+        .where((game) => game.coverImage.isNotEmpty)
+        .toList();
+
+    int sharedGenres(Game game) => game.genres.where(originalGenres.contains).length;
+    // Stable sort: keep IGDB's order among games with the same overlap.
+    final ranked = [
+      for (final entry in similar.asMap().entries) (entry.key, entry.value),
+    ]..sort((a, b) {
+        final byGenre = sharedGenres(b.$2).compareTo(sharedGenres(a.$2));
+        return byGenre != 0 ? byGenre : a.$1.compareTo(b.$1);
+      });
+
+    return ranked.map((e) => e.$2).take(limit).toList();
+  }
+
   // Get games by genre with caching and pagination
   Future<List<Game>> getGamesByGenre(String genre, {int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     if (!isConfigured) {

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1304,23 +1306,68 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Widget _buildSliverAppBar() {
     return SliverAppBar(
-      expandedHeight: 250, // Reduced from 300
+      expandedHeight: 300,
       floating: false,
       pinned: true,
       backgroundColor: const Color(0xFF1F2937),
       flexibleSpace: FlexibleSpaceBar(
         background: (_game?.coverImage?.isNotEmpty ?? false)
-            ? CachedNetworkImage(
-                imageUrl: _game!.coverImage,
-                fit: BoxFit.contain, // Changed from cover to contain to show full image
-                placeholder: (context, url) => Container(
-                  color: Colors.grey[800],
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  color: Colors.grey[800],
-                  child: const Icon(Icons.error, color: Colors.white),
-                ),
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Blurred, darkened copy of the cover fills the width...
+                  ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                    child: CachedNetworkImage(imageUrl: _game!.coverImage, fit: BoxFit.cover),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.35),
+                          Colors.black.withValues(alpha: 0.15),
+                          const Color(0xFF111827),
+                        ],
+                        stops: const [0, 0.6, 1],
+                      ),
+                    ),
+                  ),
+                  // ...with the full, uncropped cover centred on top.
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 20),
+                      child: Center(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                blurRadius: 24,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: CachedNetworkImage(
+                              imageUrl: _game!.coverImage,
+                              fit: BoxFit.contain,
+                              placeholder: (context, url) => const SizedBox(
+                                width: 140,
+                                child: Center(child: CircularProgressIndicator()),
+                              ),
+                              errorWidget: (context, url, error) =>
+                                  const Icon(Icons.broken_image, color: Colors.white54, size: 48),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               )
             : Container(
                 color: Colors.grey[800],
@@ -1859,7 +1906,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final difference = now.difference(date);
     
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
     } else if (difference.inHours > 0) {
@@ -2239,10 +2286,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                     color: const Color(0xFF374151),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
-                      'No community reviews yet. Be the first to review!',
-                      style: TextStyle(
+                      // The community list leaves out your own review.
+                      _userRating != null
+                          ? 'No reviews from other players yet.'
+                          : 'No community reviews yet. Be the first to review!',
+                      style: const TextStyle(
                         fontSize: 12,
                         color: Colors.grey,
                       ),
@@ -3905,7 +3955,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

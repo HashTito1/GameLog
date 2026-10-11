@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import '../services/admin_service.dart';
 
 /// Read-only history of moderation actions (deletes, bans, admin changes).
@@ -89,6 +90,6 @@ class _AdminLogsScreenState extends State<AdminLogsScreen> {
     if (millis is! int) return '';
     final date = DateTime.fromMillisecondsSinceEpoch(millis);
     String two(int n) => n.toString().padLeft(2, '0');
-    return '${date.day}/${date.month}/${date.year} ${two(date.hour)}:${two(date.minute)}';
+    return '${formatShortDate(date)} ${two(date.hour)}:${two(date.minute)}';
   }
 }

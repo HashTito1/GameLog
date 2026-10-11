@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
@@ -603,7 +604,7 @@ class _AdminForumModerationScreenState extends State<AdminForumModerationScreen>
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

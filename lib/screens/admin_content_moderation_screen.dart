@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import '../services/admin_service.dart';
 import '../services/report_service.dart';
 
@@ -415,6 +416,6 @@ class _AdminContentModerationScreenState extends State<AdminContentModerationScr
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     if (diff.inDays < 30) return '${diff.inDays}d ago';
-    return '${date.day}/${date.month}/${date.year}';
+    return formatShortDate(date);
   }
 }
