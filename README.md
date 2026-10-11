@@ -75,6 +75,14 @@ Notes:
 
 See [docs/ADMIN_SETUP.md](docs/ADMIN_SETUP.md).
 
+### Android build JDK
+
+The Android build uses Gradle 9.8.1, which runs on JDK 17 through JDK 27. Java and Kotlin compilation uses a **JDK 25 toolchain**, because the Android Gradle Plugin's `jlink` step doesn't work with JDK 27 yet. Android Studio ships a JDK 25. Tell Gradle where it is once per machine by adding this to `%USERPROFILE%\.gradle\gradle.properties`:
+
+```properties
+org.gradle.java.installations.paths=C:/Program Files/Android/Android Studio/jbr
+```
+
 ### Release signing
 
 Release APKs must always be signed with the same upload key, or in-app updates will fail to install.

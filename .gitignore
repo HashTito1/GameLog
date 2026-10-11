@@ -76,3 +76,6 @@ dart_defines.json
 android/key.properties
 *.jks
 *.keystore
+
+# Gradle output under android/
+android/build/
