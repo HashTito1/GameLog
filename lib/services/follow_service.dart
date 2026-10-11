@@ -152,7 +152,7 @@ class FollowService {
           .orderBy('followedAt', descending: true)
           .get();
 
-      return _withProfiles(followingSnapshot.docs);
+      return await _withProfiles(followingSnapshot.docs);
     } catch (e) {
       debugPrint('❌ Error getting following list: $e');
       return [];
@@ -169,7 +169,7 @@ class FollowService {
           .orderBy('followedAt', descending: true)
           .get();
 
-      return _withProfiles(followersSnapshot.docs);
+      return await _withProfiles(followersSnapshot.docs);
     } catch (e) {
       debugPrint('❌ Error getting followers list: $e');
       return [];
