@@ -120,8 +120,13 @@ class RecommendationService {
     }
   }
 
+  /// Whether the last [getPersonalizedRecommendations] result was based on the
+  /// user's own ratings (false = generic popular/trending picks).
+  bool lastWasPersonalized = false;
+
   /// Get personalized game recommendations for the current user
   Future<List<Game>> getPersonalizedRecommendations({int limit = 10}) async {
+    lastWasPersonalized = false;
     try {
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser == null) {
@@ -138,18 +143,25 @@ class RecommendationService {
 
       // Analyze user preferences from library
       final preferences = _analyzeUserPreferences(libraryData);
-      
+      lastWasPersonalized = (preferences['ratedGames'] ?? 0) > 0;
+
+      // Never recommend games the user already has.
+      final ownedIds = libraryData
+          .map((entry) => (entry['gameId'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
       // Get recommendations based on preferences
-      final recommendations = await _getRecommendationsFromPreferences(preferences, limit);
-      
+      final recommendations = await _getRecommendationsFromPreferences(preferences, limit, ownedIds);
+
       // If we don't have enough recommendations, fill with popular games
       if (recommendations.length < limit) {
-        final fallbackGames = await _getFallbackRecommendations(limit - recommendations.length);
-        
-        // Filter out games already in recommendations
-        final existingIds = recommendations.map((g) => g.id).toSet();
+        final fallbackGames = await _getFallbackRecommendations(limit - recommendations.length + ownedIds.length.clamp(0, 10));
+
+        // Filter out games already recommended or owned
+        final existingIds = {...recommendations.map((g) => g.id), ...ownedIds};
         final filteredFallback = fallbackGames.where((g) => !existingIds.contains(g.id)).toList();
-        
+
         recommendations.addAll(filteredFallback);
       }
 
@@ -224,9 +236,13 @@ class RecommendationService {
   }
 
   /// Get recommendations based on user preferences
-  Future<List<Game>> _getRecommendationsFromPreferences(Map<String, dynamic> preferences, int limit) async {
+  Future<List<Game>> _getRecommendationsFromPreferences(
+    Map<String, dynamic> preferences,
+    int limit,
+    Set<String> ownedIds,
+  ) async {
     final recommendations = <Game>[];
-    final seenGameIds = <String>{};
+    final seenGameIds = <String>{...ownedIds};
     
     final favoriteGenres = List<String>.from(preferences['favoriteGenres'] ?? []);
     

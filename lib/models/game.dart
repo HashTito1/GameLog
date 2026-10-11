@@ -27,6 +27,14 @@ class Game {
     required this.totalReviews,
   });
 
+  /// Line to show under a game's title: the developer, or the release year
+  /// when IGDB doesn't know the developer.
+  String get subtitle {
+    final dev = developer.trim();
+    if (dev.isNotEmpty && dev != 'Unknown Developer') return dev;
+    return releaseDate.isEmpty || releaseDate == 'TBA' ? 'Release date TBA' : releaseDate;
+  }
+
   // JSON serialization
   Map<String, dynamic> toJson() {
     return {

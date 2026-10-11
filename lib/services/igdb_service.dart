@@ -261,7 +261,7 @@ class IGDBService {
       // For page 1, try to get from cache first
       if (page == 1) {
         final currentYear = DateTime.now().year;
-        final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+        final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
         final cachedGames = await CacheService.getCachedGameList(cacheKey);
         if (cachedGames != null && cachedGames.isNotEmpty) {
           final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
@@ -271,19 +271,23 @@ class IGDBService {
 
       final offset = (page - 1) * limit;
       final now = DateTime.now();
-      // Use a much broader timeframe - 2 years for trending games
-      final twoYearsAgo = now.subtract(const Duration(days: 730));
-      final timestampTwoYearsAgo = (twoYearsAgo.millisecondsSinceEpoch / 1000).round();
+      // Trending = the most anticipated/discussed original games released in
+      // the last four months. Without the hype/rating floor this returned
+      // whatever obscure title happened to release most recently.
+      final fourMonthsAgo = now.subtract(const Duration(days: 120));
+      final timestampTwoYearsAgo = (fourMonthsAgo.millisecondsSinceEpoch / 1000).round();
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
-      
+
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow;
-        sort first_release_date desc;
+        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow
+          & game_type = 0 & version_parent = null & cover != null
+          & (hypes >= 25 | total_rating_count >= 10);
+        sort hypes desc;
       ''';
 
       if (kDebugMode) {
@@ -329,7 +333,7 @@ class IGDBService {
               // Cache the results only for page 1
               if (page == 1) {
                 final currentYear = DateTime.now().year;
-                final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+                final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
                 await CacheService.cacheGameList(cacheKey, filteredGames);
               }
               
@@ -354,7 +358,7 @@ class IGDBService {
         // Cache the results only for page 1
         if (page == 1) {
           final currentYear = DateTime.now().year;
-          final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+          final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
           await CacheService.cacheGameList(cacheKey, filteredGames);
         }
         
@@ -1254,7 +1258,7 @@ class IGDBService {
 
     try {
       final targetYear = year ?? DateTime.now().year - 1; // Default to last year
-      final cacheKey = 'igdb_goty_candidates_$targetYear';
+      final cacheKey = 'igdb_goty_candidates_v2_$targetYear';
       
       // Try to get from cache first
       final cachedGames = await CacheService.getCachedGameList(cacheKey);
@@ -1268,13 +1272,18 @@ class IGDBService {
       final timestampStart = (yearStart.millisecondsSinceEpoch / 1000).round();
       final timestampEnd = (yearEnd.millisecondsSinceEpoch / 1000).round();
       
+      // Original releases only (game_type 0, no version_parent) so ports and
+      // "Enhanced"/console editions of older games don't crowd the list, and
+      // enough ratings that the score means something.
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
-        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd & rating >= 85 & rating_count >= 10;
-        sort rating desc;
+        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd
+          & game_type = 0 & version_parent = null
+          & total_rating >= 80 & total_rating_count >= 75;
+        sort total_rating desc;
       ''';
 
       final response = await http.post(

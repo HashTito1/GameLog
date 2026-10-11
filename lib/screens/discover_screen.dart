@@ -24,8 +24,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   bool _isLoading = true;
   String _loadingMessage = 'Loading reviews...';
   String _selectedFilter = 'recent';
-  String _selectedGenre = 'all';
-  String _selectedPlatform = 'all';
   String _selectedRating = 'all';
 
   final List<Map<String, String>> _filterOptions = [
@@ -33,25 +31,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     {'label': 'Top Rated', 'value': 'top_rated'},
     {'label': 'Popular', 'value': 'popular'},
     {'label': 'New Users', 'value': 'new_users'},
-  ];
-
-  final List<Map<String, String>> _genreOptions = [
-    {'label': 'All Genres', 'value': 'all'},
-    {'label': 'Action', 'value': 'action'},
-    {'label': 'Adventure', 'value': 'adventure'},
-    {'label': 'RPG', 'value': 'rpg'},
-    {'label': 'Strategy', 'value': 'strategy'},
-    {'label': 'Indie', 'value': 'indie'},
-    {'label': 'Shooter', 'value': 'shooter'},
-  ];
-
-  final List<Map<String, String>> _platformOptions = [
-    {'label': 'All Platforms', 'value': 'all'},
-    {'label': 'PC', 'value': 'pc'},
-    {'label': 'PlayStation', 'value': 'playstation'},
-    {'label': 'Xbox', 'value': 'xbox'},
-    {'label': 'Nintendo', 'value': 'nintendo'},
-    {'label': 'Mobile', 'value': 'mobile'},
   ];
 
   final List<Map<String, String>> _ratingOptions = [
@@ -260,8 +239,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _clearFilters() {
     setState(() {
-      _selectedGenre = 'all';
-      _selectedPlatform = 'all';
       _selectedRating = 'all';
     });
     
@@ -322,7 +299,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildHeader(ThemeData theme) {
-    final hasActiveFilters = _selectedGenre != 'all' || _selectedPlatform != 'all' || _selectedRating != 'all';
+    final hasActiveFilters = _selectedRating != 'all';
     
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
@@ -389,20 +366,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced margin
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(child: _buildDropdownFilter('Genre', _selectedGenre, _genreOptions, (value) {
-                setState(() => _selectedGenre = value!);
-                _loadRecentReviews();
-              }, theme)),
-              const SizedBox(width: 6), // Reduced spacing
-              Expanded(child: _buildDropdownFilter('Platform', _selectedPlatform, _platformOptions, (value) {
-                setState(() => _selectedPlatform = value!);
-                _loadRecentReviews();
-              }, theme)),
-            ],
-          ),
-          const SizedBox(height: 6), // Reduced spacing
+          // Genre/platform dropdowns removed: reviews don't carry genre or
+          // platform data, so those filters never changed the results.
           _buildDropdownFilter('Rating', _selectedRating, _ratingOptions, (value) {
             setState(() => _selectedRating = value!);
             _loadRecentReviews();
@@ -473,7 +438,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   Widget _buildReviewsList(ThemeData theme) {
     if (_recentReviews.isEmpty) {
-      final hasActiveFilters = _selectedGenre != 'all' || _selectedPlatform != 'all' || _selectedRating != 'all';
+      final hasActiveFilters = _selectedRating != 'all';
       
       if (hasActiveFilters) {
         return _buildEmptyState(
@@ -733,7 +698,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    game?.developer ?? 'Loading...',
+                    game?.subtitle ?? 'Loading...',
                     style: TextStyle(
                       fontSize: 14,
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -837,7 +802,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return _shortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} days ago';
     } else if (difference.inHours > 0) {
@@ -867,6 +832,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               width: 32,
               height: 32,
               color: theme.colorScheme.primary,
+              alignment: Alignment.center,
               child: Text(
                 displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                 style: const TextStyle(
@@ -880,6 +846,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               width: 32,
               height: 32,
               color: theme.colorScheme.primary,
+              alignment: Alignment.center,
               child: Text(
                 displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                 style: const TextStyle(
@@ -1782,7 +1749,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return _shortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {
@@ -1793,4 +1760,10 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
       return 'Just now';
     }
   }
+}
+/// Unambiguous short date, e.g. "Sep 2, 2026" (not 9/2/2026, which reads
+/// differently in the US and elsewhere).
+String _shortDate(DateTime date) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }

@@ -360,9 +360,9 @@ class _HomeScreenState extends State<HomeScreen> {
             // Additional Sections
             _buildHorizontalGameSection('Trending now', _trendingGames, 'trending', theme),
             const SizedBox(height: 16),
-            _buildHorizontalGameSection('${DateTime.now().year - 1} Award Winners', _gotyGames, 'goty', theme),
+            _buildHorizontalGameSection('Best of ${DateTime.now().year - 1}', _gotyGames, 'goty', theme),
             const SizedBox(height: 16),
-            _buildHorizontalGameSection('New releases', _actionGames, 'shooter', theme),
+            _buildHorizontalGameSection('Top shooters', _actionGames, 'shooter', theme),
             const SizedBox(height: 60),
           ],
         ),
@@ -681,7 +681,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Add games to your library and rate them to get personalized recommendations.',
+                  RecommendationService.instance.lastWasPersonalized
+                      ? 'Picked from the genres you rate highest, leaving out games already in your library.'
+                      : 'Rate a few games to get recommendations tailored to you. Until then, here\'s what\'s popular.',
                   style: TextStyle(
                     fontSize: 14,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
@@ -811,7 +813,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _buildCategoryGrid(theme),
           const SizedBox(height: 16),
-          _buildHorizontalGameSection('Action & Adventure', _actionGames, 'shooter', theme),
+          _buildHorizontalGameSection('Shooters', _actionGames, 'shooter', theme),
           const SizedBox(height: 16),
           _buildHorizontalGameSection('Role Playing', _rpgGames, 'rpg', theme),
           const SizedBox(height: 16),
@@ -988,7 +990,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      game.developer,
+                      game.subtitle,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -1450,7 +1452,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  game.developer,
+                  game.subtitle,
                   style: TextStyle(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     fontSize: 12,
@@ -1679,7 +1681,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 2),
             Text(
-              game.developer,
+              game.subtitle,
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 fontSize: 12,
@@ -1798,7 +1800,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    game.developer,
+                    game.subtitle,
                     style: TextStyle(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       fontSize: 12,

@@ -375,11 +375,20 @@ class LibraryService {
         }
       }
       
+      // Games rated after being added to the backlog count as played, matching
+      // the Library screen's Backlog/Beaten sections.
+      final ratedGameIds = ratingsSnapshot.docs
+          .map((doc) => (doc.data()['gameId'] ?? doc.id).toString())
+          .toSet();
+
       // Calculate library stats from library collection
-      for (final game in libraryGames) {
+      for (final doc in librarySnapshot.docs) {
+        final game = doc.data();
         final status = game['status'] ?? 'rated';
-        
-        if (status == 'backlog' || status == 'want_to_play' || status == 'planToPlay') {
+        final gameId = (game['gameId'] ?? doc.id).toString();
+        final isRated = ratedGameIds.contains(gameId) || ((game['userRating'] ?? 0) as num) > 0;
+
+        if ((status == 'backlog' || status == 'want_to_play' || status == 'planToPlay') && !isRated) {
           backlogGames++;
         }
         

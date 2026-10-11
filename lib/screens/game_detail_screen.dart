@@ -47,11 +47,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Map<String, Map<String, dynamic>> _ratingUserProfiles = {};
   double _averageRating = 0.0;
   int _totalRatings = 0;
-  int _backlogCount = 0;
-  int _playingCount = 0;
-  int _completedCount = 0;
   bool _isLoadingUserRating = true;
-  bool _isLoadingStats = true;
   
   // Library status
   String? _currentLibraryStatus;
@@ -398,71 +394,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           // Update total ratings count and average rating properly
           _updateTotalRatingsCount();
         });
-        
-        // Load library stats for this game in background (non-blocking)
-        _loadLibraryStats();
       }
     } catch (e) {
       debugPrint('Error loading community ratings: $e');
-    }
-  }
-
-  Future<void> _loadLibraryStats() async {
-    try {
-      // Use more efficient query approach - query the legacy user_library collection
-      // which has better indexing for this type of query
-      final librarySnapshot = await FirebaseFirestore.instance
-          .collection('user_library')
-          .where('gameId', isEqualTo: widget.gameId)
-          .get();
-      
-      int backlogCount = 0;
-      int playingCount = 0;
-      int completedCount = 0;
-      
-      for (final doc in librarySnapshot.docs) {
-        final status = doc.data()['status'] as String?;
-        switch (status) {
-          case 'backlog':
-          case 'want_to_play':
-          case 'planToPlay':
-            backlogCount++;
-            break;
-          case 'playing':
-            playingCount++;
-            break;
-          case 'completed':
-            completedCount++;
-            break;
-        }
-      }
-      
-      // If no data from legacy collection, use ratings as baseline
-      if (librarySnapshot.docs.isEmpty && _totalRatings > 0) {
-        backlogCount = (_totalRatings * 0.3).round();
-        playingCount = (_totalRatings * 0.2).round();
-        completedCount = _totalRatings;
-      }
-      
-      if (mounted) {
-        setState(() {
-          _backlogCount = backlogCount;
-          _playingCount = playingCount;
-          _completedCount = completedCount;
-          _isLoadingStats = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading library stats: $e');
-      // Fallback to ratings-based estimates
-      if (mounted && _totalRatings > 0) {
-        setState(() {
-          _backlogCount = (_totalRatings * 0.3).round();
-          _playingCount = (_totalRatings * 0.2).round();
-          _completedCount = _totalRatings;
-          _isLoadingStats = false;
-        });
-      }
     }
   }
 
@@ -1482,10 +1416,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: _showLibraryPopup,
-            icon: const Icon(Icons.add, size: 20),
-            label: const Text(
-              'Add to',
-              style: TextStyle(
+            icon: Icon(_currentLibraryStatus == null ? Icons.add : Icons.edit, size: 20),
+            label: Text(
+              switch (_currentLibraryStatus) {
+                null => 'Add to library',
+                'backlog' => 'In library · Backlog',
+                'playing' => 'In library · Playing',
+                'completed' => 'In library · Completed',
+                'dropped' => 'In library · Dropped',
+                _ => 'In library',
+              },
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
@@ -1549,16 +1490,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               label: 'GameLoggers',
               color: const Color(0xFFFBBF24),
             ),
+            // Other users' libraries are private, so backlog/playing counts
+            // can't be shown honestly; show the critic score and friends instead.
             _buildStatItem(
-              icon: Icons.bookmark_border,
-              value: _isLoadingStats ? '...' : '$_backlogCount',
-              label: 'Backlog',
+              icon: Icons.public,
+              value: (_game?.averageRating ?? 0) > 0 ? _game!.averageRating.toStringAsFixed(1) : '–',
+              label: 'IGDB',
               color: const Color(0xFF6366F1),
             ),
             _buildStatItem(
-              icon: Icons.play_circle_outline,
-              value: _isLoadingStats ? '...' : '$_playingCount',
-              label: 'Playing',
+              icon: Icons.people_outline,
+              value: '${_friendRatings.length}',
+              label: 'Friends',
               color: const Color(0xFF10B981),
             ),
             _buildStatItem(

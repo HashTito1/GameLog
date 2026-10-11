@@ -282,7 +282,7 @@ class _FavoriteGameSelectionScreenState extends State<FavoriteGameSelectionScree
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    game.developer,
+                    game.subtitle,
                     style: const TextStyle(
                       fontSize: 14,
                       color: Colors.grey,
