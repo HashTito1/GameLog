@@ -129,7 +129,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       
       // Load game details if not provided
       if (_game == null) {
-        debugPrint('Game is null, fetching from RAWG API...');
+        debugPrint('Game is null, fetching from IGDB...');
         _game = await IGDBService.instance.getGameDetails(widget.gameId);
         debugPrint('Fetched game: ${_game?.title ?? 'null'}');
       }

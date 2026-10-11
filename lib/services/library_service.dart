@@ -194,7 +194,7 @@ class LibraryService {
         if (!processedGameIds.contains(gameId)) {
           debugPrint('🎮 Fetching game details for rated game: $gameId');
           
-          // Fetch full game details from RAWG API
+          // Fetch full game details from IGDB
           Game? gameDetails;
           try {
             gameDetails = await igdbService.getGameDetails(gameId);

@@ -250,7 +250,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       debugPrint('After rating filter (>= $minRating): ${filteredReviews.length}');
     }
 
-    // TODO: Genre and platform filtering would require fetching game details from RAWG
+    // TODO: Genre and platform filtering would require fetching game details from IGDB
     // For now, we'll implement basic filtering based on available data
     // This could be enhanced by caching game details or fetching them in batches
     

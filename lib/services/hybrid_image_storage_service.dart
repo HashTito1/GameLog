@@ -1,99 +1,69 @@
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
-import 'imgbb_storage_service.dart';
 
-/// Cloud-only image storage service using ImgBB with caching
+/// Profile and banner images stored in Firebase Storage under
+/// users/{userId}/. Access is enforced by storage.rules.
 class HybridImageStorageService {
-  
-  /// Upload profile picture - cloud storage only (ImgBB)
+  static final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  /// Upload profile picture and return its download URL
   static Future<String?> uploadProfilePicture({
     required String userId,
     required Uint8List imageBytes,
   }) async {
     try {
-      if (kDebugMode) {
-        print('Uploading profile picture to ImgBB cloud storage...');
-      }
-      
-      final imgbbUrl = await ImgBBStorageService.uploadProfilePicture(
-        userId: userId,
-        imageBytes: imageBytes,
-      );
-      
-      if (imgbbUrl != null) {
-        if (kDebugMode) {
-          print('Cloud storage upload successful: $imgbbUrl');
-        }
-        return imgbbUrl;
-      } else {
-        throw Exception('ImgBB upload returned null URL');
-      }
+      return await _upload(userId: userId, kind: 'profile', imageBytes: imageBytes);
     } catch (e) {
-      if (kDebugMode) {
-        print('Cloud storage upload failed: $e');
-      }
-      throw Exception('Failed to upload profile picture to cloud storage: ${e.toString()}');
+      throw Exception('Failed to upload profile picture to cloud storage: $e');
     }
   }
-  
-  /// Upload banner image - cloud storage only (ImgBB)
+
+  /// Upload banner image and return its download URL
   static Future<String?> uploadBannerImage({
     required String userId,
     required Uint8List imageBytes,
   }) async {
     try {
-      if (kDebugMode) {
-        print('Uploading banner image to ImgBB cloud storage...');
-      }
-      
-      final imgbbUrl = await ImgBBStorageService.uploadBannerImage(
-        userId: userId,
-        imageBytes: imageBytes,
-      );
-      
-      if (imgbbUrl != null) {
-        if (kDebugMode) {
-          print('Cloud storage upload successful: $imgbbUrl');
-        }
-        return imgbbUrl;
-      } else {
-        throw Exception('ImgBB upload returned null URL');
-      }
+      return await _upload(userId: userId, kind: 'banner', imageBytes: imageBytes);
     } catch (e) {
-      if (kDebugMode) {
-        print('Cloud storage upload failed: $e');
-      }
-      throw Exception('Failed to upload banner image to cloud storage: ${e.toString()}');
+      throw Exception('Failed to upload banner image to cloud storage: $e');
     }
   }
-  
-  /// Check if URL is a cloud storage URL (ImgBB)
+
+  static Future<String> _upload({
+    required String userId,
+    required String kind,
+    required Uint8List imageBytes,
+  }) async {
+    // Unique name per upload so cached copies of the old image never linger.
+    final ref = _storage
+        .ref('users/$userId/${kind}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await ref.putData(imageBytes, SettableMetadata(contentType: 'image/jpeg'));
+    return ref.getDownloadURL();
+  }
+
+  /// Check if URL is a Firebase Storage URL
   static bool isCloudStorageUrl(String? url) {
-    return ImgBBStorageService.isImgBBUrl(url);
+    if (url == null || url.isEmpty) return false;
+    return url.contains('firebasestorage.googleapis.com') ||
+        url.contains('.firebasestorage.app');
   }
-  
-  /// Delete old image (ImgBB doesn't support deletion via API)
-  static Future<void> deleteOldProfilePicture(String? oldImageUrl) async {
-    if (oldImageUrl == null || oldImageUrl.isEmpty) return;
-    
-    if (kDebugMode) {
-      print('Note: ImgBB does not support image deletion via API');
-      print('Old image will remain accessible: $oldImageUrl');
+
+  /// Delete the previous profile picture after a successful replacement
+  static Future<void> deleteOldProfilePicture(String? oldImageUrl) =>
+      _deleteIfOwned(oldImageUrl);
+
+  /// Delete the previous banner image after a successful replacement
+  static Future<void> deleteOldBannerImage(String? oldImageUrl) =>
+      _deleteIfOwned(oldImageUrl);
+
+  static Future<void> _deleteIfOwned(String? url) async {
+    // Older images hosted elsewhere (e.g. ImgBB) can't be deleted from here.
+    if (!isCloudStorageUrl(url)) return;
+    try {
+      await _storage.refFromURL(url!).delete();
+    } catch (e) {
+      debugPrint('Could not delete old image: $e');
     }
-    
-    // ImgBB doesn't support deletion via API
-    // Images remain accessible but this is acceptable for most use cases
-  }
-  
-  /// Delete old banner image (ImgBB doesn't support deletion via API)
-  static Future<void> deleteOldBannerImage(String? oldImageUrl) async {
-    if (oldImageUrl == null || oldImageUrl.isEmpty) return;
-    
-    if (kDebugMode) {
-      print('Note: ImgBB does not support image deletion via API');
-      print('Old image will remain accessible: $oldImageUrl');
-    }
-    
-    // ImgBB doesn't support deletion via API
-    // Images remain accessible but this is acceptable for most use cases
   }
 }

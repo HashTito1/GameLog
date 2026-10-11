@@ -38,14 +38,13 @@ A social platform for gamers to track, rate, and review games - like Letterboxd 
 
 ## Game Data APIs
 
-GameLog uses **IGDB** (via a Twitch developer app) as its main game database and **RAWG** for some discovery features. User images are hosted on **ImgBB**.
+GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pictures and banners are stored in **Firebase Storage** (requires the Firebase Blaze plan), protected by [storage.rules](storage.rules).
 
 ## Getting Started
 
 ### Prerequisites
 - Flutter SDK
 - A Twitch developer app for IGDB ([IGDB docs](https://api-docs.igdb.com/#getting-started))
-- A RAWG API key ([rawg.io/apidocs](https://rawg.io/apidocs)) and an ImgBB API key ([api.imgbb.com](https://api.imgbb.com/))
 
 ### Setup
 
@@ -62,9 +61,9 @@ GameLog uses **IGDB** (via a Twitch developer app) as its main game database and
    ```
    VS Code users can use the included launch configurations instead. The admin app runs via `run_admin_app.bat`.
 
-4. Deploy the security rules whenever `firestore.rules` changes:
+4. Deploy the security rules whenever `firestore.rules` or `storage.rules` changes:
    ```bash
-   firebase deploy --only firestore:rules
+   firebase deploy --only firestore:rules,storage
    ```
 
 Notes:
@@ -131,7 +130,7 @@ lib/
 ## Implemented Features
 
 - ✅ Firebase user authentication with email verification
-- ✅ Game search and discovery via IGDB and RAWG
+- ✅ Game search and discovery via IGDB
 - ✅ Community forum, rating comments and likes
 - ✅ Friends, following and notifications
 - ✅ Separate admin app for moderation
@@ -185,6 +184,6 @@ We **strongly encourage contributions** to the main GameLog project! Here's how:
 
 ## Acknowledgments
 
-- [IGDB](https://www.igdb.com/) and [RAWG.io](https://rawg.io/) for video game data
+- [IGDB](https://www.igdb.com/) for video game data
 - [Firebase](https://firebase.google.com/) for authentication and database services
 - [Flutter](https://flutter.dev/) for the amazing cross-platform framework

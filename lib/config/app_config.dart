@@ -1,4 +1,4 @@
-/// Build-time configuration for third-party API credentials.
+/// Build-time configuration for the IGDB API credentials.
 ///
 /// Values are injected at build time and are never committed to the repo:
 ///
@@ -13,6 +13,4 @@ class AppConfig {
 
   static const String igdbClientId = String.fromEnvironment('IGDB_CLIENT_ID');
   static const String igdbAccessToken = String.fromEnvironment('IGDB_ACCESS_TOKEN');
-  static const String rawgApiKey = String.fromEnvironment('RAWG_API_KEY');
-  static const String imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
 }
