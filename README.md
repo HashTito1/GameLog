@@ -68,7 +68,7 @@ GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pi
    ```
 
 Notes:
-- IGDB app access tokens expire after about 60 days. Generate a new one with your Twitch client ID and secret and update `dart_defines.json`.
+- IGDB app access tokens expire after about 60 days. Refresh it with `powershell -ExecutionPolicy Bypass -File scripts\refresh_igdb_token.ps1`, which asks for your Twitch client secret, updates `dart_defines.json` and tests the new token.
 - Anything compiled into an app can be extracted, so use low-privilege keys. Moving the IGDB calls behind a Cloud Function would keep them off devices entirely.
 
 ### Admin setup
