@@ -38,13 +38,14 @@ A social platform for gamers to track, rate, and review games - like Letterboxd 
 
 ## Game Data APIs
 
-GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pictures and banners are stored in **Firebase Storage** (requires the Firebase Blaze plan), protected by [storage.rules](storage.rules).
+GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pictures and banners are hosted on **ImgBB** (free, no Firebase Blaze plan needed).
 
 ## Getting Started
 
 ### Prerequisites
 - Flutter SDK
 - A Twitch developer app for IGDB ([IGDB docs](https://api-docs.igdb.com/#getting-started))
+- An ImgBB API key ([api.imgbb.com](https://api.imgbb.com/))
 
 ### Setup
 
@@ -61,9 +62,9 @@ GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pi
    ```
    VS Code users can use the included launch configurations instead. The admin app runs via `run_admin_app.bat`.
 
-4. Deploy the security rules whenever `firestore.rules` or `storage.rules` changes:
+4. Deploy the security rules whenever `firestore.rules` changes:
    ```bash
-   firebase deploy --only firestore:rules,storage
+   firebase deploy --only firestore:rules
    ```
 
 Notes:
