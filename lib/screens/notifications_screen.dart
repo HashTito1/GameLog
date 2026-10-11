@@ -338,7 +338,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'We\'ll notify you when something interesting happens',
+            'Friend requests, and ratings from people you follow, show up here.',
             style: TextStyle(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               fontSize: 14,

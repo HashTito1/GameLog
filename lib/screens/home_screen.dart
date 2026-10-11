@@ -430,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPopularSection(ThemeData theme) {
-    final displayGames = _featuredGames.isNotEmpty ? _featuredGames : _popularGames;
+    final displayGames = _popularGames.isNotEmpty ? _popularGames : _featuredGames;
     if (displayGames.isEmpty) return const SizedBox.shrink();
     
     return Container(
@@ -681,9 +681,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  RecommendationService.instance.lastWasPersonalized
-                      ? 'Picked from the genres you rate highest, leaving out games already in your library.'
-                      : 'Rate a few games to get recommendations tailored to you. Until then, here\'s what\'s popular.',
+                  _suggestedGames.isEmpty
+                      ? 'Finding games for you…'
+                      : RecommendationService.instance.lastWasPersonalized
+                          ? 'Picked from the genres you rate highest, leaving out games already in your library.'
+                          : 'Rate a few games to get recommendations tailored to you. Until then, here\'s what\'s popular.',
                   style: TextStyle(
                     fontSize: 14,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
@@ -1133,7 +1135,7 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else
             SizedBox(
-              height: 180,
+              height: 108,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: _friendReviews.length,
@@ -1149,77 +1151,66 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildRecentReviewCard(UserRating review, ThemeData theme) {
     final rating = review.rating;
-    final reviewText = review.review;
+    final reviewText = review.review?.trim();
     final username = review.displayName ?? review.username;
     final profileImage = review.profileImage;
 
     return GestureDetector(
       onTap: () {
-        // Navigate to game detail screen using gameId
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => GameDetailScreen(
-              gameId: review.gameId,
-            ),
+            builder: (context) => GameDetailScreen(gameId: review.gameId),
           ),
         );
       },
       child: Container(
-        width: 200,
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.all(8), // Reduced from 10
+        width: 280,
+        margin: const EdgeInsets.only(right: 12),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.2),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // User info and rating
-            Row(
+        // Reviews only store the game id/title, so the cover comes from IGDB
+        // (cached after the first load).
+        child: FutureBuilder<Game?>(
+          future: _gameFor(review.gameId),
+          builder: (context, snapshot) {
+            final game = snapshot.data;
+            final title = game?.title ?? review.gameTitle ?? 'Game';
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 12,
-                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  backgroundImage: profileImage != null && profileImage.isNotEmpty
-                      ? CachedNetworkImageProvider(profileImage)
-                      : null,
-                  child: profileImage == null || profileImage.isEmpty
-                      ? Text(
-                          username.isNotEmpty ? username[0].toUpperCase() : 'F',
-                          style: TextStyle(
-                            color: theme.colorScheme.primary,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 64,
+                    height: 86,
+                    child: (game?.coverImage.isNotEmpty ?? false)
+                        ? CachedNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
+                        : Container(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            child: Icon(Icons.videogame_asset, color: theme.colorScheme.primary),
                           ),
-                        )
-                      : null,
+                  ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        username,
+                        title,
                         style: TextStyle(
                           color: theme.colorScheme.onSurface,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           ...List.generate(5, (starIndex) {
@@ -1228,106 +1219,100 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? Icons.star
                                   : (starIndex < rating ? Icons.star_half : Icons.star_border),
                               color: ThemeService().starColor,
-                              size: 10,
+                              size: 13,
                             );
                           }),
-                          const SizedBox(width: 2),
+                          const SizedBox(width: 4),
                           Text(
                             rating.toStringAsFixed(1),
                             style: TextStyle(
                               color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (reviewText != null && reviewText.isNotEmpty)
+                        Text(
+                          '"$reviewText"',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            height: 1.3,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 9,
+                            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+                            backgroundImage: profileImage != null && profileImage.isNotEmpty
+                                ? CachedNetworkImageProvider(profileImage)
+                                : null,
+                            child: profileImage == null || profileImage.isEmpty
+                                ? Text(
+                                    username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              username,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (review.likeCount > 0) ...[
+                            Icon(Icons.favorite, size: 12, color: theme.colorScheme.error),
+                            const SizedBox(width: 2),
+                            Text('${review.likeCount}', style: const TextStyle(fontSize: 11)),
+                            const SizedBox(width: 6),
+                          ],
+                          if (review.commentCount > 0) ...[
+                            Icon(Icons.chat_bubble_outline, size: 12,
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                            const SizedBox(width: 2),
+                            Text('${review.commentCount}', style: const TextStyle(fontSize: 11)),
+                          ],
                         ],
                       ),
                     ],
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 4), // Reduced from 6
-            
-            // Review text
-            Expanded(
-              child: Text(
-                reviewText ?? 'No review text',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                  fontSize: 11,
-                  height: 1.1,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            
-            const SizedBox(height: 4), // Reduced from 6
-            
-            // Like and comment counts
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.thumb_up_outlined,
-                        size: 9,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 1),
-                      Text(
-                        '${review.likeCount}',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.comment_outlined,
-                        size: 9,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(width: 1),
-                      Text(
-                        '${review.commentCount}',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
   }
+
+  // One lookup per game while this screen is alive, even across rebuilds.
+  final Map<String, Future<Game?>> _gameLookups = {};
+
+  Future<Game?> _gameFor(String gameId) => _gameLookups.putIfAbsent(gameId, () async {
+        try {
+          return await IGDBService.instance.getGameDetails(gameId);
+        } catch (e) {
+          return null;
+        }
+      });
 
   Widget _buildSuggestedSection(ThemeData theme) {
     return Container(

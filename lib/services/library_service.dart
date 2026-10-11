@@ -357,10 +357,14 @@ class LibraryService {
           .collection('ratings')
           .get();
 
-      final libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
       final ratings = ratingsSnapshot.docs.map((doc) => doc.data()).toList();
       
-      int totalGames = libraryGames.length;
+      // Count distinct games: older app versions could save the same game
+      // twice, and getUserLibrary de-duplicates when listing them.
+      int totalGames = {
+        ...librarySnapshot.docs.map((doc) => (doc.data()['gameId'] ?? doc.id).toString()),
+        ...ratingsSnapshot.docs.map((doc) => (doc.data()['gameId'] ?? doc.id).toString()),
+      }.length;
       double totalRating = 0.0;
       int ratedGames = ratings.length; // Count from ratings collection
       int backlogGames = 0;

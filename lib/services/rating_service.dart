@@ -486,22 +486,22 @@ class RatingService {
       final friendIds = friends.map((friend) => friend['id'] as String).toList();
       debugPrint('📋 Friend IDs: $friendIds');
 
-      // Get recent reviews from friends
-      final querySnapshot = await _firestore
-          .collection(_ratingsCollection)
-          .where('userId', whereIn: friendIds.take(10).toList()) // Firestore limit for whereIn
-          .orderBy('updatedAt', descending: true)
-          .limit(limit)
-          .get();
+      // whereIn takes at most 30 values, so query friends in chunks. Sorting
+      // happens here: whereIn + orderBy would need a composite index that
+      // doesn't exist, and the query used to fail and show no friend reviews.
+      final ratings = <UserRating>[];
+      for (var i = 0; i < friendIds.length; i += 30) {
+        final chunk = friendIds.sublist(i, (i + 30).clamp(0, friendIds.length));
+        final querySnapshot = await _firestore
+            .collection(_ratingsCollection)
+            .where('userId', whereIn: chunk)
+            .get();
+        ratings.addAll(querySnapshot.docs.map((doc) => UserRating.fromMap(doc.data())));
+      }
 
-      debugPrint('📊 Found ${querySnapshot.docs.length} friend ratings in database');
-
-      final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
-          .toList();
-      
-      debugPrint('✅ Processed ${ratings.length} friend ratings');
-      return ratings;
+      ratings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      debugPrint('✅ Found ${ratings.length} friend ratings');
+      return ratings.take(limit).toList();
     } catch (e) {
       debugPrint('❌ Error in getFriendRecentRatings: $e');
       return [];

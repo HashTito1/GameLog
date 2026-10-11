@@ -5,6 +5,7 @@ import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
 import '../services/theme_service.dart';
+import 'category_games_screen.dart';
 import 'game_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class _SearchScreenState extends State<SearchScreen> {
   String _selectedPlatform = 'all';
   String _selectedOrdering = '-rating'; // Default to rating for better results
   RangeValues _metacriticRange = const RangeValues(0, 100);
-  RangeValues _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2); // Focus on recent games including upcoming
+  RangeValues _releasedYearRange = RangeValues(1990, DateTime.now().year.toDouble() + 2); // Focus on recent games including upcoming
 
   @override
   void initState() {
@@ -61,11 +62,16 @@ class _SearchScreenState extends State<SearchScreen> {
       final adultContentEnabled = await ContentFilterService.instance.isAdultContentEnabled();
       
       // Enhanced search with better ordering for popular/recent results
+      final ratingFiltered = _metacriticRange.start > 0 || _metacriticRange.end < 100;
       final games = await IGDBService.instance.searchGames(
         query,
         limit: 40, // Get more results for better sorting
         genres: _selectedGenre != 'all' ? [_selectedGenre] : null,
+        platforms: _selectedPlatform != 'all' ? [_selectedPlatform] : null,
         ordering: _selectedOrdering,
+        // searchGames takes a 0-10 scale and converts to IGDB's 0-100.
+        metacriticMin: ratingFiltered ? _metacriticRange.start / 10 : null,
+        metacriticMax: ratingFiltered ? _metacriticRange.end / 10 : null,
       );
       
       // Apply content filtering
@@ -86,21 +92,48 @@ class _SearchScreenState extends State<SearchScreen> {
         }).toList();
       }
 
-      // Enhanced result prioritization: popular and recent games first
-      filteredGames.sort((a, b) {
-        // First priority: rating (popular games)
-        final ratingDiff = b.averageRating.compareTo(a.averageRating);
-        if (ratingDiff != 0) return ratingDiff;
-        
-        // Second priority: release year (recent games)
-        final yearA = int.tryParse(a.releaseDate) ?? 0;
-        final yearB = int.tryParse(b.releaseDate) ?? 0;
-        final yearDiff = yearB.compareTo(yearA);
-        if (yearDiff != 0) return yearDiff;
-        
-        // Third priority: review count (more reviewed = more popular)
-        return b.totalReviews.compareTo(a.totalReviews);
-      });
+      // Release-year filter: only applied once the user narrows the range, so
+      // games with no release year aren't hidden by default.
+      final fullYearRange = _releasedYearRange.start <= 1990 &&
+          _releasedYearRange.end >= DateTime.now().year + 2;
+      if (!fullYearRange) {
+        filteredGames = filteredGames.where((game) {
+          final year = int.tryParse(game.releaseDate);
+          return year != null &&
+              year >= _releasedYearRange.start.round() &&
+              year <= _releasedYearRange.end.round();
+        }).toList();
+      }
+
+      int year(Game g) => int.tryParse(g.releaseDate) ?? 0;
+      // Sort by the user's choice. IGDB's text search ignores sort order, so
+      // this is where the "Sort by" filter takes effect.
+      switch (_selectedOrdering) {
+        case '-released':
+          filteredGames.sort((a, b) => year(b).compareTo(year(a)));
+          break;
+        case 'name':
+          filteredGames.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+          break;
+        case '-name':
+          filteredGames.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+          break;
+        case '-added':
+          filteredGames.sort((a, b) => b.totalReviews.compareTo(a.totalReviews));
+          break;
+        case '-metacritic':
+          filteredGames.sort((a, b) => b.averageRating.compareTo(a.averageRating));
+          break;
+        default:
+          // Best match: rating, then recency, then number of reviews.
+          filteredGames.sort((a, b) {
+            final ratingDiff = b.averageRating.compareTo(a.averageRating);
+            if (ratingDiff != 0) return ratingDiff;
+            final yearDiff = year(b).compareTo(year(a));
+            if (yearDiff != 0) return yearDiff;
+            return b.totalReviews.compareTo(a.totalReviews);
+          });
+      }
       
       if (mounted) {
         setState(() {
@@ -127,7 +160,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _selectedPlatform = 'all';
       _selectedOrdering = '-rating';
       _metacriticRange = const RangeValues(0, 100);
-      _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2);
+      _releasedYearRange = RangeValues(1990, DateTime.now().year.toDouble() + 2);
     });
     _searchGames(_searchController.text);
   }
@@ -260,39 +293,86 @@ class _SearchScreenState extends State<SearchScreen> {
     return _buildSearchResults(theme);
   }
 
+  // Shortcuts shown before the user types; each opens an existing category list.
+  static const _browseCategories = [
+    ('Trending', 'trending', Icons.local_fire_department),
+    ('Popular', 'popular', Icons.trending_up),
+    ('Best of last year', 'goty', Icons.emoji_events),
+    ('RPG', 'rpg', Icons.auto_stories),
+    ('Shooter', 'shooter', Icons.sports_esports),
+    ('Adventure', 'adventure', Icons.explore),
+    ('Strategy', 'strategy', Icons.psychology),
+    ('Indie', 'indie', Icons.palette),
+  ];
+
   Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      children: [
+        Text(
+          'Browse',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Or type a game name above',
+          style: TextStyle(
+            fontSize: 13,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: 16),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 2.6,
           children: [
-            Icon(
-              Icons.search,
-              size: 64,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Discover Amazing Games',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface,
+            for (final (label, type, icon) in _browseCategories)
+              Material(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => CategoryGamesScreen(
+                        categoryTitle: type == 'goty' ? 'Best of ${DateTime.now().year - 1}' : label,
+                        categoryType: type,
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Icon(icon, color: theme.colorScheme.primary, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Search for your favorite games using the search bar above',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
           ],
         ),
-      ),
+      ],
     );
   }
 
@@ -532,14 +612,14 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
 
   final List<Map<String, String>> _platformOptions = [
     {'label': 'All Platforms', 'value': 'all'},
-    {'label': 'PC', 'value': '4'},
-    {'label': 'PlayStation 5', 'value': '187'},
-    {'label': 'PlayStation 4', 'value': '18'},
-    {'label': 'Xbox Series X/S', 'value': '186'},
-    {'label': 'Xbox One', 'value': '1'},
-    {'label': 'Nintendo Switch', 'value': '7'},
-    {'label': 'iOS', 'value': '3'},
-    {'label': 'Android', 'value': '21'},
+    {'label': 'PC', 'value': 'PC (Microsoft Windows)'},
+    {'label': 'PlayStation 5', 'value': 'PlayStation 5'},
+    {'label': 'PlayStation 4', 'value': 'PlayStation 4'},
+    {'label': 'Xbox Series X/S', 'value': 'Xbox Series X|S'},
+    {'label': 'Xbox One', 'value': 'Xbox One'},
+    {'label': 'Nintendo Switch', 'value': 'Nintendo Switch'},
+    {'label': 'iOS', 'value': 'iOS'},
+    {'label': 'Android', 'value': 'Android'},
   ];
 
   final List<Map<String, String>> _orderingOptions = [
@@ -567,7 +647,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       _selectedPlatform = 'all';
       _selectedOrdering = '-rating';
       _metacriticRange = const RangeValues(0, 100);
-      _releasedYearRange = RangeValues(2020, DateTime.now().year.toDouble() + 2);
+      _releasedYearRange = RangeValues(1990, DateTime.now().year.toDouble() + 2);
     });
   }
 

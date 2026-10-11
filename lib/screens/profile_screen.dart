@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:share_plus/share_plus.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/igdb_service.dart';
@@ -673,7 +674,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icons.share,
                   () {
                     Navigator.pop(context);
-                    // Implement share functionality
+                    _shareProfile();
                   },
                 ),
                 const SizedBox(height: 10),
@@ -1069,11 +1070,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _shareProfile() {
+    final displayName = _userData?['displayName'] ?? _userData?['username'] ?? 'Me';
+    final username = _userData?['username'];
+    final favorite = (_userData?['favoriteGame'] as Map<String, dynamic>?)?['gameName'];
+    final lines = [
+      '$displayName${username != null ? ' (@$username)' : ''} on GameLog',
+      if (_userRatingsCount > 0)
+        '$_userRatingsCount games rated · ${_userAverageRating.toStringAsFixed(1)}★ average',
+      if (favorite != null) 'Favorite game: $favorite',
+    ];
+    SharePlus.instance.share(ShareParams(text: lines.join('\n'), subject: '$displayName on GameLog'));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentUser = FirebaseAuthService.instance.currentUser;
-    
+
     if (currentUser == null) {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -1992,47 +2006,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildActionButtons() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  'Set Favorite',
-                  Icons.star,
-                  const Color(0xFFFBBF24),
-                  _selectFavoriteGame,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildActionButton(
-                  'Create Playlist',
-                  Icons.playlist_add,
-                  const Color(0xFF10B981),
-                  _createPlaylist,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: _buildActionButton(
-              'Friends',
-              Icons.people,
-              const Color(0xFF6366F1),
-              () {
-                // Navigate to friends screen
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const FriendsScreen(),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+      // Favorite game is changed from its own card and Friends lives in the
+      // Social card, so only playlist creation needs a button here.
+      child: SizedBox(
+        width: double.infinity,
+        child: _buildActionButton(
+          'Create Playlist',
+          Icons.playlist_add,
+          const Color(0xFF10B981),
+          _createPlaylist,
+        ),
       ),
     );
   }
@@ -2091,6 +2074,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.bold,
                   color: theme.colorScheme.onSurface,
                 ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const FriendsScreen()),
+                ),
+                icon: const Icon(Icons.people_outline, size: 18),
+                label: const Text('Friends'),
               ),
             ],
           ),

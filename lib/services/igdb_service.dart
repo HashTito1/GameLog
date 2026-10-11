@@ -64,9 +64,11 @@ class IGDBService {
         limit $limit;
       ''';
 
-      // Add search if query is provided
+      // Add search if query is provided (quotes escaped so user input can't
+      // break out of the search string)
       if (query.isNotEmpty) {
-        igdbQuery += 'search "$query"; ';
+        final escaped = query.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+        igdbQuery += 'search "$escaped"; ';
       }
 
       // Build where clause components
@@ -188,7 +190,7 @@ class IGDBService {
       // For page 1, try to get from cache first
       if (page == 1) {
         final currentYear = DateTime.now().year;
-        final cacheKey = 'igdb_popular_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+        final cacheKey = 'igdb_popular_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
         final cachedGames = await CacheService.getCachedGameList(cacheKey);
         if (cachedGames != null && cachedGames.length >= limit) {
           return cachedGames.take(limit).toList();
@@ -203,20 +205,20 @@ class IGDBService {
       final timestampThreeYearsAgo = (threeYearsAgo.millisecondsSinceEpoch / 1000).round();
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
       
+      // One where clause only: IGDB ignores all but the last, which used to
+      // let the adult-content filter silently drop every other condition.
+      final adultFilter = includeAdultContent ? '' : ' & themes != (42)';
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where rating >= 75 & rating_count >= 5 & first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow;
-        sort rating desc;
+        where first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow
+          & game_type = 0 & version_parent = null
+          & total_rating >= 75 & total_rating_count >= 100$adultFilter;
+        sort total_rating_count desc;
       ''';
-
-      // Apply content filter
-      if (!includeAdultContent) {
-        igdbQuery += 'where themes != (42); '; // Exclude adult themes
-      }
 
       final response = await http.post(
         Uri.parse('$_baseUrl/games'),
@@ -235,7 +237,7 @@ class IGDBService {
         // Cache only the first page for performance
         if (page == 1) {
           final currentYear = DateTime.now().year;
-          final cacheKey = 'igdb_popular_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+          final cacheKey = 'igdb_popular_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
           await CacheService.cacheGameList(cacheKey, filteredGames);
         }
         
@@ -680,7 +682,7 @@ class IGDBService {
 
     try {
       final currentYear = DateTime.now().year;
-      final cacheKey = 'igdb_highly_rated_games_$currentYear';
+      final cacheKey = 'igdb_highly_rated_games_v2_$currentYear';
       
       // For page 1, try to get from cache first
       if (page == 1) {
@@ -699,8 +701,9 @@ class IGDBService {
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where rating >= 70;
-        sort rating desc;
+        where game_type = 0 & version_parent = null
+          & total_rating >= 85 & total_rating_count >= 200;
+        sort total_rating desc;
       ''';
 
       final response = await http.post(
@@ -1134,12 +1137,15 @@ class IGDBService {
         limit $limit;
       ''';
 
-      // Add search if query is provided
+      // Add search if query is provided. Escape quotes/backslashes so a title
+      // like 'The "Hero"' can't break out of the search string.
       if (query.isNotEmpty) {
-        igdbQuery += 'search "$query"; ';
+        final escaped = query.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+        igdbQuery += 'search "$escaped"; ';
       }
 
-      // Build where clause components
+      // Build where clause components. IGDB honours only ONE where clause per
+      // query (a second one replaces the first), so every filter goes here.
       List<String> whereConditions = [];
 
       if (genre != null && genre != 'all') {
@@ -1158,6 +1164,22 @@ class IGDBService {
         }
       }
 
+      if (releasedAfter != null && releasedAfter.isNotEmpty) {
+        try {
+          final afterDate = DateTime.parse('$releasedAfter-01-01');
+          final afterTimestamp = (afterDate.millisecondsSinceEpoch / 1000).round();
+          whereConditions.add('first_release_date >= $afterTimestamp');
+
+          if (releasedBefore != null && releasedBefore.isNotEmpty) {
+            final beforeDate = DateTime.parse('$releasedBefore-12-31');
+            final beforeTimestamp = (beforeDate.millisecondsSinceEpoch / 1000).round();
+            whereConditions.add('first_release_date <= $beforeTimestamp');
+          }
+        } catch (e) {
+          // Invalid date format, ignore
+        }
+      }
+
       // Combine where conditions
       if (whereConditions.isNotEmpty) {
         igdbQuery += 'where ${whereConditions.join(' & ')}; ';
@@ -1167,23 +1189,6 @@ class IGDBService {
       if (query.isEmpty) {
         String finalOrdering = ordering ?? 'rating desc';
         igdbQuery += 'sort $finalOrdering; ';
-      }
-
-      if (releasedAfter != null && releasedAfter.isNotEmpty) {
-        try {
-          final afterDate = DateTime.parse('$releasedAfter-01-01');
-          final afterTimestamp = (afterDate.millisecondsSinceEpoch / 1000).round();
-          
-          if (releasedBefore != null && releasedBefore.isNotEmpty) {
-            final beforeDate = DateTime.parse('$releasedBefore-12-31');
-            final beforeTimestamp = (beforeDate.millisecondsSinceEpoch / 1000).round();
-            igdbQuery += 'where first_release_date >= $afterTimestamp & first_release_date <= $beforeTimestamp; ';
-          } else {
-            igdbQuery += 'where first_release_date >= $afterTimestamp; ';
-          }
-        } catch (e) {
-          // Invalid date format, ignore
-        }
       }
 
       final response = await http.post(

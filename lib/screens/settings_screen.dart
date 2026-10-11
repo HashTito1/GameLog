@@ -3,16 +3,12 @@ import '../services/firebase_auth_service.dart';
 import '../services/content_filter_service.dart';
 import '../services/theme_service.dart';
 import '../widgets/age_verification_dialog.dart';
-import 'settings/privacy_settings_screen.dart';
-import 'settings/notification_settings_screen.dart';
 import 'settings/theme_settings_screen.dart';
 import 'settings/help_support_screen.dart';
 import 'settings/about_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final VoidCallback? onNavigateToProfile;
-  
-  const SettingsScreen({super.key, this.onNavigateToProfile});
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -60,37 +56,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   : ListView(
                       padding: const EdgeInsets.all(12),
                       children: [
-                        _buildSettingsSection(
-                          title: 'Account',
-                          children: [
-                            _buildSettingsTile(
-                              icon: Icons.person_outline,
-                              title: 'Profile Settings',
-                              subtitle: 'Edit your profile information',
-                              onTap: () {
-                                if (widget.onNavigateToProfile != null) {
-                                  widget.onNavigateToProfile!();
-                                }
-                              },
-                              theme: theme,
-                            ),
-                            _buildSettingsTile(
-                              icon: Icons.security,
-                              title: 'Privacy & Security',
-                              subtitle: 'Manage your privacy settings',
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) => const PrivacySettingsScreen(),
-                                  ),
-                                );
-                              },
-                              theme: theme,
-                            ),
-                          ],
-                          theme: theme,
-                        ),
-                        const SizedBox(height: 16),
+                        // Profile editing lives in the Profile tab's ⋯ menu.
+                        // The privacy and notification screens were removed:
+                        // their switches were never saved or enforced.
                         _buildSettingsSection(
                           title: 'Content',
                           children: [
@@ -102,19 +70,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildSettingsSection(
                           title: 'Preferences',
                           children: [
-                            _buildSettingsTile(
-                              icon: Icons.notifications_outlined,
-                              title: 'Notifications',
-                              subtitle: 'Configure notification preferences',
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) => const NotificationSettingsScreen(),
-                                  ),
-                                );
-                              },
-                              theme: theme,
-                            ),
                             _buildSettingsTile(
                               icon: Icons.palette_outlined,
                               title: 'Theme',
@@ -180,6 +135,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
+          if (Navigator.of(context).canPop()) ...[
+            IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: Icon(Icons.arrow_back, color: theme.colorScheme.onSurface),
+              tooltip: 'Back',
+            ),
+            const SizedBox(width: 4),
+          ],
           Text(
             'Settings',
             style: TextStyle(

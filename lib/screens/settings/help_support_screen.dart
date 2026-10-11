@@ -47,7 +47,7 @@ class HelpSupportScreen extends StatelessWidget {
               ),
               _buildFAQItem(
                 question: 'How do I change themes?',
-                answer: 'Go to Settings > Theme Settings to choose from 7 different themes including dark and light modes.',
+                answer: 'Go to Settings > Theme to choose from 7 themes, including a light mode.',
                 theme: theme,
               ),
             ],
