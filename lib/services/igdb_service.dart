@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/game.dart';
 import 'cache_service.dart';
 import 'content_filter_service.dart';
@@ -8,15 +9,14 @@ import 'content_filter_service.dart';
 class IGDBService {
   static const String _baseUrl = 'https://api.igdb.com/v4';
   
-  // IGDB API credentials - you'll need to get these from Twitch Developer Console
+  // IGDB API credentials come from the Twitch Developer Console and are
+  // injected at build time (see lib/config/app_config.dart).
   // Instructions: https://api-docs.igdb.com/#getting-started
-  static const String _clientId = 'g02kfdnlja8rywkbbf28o9ckdkta08';
-  static const String _accessToken = 'zj6yugrrn92j3ftza3h4z2xx7xsx88';
-  
+  static const String _clientId = AppConfig.igdbClientId;
+  static const String _accessToken = AppConfig.igdbAccessToken;
+
   // Check if API credentials are configured
-  static bool get isConfigured => _clientId.isNotEmpty && _accessToken.isNotEmpty && 
-                                  _clientId != 'YOUR_TWITCH_CLIENT_ID' && 
-                                  _accessToken != 'YOUR_TWITCH_ACCESS_TOKEN';
+  static bool get isConfigured => _clientId.isNotEmpty && _accessToken.isNotEmpty;
   
   // Singleton pattern
   static final IGDBService _instance = IGDBService._internal();

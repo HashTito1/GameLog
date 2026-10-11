@@ -1042,12 +1042,6 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
         .doc(playlistId)
         .set(updatedPlaylist);
 
-    // Update in global collection
-    await FirebaseFirestore.instance
-        .collection('playlists')
-        .doc(playlistId)
-        .set(updatedPlaylist);
-
     // Update user profile playlist reference
     final userProfile = await UserDataService.getUserProfile(user.id);
     final playlists = List<Map<String, dynamic>>.from(userProfile?['playlists'] ?? []);

@@ -31,13 +31,24 @@ class UpdateInfo {
     return UpdateInfo(
       version: json['tag_name'] ?? '1.0.0',
       buildNumber: json['name'] ?? '1',
-      downloadUrl: json['assets']?.isNotEmpty == true 
-          ? json['assets'][0]['browser_download_url'] ?? ''
-          : '',
+      downloadUrl: userApkUrl(json['assets'] as List<dynamic>? ?? const []),
       releaseNotes: json['body'] ?? 'No release notes available.',
       releaseDate: DateTime.tryParse(json['published_at'] ?? '') ?? DateTime.now(),
       isUpdateAvailable: false, // Will be set by comparison logic
     );
+  }
+
+  /// Releases can carry both the user and admin APKs; never hand the admin
+  /// build to regular users.
+  @visibleForTesting
+  static String userApkUrl(List<dynamic> assets) {
+    for (final asset in assets) {
+      final name = (asset['name'] ?? '').toString().toLowerCase();
+      if (name.endsWith('.apk') && !name.contains('admin')) {
+        return asset['browser_download_url'] ?? '';
+      }
+    }
+    return '';
   }
 }
 
@@ -46,7 +57,6 @@ class UpdateService {
   static const String _githubApiUrl = 'https://api.github.com/repos';
   static const String _repoOwner = 'HashTito1'; // GitHub username
   static const String _repoName = 'GameLog'; // Repository name
-  static const String _branch = 'Update-test-branch'; // The test branch to check for updates
   
   // Update check preferences
   static const String _lastUpdateCheckKey = 'last_update_check';
@@ -522,20 +532,15 @@ class UpdateService {
           return null;
         }
 
-        // Find the latest release from test branch or latest release
+        // GitHub lists newest first; only offer stable, published releases.
         Map<String, dynamic>? latestRelease;
         for (final release in releases) {
-          if (release['target_commitish'] == _branch || release['prerelease'] == true) {
+          if (release['prerelease'] != true && release['draft'] != true) {
             latestRelease = release;
             break;
           }
         }
-        
-        // If no test branch release found, use the latest release
-        if (latestRelease == null && releases.isNotEmpty) {
-          latestRelease = releases.first;
-        }
-        
+
         if (latestRelease == null) {
           debugPrint('❌ No suitable releases found');
           return null;
@@ -544,7 +549,7 @@ class UpdateService {
         final updateInfo = UpdateInfo.fromJson(latestRelease);
         
         // Compare versions to determine if update is available
-        final isUpdateAvailable = _isNewerVersion(
+        final isUpdateAvailable = isNewerVersion(
           updateInfo.version, 
           updateInfo.buildNumber, 
           currentVersion, 
@@ -605,7 +610,8 @@ Since this is a demo mode, please visit our GitHub repository to download the la
   }
 
   /// Compare version strings to determine if an update is available
-  bool _isNewerVersion(String remoteVersion, String remoteBuild, String currentVersion, String currentBuild) {
+  @visibleForTesting
+  static bool isNewerVersion(String remoteVersion, String remoteBuild, String currentVersion, String currentBuild) {
     try {
       // Remove 'v' prefix if present
       final cleanRemoteVersion = remoteVersion.replaceFirst('v', '');

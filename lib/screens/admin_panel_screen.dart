@@ -65,7 +65,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Admin system initialized! You are now an admin.'),
+            content: Text('Admin system is set up. Admin access re-checked.'),
             backgroundColor: Colors.green,
           ),
         );

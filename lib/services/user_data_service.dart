@@ -22,7 +22,6 @@ class UserDataService {
     required String userId,
     String? username,
     String? displayName,
-    String? email,
     String? bio,
     String? profileImageUrl,
     String? bannerImageUrl,
@@ -38,12 +37,14 @@ class UserDataService {
         'updatedAt': FieldValue.serverTimestamp(),
         'lastActiveAt': now.millisecondsSinceEpoch,
         'isOnline': true,
+        // Profiles are readable by other users, so email addresses must not
+        // live here. This also strips emails written by older app versions.
+        'email': FieldValue.delete(),
       };
 
       // Only update fields that are provided
       if (username != null) profileData['username'] = username;
       if (displayName != null) profileData['displayName'] = displayName;
-      if (email != null) profileData['email'] = email;
       if (bio != null) profileData['bio'] = bio;
       if (profileImageUrl != null) profileData['profileImage'] = profileImageUrl;
       if (bannerImageUrl != null) profileData['bannerImage'] = bannerImageUrl;
@@ -702,6 +703,19 @@ class UserDataService {
   }
 
   // Save user profile
+  /// Strip the email address that older app versions stored on the public
+  /// profile document.
+  static Future<void> removeLegacyEmail(String userId) async {
+    try {
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .update({'email': FieldValue.delete()});
+    } catch (e) {
+      debugPrint('Error removing legacy email from profile: $e');
+    }
+  }
+
   static Future<void> saveUserProfile(String userId, Map<String, dynamic> profileData) async {
     try {
       await _firestore
@@ -1097,12 +1111,10 @@ class UserDataService {
         
         final username = (data['username'] ?? '').toString().toLowerCase();
         final displayName = (data['displayName'] ?? '').toString().toLowerCase();
-        final email = (data['email'] ?? '').toString().toLowerCase();
-        
-        // Check if query matches username, display name, or email
-        if (username.contains(queryLower) || 
-            displayName.contains(queryLower) || 
-            email.contains(queryLower)) {
+
+        // Check if query matches username or display name
+        if (username.contains(queryLower) ||
+            displayName.contains(queryLower)) {
           results.add(data);
         }
       }
@@ -1159,7 +1171,6 @@ class UserDataService {
           userId: firebaseUser.uid,
           username: firebaseUser.email?.split('@')[0] ?? 'user',
           displayName: firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'User',
-          email: firebaseUser.email ?? '',
           bio: '',
           profileImageUrl: '',
           bannerImageUrl: '',
@@ -1217,6 +1228,28 @@ class UserDataService {
       debugPrint('Error getting user profile by username: $e');
       return null;
     }
+  }
+
+  /// Turn a display name into a valid username that no other user has,
+  /// appending a numeric suffix when the plain form is taken.
+  static Future<String> generateUniqueUsername(String displayName) async {
+    var base = displayName
+        .toLowerCase()
+        .replaceAll(' ', '_')
+        .replaceAll(RegExp(r'[^a-z0-9_]'), '');
+    if (base.length < 3) base = 'player$base';
+
+    var candidate = base;
+    for (var suffix = 1; suffix <= 50; suffix++) {
+      final taken = await _firestore
+          .collection(_usersCollection)
+          .where('username', isEqualTo: candidate)
+          .limit(1)
+          .get();
+      if (taken.docs.isEmpty) return candidate;
+      candidate = '${base}_${suffix + 1}';
+    }
+    return '${base}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
   // Update username while preserving user ID

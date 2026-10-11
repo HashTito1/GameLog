@@ -6,60 +6,54 @@ class AdminService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _adminsCollection = 'admins';
   static const String _adminListDoc = 'list';
-  static const String _superAdminUsername = 'petrichorvibe69'; // Super admin username
-  
+
   // Singleton pattern
   static final AdminService _instance = AdminService._internal();
   factory AdminService() => _instance;
   AdminService._internal();
   static AdminService get instance => _instance;
 
+  // Admin roles live in admins/list ({adminIds: [...], superAdminId: uid}),
+  // keyed by Firebase Auth uid. Usernames are user-editable, so they are never
+  // used for authorization. Firestore rules enforce the same checks server-side.
+  Future<Map<String, dynamic>?> _getAdminList() async {
+    final adminDoc = await _firestore
+        .collection(_adminsCollection)
+        .doc(_adminListDoc)
+        .get();
+    return adminDoc.exists ? adminDoc.data() : null;
+  }
+
   // Check if current user is super admin
   Future<bool> isCurrentUserSuperAdmin() async {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return false;
-    
-    debugPrint('Checking super admin: current username = "${currentUser.username}", expected = "$_superAdminUsername"');
-    return currentUser.username.toLowerCase() == _superAdminUsername.toLowerCase();
+
+    try {
+      final adminList = await _getAdminList();
+      return adminList != null && adminList['superAdminId'] == currentUser.uid;
+    } catch (e) {
+      debugPrint('Error checking super admin status: $e');
+      return false;
+    }
   }
 
   // Check if current user is admin (including super admin)
   Future<bool> isCurrentUserAdmin() async {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return false;
-    
-    // Super admin is always an admin
-    if (await isCurrentUserSuperAdmin()) return true;
-    
-    try {
-      return await isUserAdmin(currentUser.uid);
-    } catch (e) {
-      // If admin document doesn't exist yet, check if this is the super admin
-      debugPrint('Admin document not found, checking if super admin: $e');
-      return await isCurrentUserSuperAdmin();
-    }
+    return isUserAdmin(currentUser.uid);
   }
 
   // Check if a specific user is admin
   Future<bool> isUserAdmin(String userId) async {
     try {
-      final adminDoc = await _firestore
-          .collection(_adminsCollection)
-          .doc(_adminListDoc)
-          .get();
-
-      if (adminDoc.exists && adminDoc.data() != null) {
-        final adminIds = List<String>.from(adminDoc.data()!['adminIds'] ?? []);
-        return adminIds.contains(userId);
-      }
-      return false;
+      final adminList = await _getAdminList();
+      if (adminList == null) return false;
+      final adminIds = List<String>.from(adminList['adminIds'] ?? []);
+      return adminIds.contains(userId) || adminList['superAdminId'] == userId;
     } catch (e) {
       debugPrint('Error checking admin status: $e');
-      // If we can't access the admin document, check if this is the super admin
-      final currentUser = FirebaseAuthService().currentUser;
-      if (currentUser != null && currentUser.uid == userId) {
-        return currentUser.username.toLowerCase() == _superAdminUsername.toLowerCase();
-      }
       return false;
     }
   }
@@ -70,34 +64,25 @@ class AdminService {
       throw Exception('Only the super admin can add other admins');
     }
 
-    try {
-      await _firestore
-          .collection(_adminsCollection)
-          .doc(_adminListDoc)
-          .update({
-        'adminIds': FieldValue.arrayUnion([userId]),
-        'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        'updatedBy': FirebaseAuthService().currentUser?.uid,
-      });
-    } catch (e) {
-      // If document doesn't exist, create it
-      await _firestore
-          .collection(_adminsCollection)
-          .doc(_adminListDoc)
-          .set({
-        'adminIds': [userId],
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        'createdBy': FirebaseAuthService().currentUser?.uid,
-        'updatedBy': FirebaseAuthService().currentUser?.uid,
-      });
-    }
+    await _firestore
+        .collection(_adminsCollection)
+        .doc(_adminListDoc)
+        .update({
+      'adminIds': FieldValue.arrayUnion([userId]),
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      'updatedBy': FirebaseAuthService().currentUser?.uid,
+    });
   }
 
   // Remove admin (only super admin can do this)
   Future<void> removeAdmin(String userId) async {
     if (!await isCurrentUserSuperAdmin()) {
       throw Exception('Only the super admin can remove other admins');
+    }
+
+    final adminList = await _getAdminList();
+    if (adminList?['superAdminId'] == userId) {
+      throw Exception('The super admin cannot be removed');
     }
 
     try {
@@ -322,31 +307,25 @@ class AdminService {
     }
 
     try {
-      // Get total counts
-      final forumPostsCount = await _firestore
-          .collection('forum_posts')
-          .get()
-          .then((snapshot) => snapshot.docs.length);
+      // Server-side count aggregations: one cheap read each instead of
+      // downloading every document.
+      Future<int> countOf(String collection) async {
+        final snapshot = await _firestore.collection(collection).count().get();
+        return snapshot.count ?? 0;
+      }
 
-      final gameRatingsCount = await _firestore
-          .collection('game_ratings')
-          .get()
-          .then((snapshot) => snapshot.docs.length);
-
-      final ratingCommentsCount = await _firestore
-          .collection('rating_comments')
-          .get()
-          .then((snapshot) => snapshot.docs.length);
-
-      final bannedUsersCount = await _firestore
-          .collection('banned_users')
-          .get()
-          .then((snapshot) => snapshot.docs.length);
-
-      final usersCount = await _firestore
-          .collection('users')
-          .get()
-          .then((snapshot) => snapshot.docs.length);
+      final counts = await Future.wait([
+        countOf('forum_posts'),
+        countOf('game_ratings'),
+        countOf('rating_comments'),
+        countOf('banned_users'),
+        countOf('users'),
+      ]);
+      final forumPostsCount = counts[0];
+      final gameRatingsCount = counts[1];
+      final ratingCommentsCount = counts[2];
+      final bannedUsersCount = counts[3];
+      final usersCount = counts[4];
 
       final adminCount = (await getAllAdminIds()).length;
 
@@ -365,62 +344,19 @@ class AdminService {
     }
   }
 
-  // Initialize admin system (call this once to set up the super admin)
+  // The admin list can no longer be created from the app: whoever got there
+  // first would have become super admin. It is created once from the
+  // Firebase console instead (see docs/ADMIN_SETUP.md).
   static Future<void> initializeSuperAdmin() async {
-    try {
-      // Find the super admin user by username
-      final usersQuery = await _firestore
-          .collection('users')
-          .where('username', isEqualTo: _superAdminUsername)
-          .limit(1)
-          .get();
-
-      if (usersQuery.docs.isEmpty) {
-        debugPrint('Super admin user $_superAdminUsername not found');
-        return;
-      }
-
-      final superAdminUserId = usersQuery.docs.first.id;
-
-      await _firestore
-          .collection(_adminsCollection)
-          .doc(_adminListDoc)
-          .set({
-        'adminIds': [superAdminUserId],
-        'superAdminId': superAdminUserId,
-        'superAdminUsername': _superAdminUsername,
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'updatedAt': DateTime.now().millisecondsSinceEpoch,
-      });
-
-      debugPrint('Super admin system initialized for user: $_superAdminUsername ($superAdminUserId)');
-    } catch (e) {
-      debugPrint('Error initializing super admin system: $e');
-    }
-  }
-
-  // Initialize super admin if current user is the super admin
-  Future<void> initializeSuperAdminIfNeeded() async {
-    if (await isCurrentUserSuperAdmin()) {
-      try {
-        final currentUser = FirebaseAuthService().currentUser;
-        if (currentUser != null) {
-          // Clear any existing admin data and set this user as the sole super admin
-          await _firestore
-              .collection(_adminsCollection)
-              .doc(_adminListDoc)
-              .set({
-            'adminIds': [currentUser.uid], // Only this user as admin
-            'superAdminId': currentUser.uid,
-            'superAdminUsername': _superAdminUsername,
-            'createdAt': DateTime.now().millisecondsSinceEpoch,
-            'updatedAt': DateTime.now().millisecondsSinceEpoch,
-          });
-          debugPrint('Super admin system initialized for current user: ${currentUser.username} (${currentUser.uid})');
-        }
-      } catch (e) {
-        debugPrint('Error initializing super admin: $e');
-      }
+    final adminDoc = await _firestore
+        .collection(_adminsCollection)
+        .doc(_adminListDoc)
+        .get();
+    if (!adminDoc.exists) {
+      throw Exception(
+        'Admin system is not set up yet. Create admins/list in the Firebase '
+        'console (see docs/ADMIN_SETUP.md).',
+      );
     }
   }
 }

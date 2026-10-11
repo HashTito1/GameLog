@@ -191,20 +191,15 @@ class FriendsService {
           .where('userId1', isEqualTo: userId)
           .get();
 
-      final List<Map<String, dynamic>> friends = [];
-      for (final doc in friendsQuery.docs) {
-        final data = doc.data();
-        final friendId = data['userId2'];
-        
-        // Get friend's profile data
-        final friendProfile = await _firestore
-            .collection('users')
-            .doc(friendId)
-            .get();
+      // Fetch all friend profiles in parallel rather than one at a time.
+      final profiles = await Future.wait(friendsQuery.docs.map((doc) =>
+          _firestore.collection('users').doc(doc.data()['userId2']).get()));
 
+      final List<Map<String, dynamic>> friends = [];
+      for (final friendProfile in profiles) {
         if (friendProfile.exists) {
           final friendData = friendProfile.data()!;
-          friendData['id'] = friendId;
+          friendData['id'] = friendProfile.id;
           friends.add(friendData);
         }
       }

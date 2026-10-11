@@ -66,10 +66,18 @@ class RatingService {
         ratingData['gameTitle'] = gameTitle;
       }
 
-      await _firestore
-          .collection(_ratingsCollection)
-          .doc(ratingId)
-          .set(ratingData, SetOptions(merge: true));
+      final ratingRef = _firestore.collection(_ratingsCollection).doc(ratingId);
+      final existing = await ratingRef.get();
+      if (existing.exists) {
+        // Editing a rating must keep its original date, likes and comments.
+        ratingData
+          ..remove('createdAt')
+          ..remove('likeCount')
+          ..remove('likedBy')
+          ..remove('commentCount');
+      }
+
+      await ratingRef.set(ratingData, SetOptions(merge: true));
       
       // Clear cache for this game to ensure fresh data on next load
       _clearGameCache(gameId);

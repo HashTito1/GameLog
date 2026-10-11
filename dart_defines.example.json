@@ -1,0 +1,6 @@
+{
+  "IGDB_CLIENT_ID": "your_twitch_client_id",
+  "IGDB_ACCESS_TOKEN": "your_twitch_app_access_token",
+  "RAWG_API_KEY": "your_rawg_api_key",
+  "IMGBB_API_KEY": "your_imgbb_api_key"
+}

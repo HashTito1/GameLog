@@ -1,14 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/game.dart';
 import 'cache_service.dart';
 import 'content_filter_service.dart';
 
 class RAWGService {
   static const String _baseUrl = 'https://api.rawg.io/api';
-  // RAWG API key for game data
-  static const String _apiKey = '4158ece2bc984544b698665ed3052464';
+  // RAWG API key, injected at build time (see lib/config/app_config.dart)
+  static const String _apiKey = AppConfig.rawgApiKey;
   
   // Check if API key is configured
   static bool get isConfigured => _apiKey.isNotEmpty;

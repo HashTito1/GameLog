@@ -152,26 +152,7 @@ class FollowService {
           .orderBy('followedAt', descending: true)
           .get();
 
-      final List<Map<String, dynamic>> following = [];
-      
-      for (final doc in followingSnapshot.docs) {
-        final followData = doc.data();
-        final targetUserId = followData['userId'];
-        
-        // Get user profile data
-        final userDoc = await _firestore
-            .collection('users')
-            .doc(targetUserId)
-            .get();
-        
-        if (userDoc.exists) {
-          final userData = userDoc.data()!;
-          userData['followedAt'] = followData['followedAt'];
-          following.add(userData);
-        }
-      }
-
-      return following;
+      return _withProfiles(followingSnapshot.docs);
     } catch (e) {
       debugPrint('❌ Error getting following list: $e');
       return [];
@@ -188,30 +169,30 @@ class FollowService {
           .orderBy('followedAt', descending: true)
           .get();
 
-      final List<Map<String, dynamic>> followers = [];
-      
-      for (final doc in followersSnapshot.docs) {
-        final followData = doc.data();
-        final followerUserId = followData['userId'];
-        
-        // Get user profile data
-        final userDoc = await _firestore
-            .collection('users')
-            .doc(followerUserId)
-            .get();
-        
-        if (userDoc.exists) {
-          final userData = userDoc.data()!;
-          userData['followedAt'] = followData['followedAt'];
-          followers.add(userData);
-        }
-      }
-
-      return followers;
+      return _withProfiles(followersSnapshot.docs);
     } catch (e) {
       debugPrint('❌ Error getting followers list: $e');
       return [];
     }
+  }
+
+  /// Load the profile for each follow entry in parallel, tagging it with
+  /// when the follow happened.
+  static Future<List<Map<String, dynamic>>> _withProfiles(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> followDocs,
+  ) async {
+    final userDocs = await Future.wait(followDocs.map((doc) =>
+        _firestore.collection('users').doc(doc.data()['userId']).get()));
+
+    final List<Map<String, dynamic>> users = [];
+    for (var i = 0; i < userDocs.length; i++) {
+      if (userDocs[i].exists) {
+        final userData = userDocs[i].data()!;
+        userData['followedAt'] = followDocs[i].data()['followedAt'];
+        users.add(userData);
+      }
+    }
+    return users;
   }
 
   /// Create notification when a followed user rates a game

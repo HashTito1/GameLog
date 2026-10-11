@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/firebase_auth_service.dart';
@@ -14,14 +13,10 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (e) {
-    // Firebase might already be initialized, which is fine
-    debugPrint('Firebase initialization: $e');
+  } on FirebaseException catch (e) {
+    if (e.code != 'duplicate-app') rethrow;
   }
 
-  // Initialize super admin system
-  await AdminService.initializeSuperAdmin();
-  
   runApp(const GameLogAdminApp());
 }
 
@@ -129,9 +124,6 @@ class _AdminAccessCheckerState extends State<AdminAccessChecker> {
 
   Future<void> _checkAdminAccess() async {
     try {
-      // First try to initialize super admin if needed
-      await AdminService.instance.initializeSuperAdminIfNeeded();
-      
       final isAdmin = await AdminService.instance.isCurrentUserAdmin();
       if (mounted) {
         setState(() {
