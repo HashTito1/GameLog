@@ -27,7 +27,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<Game> _trendingGames = [];
   List<Game> _popularGames = [];
-  List<Game> _actionGames = [];
+  List<Game> _indieGames = [];
   List<Game> _rpgGames = [];
   List<Game> _strategyGames = [];
   List<Game> _featuredGames = [];
@@ -184,21 +184,21 @@ class _HomeScreenState extends State<HomeScreen> {
       
       // Load genre games with staggered delays for better performance
       
-      // Shooter games first
+      // Indie games first
       try {
-        final shooterGames = await IGDBService.instance.getGamesByGenre(
-          'Shooter', 
+        final indieGames = await IGDBService.instance.getGamesByGenre(
+          'Indie', 
           limit: 12, 
           includeAdultContent: includeAdultContent
         );
         
         if (mounted) {
           setState(() {
-            _actionGames = shooterGames;
+            _indieGames = indieGames;
           });
         }
       } catch (e) {
-        debugPrint('Error loading Shooter games: $e');
+        debugPrint('Error loading Indie games: $e');
       }
 
       await Future.delayed(const Duration(milliseconds: 500));
@@ -370,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             _buildHorizontalGameSection('Best of ${DateTime.now().year - 1}', _gotyGames, 'goty', theme),
             const SizedBox(height: 16),
-            _buildHorizontalGameSection('Top shooters', _actionGames, 'shooter', theme),
+            _buildHorizontalGameSection('Top indie games', _indieGames, 'indie', theme),
             const SizedBox(height: 60),
           ],
         ),
@@ -632,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _buildCategoryGrid(theme),
           const SizedBox(height: 16),
-          _buildHorizontalGameSection('Shooters', _actionGames, 'shooter', theme),
+          _buildHorizontalGameSection('Indie', _indieGames, 'indie', theme),
           const SizedBox(height: 16),
           _buildHorizontalGameSection('Role Playing', _rpgGames, 'rpg', theme),
           const SizedBox(height: 16),
