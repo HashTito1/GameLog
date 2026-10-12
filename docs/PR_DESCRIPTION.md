@@ -53,11 +53,14 @@
 - Unambiguous dates everywhere (e.g. "Sep 2, 2026").
 
 ## Before merging
-- [ ] **Deploy rules and indexes:** `firebase deploy --only firestore`. Reports, admin logs, the collection-group review query and the new composite indexes depend on it.
-- [ ] Rotate the Twitch client secret and ImgBB key (both were in history and/or shared).
+- [x] **Rules and indexes deployed** (`firebase deploy --only firestore`, done Oct 12). Reports, admin logs, the collection-group review query and the composite indexes depend on it.
+- [x] New IGDB access token in place and verified.
+- [ ] Rotate the Twitch client secret and ImgBB key (both were in git history and/or shared).
 - [ ] Set up `android/key.properties` before publishing a release.
 
 ## Testing
 - `flutter analyze`: 0 errors
 - `flutter test`: 11 passing (models, version comparison, updater APK choice)
 - Built and run on an Android emulator (API 37); walked through Home, Discover, Search, Library, Profile, Game page, Notifications, Settings, Help & Support, Forum and Friends.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
