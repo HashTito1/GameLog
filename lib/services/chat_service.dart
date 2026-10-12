@@ -74,12 +74,16 @@ class ChatSummary {
   final DateTime updatedAt;
   final int unreadCount;
 
+  /// Messages the other person hasn't read yet (0 means they've seen yours).
+  final int otherUnreadCount;
+
   const ChatSummary({
     required this.id,
     required this.otherUserId,
     required this.lastMessagePreview,
     required this.updatedAt,
     required this.unreadCount,
+    this.otherUnreadCount = 0,
     this.lastSenderId,
   });
 }
@@ -117,13 +121,16 @@ class ChatService {
               final participants = List<String>.from(data['participants'] ?? []);
               final last = (data['lastMessage'] as Map<String, dynamic>?) ?? {};
               final updated = data['updatedAt'];
+              final unread = (data['unread'] as Map<String, dynamic>?) ?? const {};
+              final other = participants.firstWhere((p) => p != me, orElse: () => me);
               return ChatSummary(
                 id: doc.id,
-                otherUserId: participants.firstWhere((p) => p != me, orElse: () => me),
+                otherUserId: other,
                 lastMessagePreview: last['preview'] ?? '',
                 lastSenderId: last['senderId'],
                 updatedAt: updated is Timestamp ? updated.toDate() : DateTime.now(),
-                unreadCount: ((data['unread'] as Map<String, dynamic>?)?[me] ?? 0) as int,
+                unreadCount: (unread[me] as num?)?.toInt() ?? 0,
+                otherUnreadCount: (unread[other] as num?)?.toInt() ?? 0,
               );
             }).toList());
   }

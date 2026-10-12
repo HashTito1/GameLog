@@ -10,7 +10,7 @@ import '../services/rating_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/theme_service.dart';
 import 'notifications_screen.dart';
-import 'friends_screen.dart';
+import 'chats_screen.dart';
 import '../services/chat_service.dart';
 import 'game_detail_screen.dart';
 import 'category_games_screen.dart';
@@ -647,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return IconButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const FriendsScreen(initialTab: 'chats'),
+                    builder: (context) => const ChatsScreen(),
                   ),
                 ),
                 icon: Badge(
