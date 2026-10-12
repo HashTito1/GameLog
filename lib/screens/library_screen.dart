@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game.dart';
 import '../services/library_service.dart';
@@ -667,7 +667,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(6),
                               child: game['gameCoverImage']?.isNotEmpty == true
-                                  ? CachedNetworkImage(
+                                  ? AppNetworkImage(
                                       imageUrl: game['gameCoverImage'],
                                       fit: BoxFit.cover,
                                       width: double.infinity,
@@ -948,7 +948,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: gameCoverImage.isNotEmpty
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: gameCoverImage,
                       width: 50,
                       height: 70,
@@ -1686,7 +1686,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: gameCoverImage.isNotEmpty
-                      ? CachedNetworkImage(
+                      ? AppNetworkImage(
                           imageUrl: gameCoverImage,
                           width: double.infinity,
                           fit: BoxFit.cover,
@@ -1841,7 +1841,7 @@ class _CategoryGamesScreen extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: gameCoverImage.isNotEmpty
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: gameCoverImage,
                       width: 60,
                       height: 80,

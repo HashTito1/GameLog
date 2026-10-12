@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
 import '../models/user_rating.dart';
@@ -455,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: game.coverImage.isNotEmpty
-                    ? CachedNetworkImage(
+                    ? AppNetworkImage(
                         imageUrl: game.coverImage,
                         fit: BoxFit.cover,
                         width: double.infinity,
@@ -721,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
         width: width,
         height: height,
         child: (url != null && url.isNotEmpty)
-            ? CachedNetworkImage(imageUrl: url, fit: BoxFit.cover)
+            ? AppNetworkImage(imageUrl: url, fit: BoxFit.cover)
             : Container(
                 color: theme.colorScheme.primary.withValues(alpha: 0.12),
                 child: Icon(Icons.videogame_asset, size: 18, color: theme.colorScheme.primary),
@@ -1316,7 +1317,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   child: game.coverImage.isNotEmpty
-                      ? CachedNetworkImage(
+                      ? AppNetworkImage(
                           imageUrl: game.coverImage,
                           fit: BoxFit.cover,
                           width: double.infinity,

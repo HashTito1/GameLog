@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
@@ -419,7 +419,7 @@ class _CategoryGamesScreenState extends State<CategoryGamesScreen> {
                   ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                     child: game.coverImage.isNotEmpty
-                        ? CachedNetworkImage(
+                        ? AppNetworkImage(
                             imageUrl: game.coverImage,
                             width: double.infinity,
                             height: double.infinity,

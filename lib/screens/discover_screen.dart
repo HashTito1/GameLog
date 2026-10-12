@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import '../utils/date_format.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../models/game.dart';
@@ -659,7 +659,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 width: 64,
                 height: 86,
                 child: (game?.coverImage.isNotEmpty ?? false)
-                    ? CachedNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
+                    ? AppNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
                     : Container(
                         color: theme.colorScheme.primary.withValues(alpha: 0.1),
                         child: Icon(Icons.videogame_asset, color: theme.colorScheme.primary),
@@ -848,7 +848,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         radius: 16,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: review.profileImage!,
             width: 32,
             height: 32,

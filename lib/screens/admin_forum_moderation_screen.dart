@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import '../utils/date_format.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
 import '../services/admin_service.dart';
@@ -549,7 +549,7 @@ class _AdminForumModerationScreenState extends State<AdminForumModerationScreen>
         radius: 16,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: post.authorProfileImage!,
             width: 32,
             height: 32,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'app_network_image.dart';
 import '../utils/date_format.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/forum_post.dart';
 import '../screens/forum_post_detail_screen.dart';
 import '../screens/user_profile_screen.dart';
@@ -235,7 +235,7 @@ class ForumPostCard extends StatelessWidget {
         radius: 16,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: post.authorProfileImage!,
             width: 32,
             height: 32,

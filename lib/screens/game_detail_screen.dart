@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import '../utils/date_format.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -1317,7 +1318,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   // Blurred, darkened copy of the cover fills the width...
                   ImageFiltered(
                     imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                    child: CachedNetworkImage(imageUrl: _game!.coverImage, fit: BoxFit.cover),
+                    child: AppNetworkImage(imageUrl: _game!.coverImage, fit: BoxFit.cover),
                   ),
                   Container(
                     decoration: BoxDecoration(
@@ -1351,7 +1352,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: CachedNetworkImage(
+                            child: AppNetworkImage(
                               imageUrl: _game!.coverImage,
                               fit: BoxFit.contain,
                               placeholder: (context, url) => const SizedBox(
@@ -2906,7 +2907,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6), // Reduced from 8
                 child: game.coverImage.isNotEmpty
-                    ? CachedNetworkImage(
+                    ? AppNetworkImage(
                         imageUrl: game.coverImage,
                         fit: BoxFit.cover,
                         width: double.infinity,

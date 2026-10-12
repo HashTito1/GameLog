@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
 import '../services/user_data_service.dart';
 import '../services/friends_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -234,7 +234,7 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       backgroundColor: Colors.transparent,
       child: ClipOval(
         child: profileImage.isNotEmpty
-            ? CachedNetworkImage(
+            ? AppNetworkImage(
                 imageUrl: profileImage,
                 width: radius * 2,
                 height: radius * 2,

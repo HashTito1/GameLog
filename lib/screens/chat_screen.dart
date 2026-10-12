@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/game.dart';
 import '../models/user_rating.dart';
@@ -291,7 +292,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     width: 48,
                     height: 64,
                     child: (message.gameCover?.isNotEmpty ?? false)
-                        ? CachedNetworkImage(imageUrl: message.gameCover!, fit: BoxFit.cover)
+                        ? AppNetworkImage(imageUrl: message.gameCover!, fit: BoxFit.cover)
                         : Container(
                             color: Colors.black26,
                             child: Icon(Icons.videogame_asset, color: textColor.withValues(alpha: 0.7)),
@@ -551,7 +552,7 @@ class _GamePickerSheetState extends State<_GamePickerSheet> {
                       width: 36,
                       height: 48,
                       child: game.coverImage.isNotEmpty
-                          ? CachedNetworkImage(imageUrl: game.coverImage, fit: BoxFit.cover)
+                          ? AppNetworkImage(imageUrl: game.coverImage, fit: BoxFit.cover)
                           : const Icon(Icons.videogame_asset),
                     ),
                   ),
@@ -617,7 +618,7 @@ class _ReviewPickerSheetState extends State<_ReviewPickerSheet> {
                         width: 36,
                         height: 48,
                         child: (game?.coverImage.isNotEmpty ?? false)
-                            ? CachedNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
+                            ? AppNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
                             : const Icon(Icons.videogame_asset),
                       ),
                     ),

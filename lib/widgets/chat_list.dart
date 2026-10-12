@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'app_network_image.dart';
 import '../services/chat_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../screens/chat_screen.dart';
@@ -409,7 +409,7 @@ class ChatAvatar extends StatelessWidget {
     );
     if (image.isEmpty) return initials;
     return ClipOval(
-      child: CachedNetworkImage(
+      child: AppNetworkImage(
         imageUrl: image,
         width: radius * 2,
         height: radius * 2,

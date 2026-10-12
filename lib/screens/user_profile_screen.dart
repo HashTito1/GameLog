@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
@@ -479,7 +480,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: game['coverImage'] != null && game['coverImage'].toString().isNotEmpty
-                        ? CachedNetworkImage(
+                        ? AppNetworkImage(
                             imageUrl: game['coverImage'],
                             width: 50,
                             height: 66,
@@ -737,7 +738,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                     child: ClipOval(
                       child: profileImage.isNotEmpty
-                          ? CachedNetworkImage(
+                          ? AppNetworkImage(
                               imageUrl: profileImage,
                               fit: BoxFit.cover,
                               placeholder: (context, url) => Center(
@@ -1342,7 +1343,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     child: cover.isEmpty
                                         ? Icon(Icons.videogame_asset,
                                             color: theme.colorScheme.onSurface.withValues(alpha: 0.3))
-                                        : CachedNetworkImage(imageUrl: cover, fit: BoxFit.cover),
+                                        : AppNetworkImage(imageUrl: cover, fit: BoxFit.cover),
                                   ),
                                 ),
                                 Positioned(
@@ -1435,7 +1436,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
                                 child: cover.isEmpty
                                     ? null
-                                    : CachedNetworkImage(imageUrl: cover, fit: BoxFit.cover),
+                                    : AppNetworkImage(imageUrl: cover, fit: BoxFit.cover),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -1555,7 +1556,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final isPublic = playlist['isPublic'] == true;
 
     Widget tile(int i) => i < covers.length
-        ? CachedNetworkImage(imageUrl: covers[i], fit: BoxFit.cover)
+        ? AppNetworkImage(imageUrl: covers[i], fit: BoxFit.cover)
         : Container(color: theme.colorScheme.onSurface.withValues(alpha: 0.06));
 
     return GestureDetector(
@@ -1577,7 +1578,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         child: Icon(Icons.queue_music_rounded, size: 44, color: theme.colorScheme.secondary),
                       )
                     : covers.length < 4
-                        ? CachedNetworkImage(imageUrl: covers.first, fit: BoxFit.cover)
+                        ? AppNetworkImage(imageUrl: covers.first, fit: BoxFit.cover)
                         : Column(
                             children: [
                               Expanded(child: Row(children: [Expanded(child: tile(0)), const SizedBox(width: 2), Expanded(child: tile(1))])),

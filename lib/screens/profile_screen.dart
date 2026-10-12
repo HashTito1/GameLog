@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/firebase_auth_service.dart';
@@ -1249,7 +1250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           child: ClipOval(
                             child: profileImage.isNotEmpty
-                                ? CachedNetworkImage(
+                                ? AppNetworkImage(
                                     imageUrl: profileImage,
                                     fit: BoxFit.cover,
                                     placeholder: (context, url) => const Center(
@@ -1813,7 +1814,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(4),
                               child: game['gameCoverImage']?.isNotEmpty == true
-                                  ? CachedNetworkImage(
+                                  ? AppNetworkImage(
                                       imageUrl: game['gameCoverImage'],
                                       fit: BoxFit.cover,
                                       width: double.infinity,
@@ -1932,7 +1933,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: gameCoverImage.isNotEmpty
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: gameCoverImage,
                       width: 35,
                       height: 50,

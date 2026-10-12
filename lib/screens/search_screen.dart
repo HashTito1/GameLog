@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/content_filter_service.dart';
@@ -463,7 +463,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: game.coverImage.isNotEmpty
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: game.coverImage,
                       width: 60,
                       height: 60,
