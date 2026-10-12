@@ -207,6 +207,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   Color _tint(ThemeData theme, [double amount = 0.10]) =>
       Color.alphaBlend(_accent(theme).withValues(alpha: amount), theme.scaffoldBackgroundColor);
 
+  // Shades used by the rating, reviews and stats sections so they follow the
+  // cover's colour instead of the app's fixed purple/green/grey.
+  Color get _ac => _accent(Theme.of(context));
+  Color get _cardBg => Color.alphaBlend(_ac.withValues(alpha: 0.05), const Color(0xFF1F2937));
+  Color get _cardInner => Color.alphaBlend(_ac.withValues(alpha: 0.07), const Color(0xFF374151));
+
   Future<void> _loadUserRating() async {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
@@ -1251,7 +1257,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [_tint(theme, 0.14), theme.scaffoldBackgroundColor],
+            colors: [_tint(theme, 0.14), _tint(theme, 0.05)],
             stops: const [0.25, 0.7],
           ),
         ),
@@ -1613,13 +1619,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               icon: Icons.public,
               value: (_game?.averageRating ?? 0) > 0 ? _game!.averageRating.toStringAsFixed(1) : '–',
               label: 'IGDB',
-              color: const Color(0xFF6366F1),
+              color: _ac,
             ),
             _buildStatItem(
               icon: Icons.people_outline,
               value: '${_friendRatings.length}',
               label: 'Friends',
-              color: const Color(0xFF10B981),
+              color: _ac,
             ),
             _buildStatItem(
               icon: Icons.rate_review,
@@ -1727,7 +1733,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: _cardBg,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _accent(Theme.of(context)).withValues(alpha: 0.18)),
       ),
@@ -1750,7 +1756,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+                  valueColor: AlwaysStoppedAnimation<Color>(_ac),
                 ),
               ),
             ),
@@ -1761,7 +1767,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF374151),
+                  color: _cardInner,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
@@ -1778,24 +1784,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.star,
                                     size: 20,
-                                    color: Color(0xFF374151),
+                                    color: _cardInner,
                                   ),
                                   if (_userRating!.rating >= index + 1)
-                                    const Icon(
+                                    Icon(
                                       Icons.star,
                                       size: 20,
-                                      color: Color(0xFF10B981),
+                                      color: _ac,
                                     ),
                                   if (_userRating!.rating == index + 0.5)
                                     ClipRect(
                                       clipper: HalfStarClipper(),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.star,
                                         size: 20,
-                                        color: Color(0xFF10B981),
+                                        color: _ac,
                                       ),
                                     ),
                                 ],
@@ -1821,9 +1827,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                             });
                             _showEditRatingDialog();
                           },
-                          child: const Text(
+                          child: Text(
                             'Edit',
-                            style: TextStyle(color: Color(0xFF6366F1)),
+                            style: TextStyle(color: _ac),
                           ),
                         ),
                       ],
@@ -1901,26 +1907,26 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         alignment: Alignment.center,
                         children: [
                           // Background star (empty) - using filled star with gray color
-                          const Icon(
+                          Icon(
                             Icons.star,
                             size: 28, // Reduced from 32
-                            color: Color(0xFF374151),
+                            color: _cardInner,
                           ),
                           // Full star overlay - only show if rating is >= index + 1 (full star)
                           if (_selectedRating >= index + 1)
-                            const Icon(
+                            Icon(
                               Icons.star,
                               size: 28, // Reduced from 32
-                              color: Color(0xFF10B981), // Green color like in reference
+                              color: _ac, // Green color like in reference
                             ),
                           // Half star overlay - only show if rating is exactly index + 0.5
                           if (_selectedRating == index + 0.5)
                             ClipRect(
                               clipper: HalfStarClipper(),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.star,
                                 size: 28, // Reduced from 32
-                                color: Color(0xFF10B981), // Green color like in reference
+                                color: _ac, // Green color like in reference
                               ),
                             ),
                         ],
@@ -1934,17 +1940,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 controller: _reviewController,
                 maxLines: 2, // Reduced from 3
                 style: const TextStyle(color: Colors.white, fontSize: 13), // Smaller text
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Write a review (optional)',
-                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
+                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+                  border: const OutlineInputBorder(),
+                  enabledBorder: const OutlineInputBorder(
                     borderSide: BorderSide(color: Colors.grey),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    borderSide: BorderSide(color: _ac),
                   ),
-                  contentPadding: EdgeInsets.all(10), // Reduced padding
+                  contentPadding: const EdgeInsets.all(10), // Reduced padding
                 ),
               ),
               const SizedBox(height: 12), // Reduced from 16
@@ -1953,7 +1959,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 child: ElevatedButton(
                   onPressed: _isSubmittingRating ? null : _submitRating,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6366F1),
+                    backgroundColor: _accentDeep(Theme.of(context)),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 10), // Reduced padding
                   ),
@@ -1995,7 +2001,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
+        backgroundColor: _cardBg,
         title: const Text(
           'Edit Rating',
           style: TextStyle(color: Colors.white, fontSize: 16),
@@ -2038,24 +2044,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.star,
                             size: 24,
-                            color: Color(0xFF374151),
+                            color: _cardInner,
                           ),
                           if (_selectedRating >= index + 1)
-                            const Icon(
+                            Icon(
                               Icons.star,
                               size: 24,
-                              color: Color(0xFF10B981),
+                              color: _ac,
                             ),
                           if (_selectedRating == index + 0.5)
                             ClipRect(
                               clipper: HalfStarClipper(),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.star,
                                 size: 24,
-                                color: Color(0xFF10B981),
+                                color: _ac,
                               ),
                             ),
                         ],
@@ -2069,15 +2075,15 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 controller: _reviewController,
                 maxLines: 3,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Write a review (optional)',
-                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
+                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+                  border: const OutlineInputBorder(),
+                  enabledBorder: const OutlineInputBorder(
                     borderSide: BorderSide(color: Colors.grey),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
+                    borderSide: BorderSide(color: _ac),
                   ),
                 ),
               ),
@@ -2100,7 +2106,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
+              backgroundColor: _ac,
               foregroundColor: Colors.white,
             ),
             child: const Text('Update'),
@@ -2114,18 +2120,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(12), // Reduced from 16
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: _cardBg,
         borderRadius: BorderRadius.circular(10), // Reduced from 12
-        border: Border.all(color: const Color(0xFF374151)),
+        border: Border.all(color: _cardInner),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.people,
-                color: Color(0xFF6366F1),
+                color: _ac,
                 size: 18, // Reduced from 20
               ),
               const SizedBox(width: 6), // Reduced from 8
@@ -2143,8 +2149,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   onTap: _showAllRatings,
                   child: Text(
                     'View All ($_totalRatings)',
-                    style: const TextStyle(
-                      color: Color(0xFF6366F1),
+                    style: TextStyle(
+                      color: _ac,
                       fontSize: 12, // Reduced from 14
                       fontWeight: FontWeight.w500,
                     ),
@@ -2225,34 +2231,34 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF10B981).withValues(alpha: 0.1),
+              color: _ac.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+              border: Border.all(color: _ac.withValues(alpha: 0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.group,
-                      color: Color(0xFF10B981),
+                      color: _ac,
                       size: 18,
                     ),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       'Friend Reviews',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF10B981),
+                        color: _ac,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF10B981),
+                        color: _ac,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -2275,8 +2281,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       onPressed: _showAllRatings,
                       child: Text(
                         'View All ${_friendRatings.length} Friend Reviews',
-                        style: const TextStyle(
-                          color: Color(0xFF10B981),
+                        style: TextStyle(
+                          color: _ac,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -2294,34 +2300,34 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+            color: _ac.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+            border: Border.all(color: _ac.withValues(alpha: 0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.public,
-                    color: Color(0xFF6366F1),
+                    color: _ac,
                     size: 18,
                   ),
                   const SizedBox(width: 8),
-                  const Text(
+                  Text(
                     'Community Reviews',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF6366F1),
+                      color: _ac,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1),
+                      color: _ac,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -2345,8 +2351,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       onPressed: _showAllRatings,
                       child: Text(
                         'View All ${_gameRatings.length} Community Reviews',
-                        style: const TextStyle(
-                          color: Color(0xFF6366F1),
+                        style: TextStyle(
+                          color: _ac,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -2358,7 +2364,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF374151),
+                    color: _cardInner,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Center(
@@ -2391,9 +2397,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF10B981).withValues(alpha: 0.05),
+        color: _ac.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.2)),
+        border: Border.all(color: _ac.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2404,7 +2410,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF10B981),
+                  color: _ac,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
@@ -2419,7 +2425,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               const SizedBox(width: 8),
               CircleAvatar(
                 radius: 12,
-                backgroundColor: const Color(0xFF374151),
+                backgroundColor: _cardInner,
                 backgroundImage: rating.profileImage != null && rating.profileImage!.isNotEmpty
                     ? CachedNetworkImageProvider(rating.profileImage!)
                     : null,
@@ -2449,24 +2455,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 children: List.generate(5, (index) {
                   return Stack(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.star,
                         size: 10,
-                        color: Color(0xFF374151),
+                        color: _cardInner,
                       ),
                       if (rating.rating >= index + 1)
-                        const Icon(
+                        Icon(
                           Icons.star,
                           size: 10,
-                          color: Color(0xFF10B981),
+                          color: _ac,
                         ),
                       if (rating.rating == index + 0.5)
                         ClipRect(
                           clipper: HalfStarClipper(),
-                          child: const Icon(
+                          child: Icon(
                             Icons.star,
                             size: 10,
-                            color: Color(0xFF10B981),
+                            color: _ac,
                           ),
                         ),
                     ],
@@ -2549,9 +2555,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF6366F1).withValues(alpha: 0.05),
+        color: _ac.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
+        border: Border.all(color: _ac.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2562,7 +2568,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1),
+                  color: _ac,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
@@ -2577,7 +2583,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               const SizedBox(width: 8),
               CircleAvatar(
                 radius: 12,
-                backgroundColor: const Color(0xFF374151),
+                backgroundColor: _cardInner,
                 backgroundImage: rating.profileImage != null && rating.profileImage!.isNotEmpty
                     ? CachedNetworkImageProvider(rating.profileImage!)
                     : null,
@@ -2607,24 +2613,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 children: List.generate(5, (index) {
                   return Stack(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.star,
                         size: 10,
-                        color: Color(0xFF374151),
+                        color: _cardInner,
                       ),
                       if (rating.rating >= index + 1)
-                        const Icon(
+                        Icon(
                           Icons.star,
                           size: 10,
-                          color: Color(0xFF6366F1),
+                          color: _ac,
                         ),
                       if (rating.rating == index + 0.5)
                         ClipRect(
                           clipper: HalfStarClipper(),
-                          child: const Icon(
+                          child: Icon(
                             Icons.star,
                             size: 10,
-                            color: Color(0xFF6366F1),
+                            color: _ac,
                           ),
                         ),
                     ],
@@ -2805,12 +2811,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         const Text(
           'Similar Games',
           style: TextStyle(
-            fontSize: 18, // Reduced from 20
+            fontSize: 20,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 12), // Reduced from 16
+        const SizedBox(height: 14),
         if (_isLoadingSimilarGames)
           const Center(child: CircularProgressIndicator())
         else if (_similarGames.isEmpty)
@@ -2822,7 +2828,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           )
         else
           SizedBox(
-            height: 160, // Reduced from 200
+            height: _similarCoverHeight + 8 + MediaQuery.textScalerOf(context).scale(12) * 1.3 * 2 + 2,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _similarGames.length,
@@ -2835,6 +2841,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       ],
     );
   }
+
+  // Same fixed 3:4 cover for every tile; titles get a two-line slot.
+  static const double _similarWidth = 110;
+  static const double _similarCoverHeight = _similarWidth * 4 / 3;
 
   Widget _buildSimilarGameCard(Game game) {
     return GestureDetector(
@@ -2849,14 +2859,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         );
       },
       child: Container(
-        width: 100, // Reduced from 120
-        margin: const EdgeInsets.only(right: 10), // Reduced from 12
+        width: _similarWidth,
+        margin: const EdgeInsets.only(right: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            SizedBox(
+              width: _similarWidth,
+              height: _similarCoverHeight,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(6), // Reduced from 8
+                borderRadius: BorderRadius.circular(12),
                 child: game.coverImage.isNotEmpty
                     ? AppNetworkImage(
                         imageUrl: game.coverImage,
@@ -2877,11 +2889,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                       ),
               ),
             ),
-            const SizedBox(height: 6), // Reduced from 8
+            const SizedBox(height: 8),
             Text(
               game.title,
               style: const TextStyle(
-                fontSize: 11, // Reduced from 12
+                fontSize: 12,
+                height: 1.3,
                 fontWeight: FontWeight.w500,
                 color: Colors.white,
               ),
