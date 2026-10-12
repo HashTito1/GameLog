@@ -1,833 +1,284 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../widgets/update_dialog.dart';
 
+/// The newest published GitHub release, compared against the running app.
 class UpdateInfo {
   final String version;
-  final String buildNumber;
   final String downloadUrl;
+  final int downloadSize;
   final String releaseNotes;
   final DateTime releaseDate;
+  final String releasePageUrl;
   final bool isUpdateAvailable;
 
-  UpdateInfo({
+  const UpdateInfo({
     required this.version,
-    required this.buildNumber,
     required this.downloadUrl,
     required this.releaseNotes,
     required this.releaseDate,
-    required this.isUpdateAvailable,
+    this.downloadSize = 0,
+    this.releasePageUrl = UpdateService.releasesPageUrl,
+    this.isUpdateAvailable = false,
   });
 
-  factory UpdateInfo.fromJson(Map<String, dynamic> json) {
+  factory UpdateInfo.fromJson(Map<String, dynamic> json, {bool isUpdateAvailable = false}) {
+    final assets = json['assets'] as List<dynamic>? ?? const [];
+    final apk = _userApk(assets);
     return UpdateInfo(
-      version: json['tag_name'] ?? '1.0.0',
-      buildNumber: json['name'] ?? '1',
-      downloadUrl: userApkUrl(json['assets'] as List<dynamic>? ?? const []),
-      releaseNotes: json['body'] ?? 'No release notes available.',
+      version: (json['tag_name'] ?? '').toString().replaceFirst(RegExp('^[vV]'), ''),
+      downloadUrl: apk?['browser_download_url'] ?? '',
+      downloadSize: (apk?['size'] as num?)?.toInt() ?? 0,
+      releaseNotes: (json['body'] ?? '').toString().trim(),
       releaseDate: DateTime.tryParse(json['published_at'] ?? '') ?? DateTime.now(),
-      isUpdateAvailable: false, // Will be set by comparison logic
+      releasePageUrl: json['html_url'] ?? UpdateService.releasesPageUrl,
+      isUpdateAvailable: isUpdateAvailable,
     );
   }
 
   /// Releases can carry both the user and admin APKs; never hand the admin
   /// build to regular users.
   @visibleForTesting
-  static String userApkUrl(List<dynamic> assets) {
+  static String userApkUrl(List<dynamic> assets) =>
+      _userApk(assets)?['browser_download_url'] ?? '';
+
+  static Map<String, dynamic>? _userApk(List<dynamic> assets) {
     for (final asset in assets) {
       final name = (asset['name'] ?? '').toString().toLowerCase();
       if (name.endsWith('.apk') && !name.contains('admin')) {
-        return asset['browser_download_url'] ?? '';
+        return Map<String, dynamic>.from(asset as Map);
       }
     }
-    return '';
+    return null;
   }
 }
 
-class UpdateService {
-  // GitHub repository configuration
-  static const String _githubApiUrl = 'https://api.github.com/repos';
-  static const String _repoOwner = 'HashTito1'; // GitHub username
-  static const String _repoName = 'GameLog'; // Repository name
-  
-  // Update check preferences
-  static const String _lastUpdateCheckKey = 'last_update_check';
-  static const String _skipVersionKey = 'skip_version';
-  static const Duration _updateCheckInterval = Duration(hours: 6); // Check every 6 hours
-  
-  // Check if repository is configured
-  static bool get _isRepositoryConfigured => 
-      _repoOwner != 'YOUR_GITHUB_USERNAME' && 
-      _repoName != 'YOUR_REPO_NAME' && 
-      _repoOwner.isNotEmpty && 
-      _repoName.isNotEmpty;
-  
-  // Singleton pattern
-  static final UpdateService _instance = UpdateService._internal();
-  factory UpdateService() => _instance;
-  UpdateService._internal();
-  static UpdateService get instance => _instance;
+/// Checks GitHub releases for a newer build and offers to download it.
+///
+/// Once [startAutoChecks] is called the app checks quietly on launch, when it
+/// comes back to the foreground, and periodically while open (throttled to
+/// [_autoCheckInterval]); a dialog only appears when there is something new.
+class UpdateService with WidgetsBindingObserver {
+  static const String _repo = 'HashTito1/GameLog';
+  static const String releasesPageUrl = 'https://github.com/$_repo/releases';
+  static const String _latestReleaseApi = 'https://api.github.com/repos/$_repo/releases/latest';
 
-  /// Automatically check for updates and show dialog if needed
-  Future<void> checkForUpdatesAndShowDialog(BuildContext context, {bool forceCheck = false}) async {
+  static const String _lastCheckKey = 'last_update_check';
+  static const String _skipVersionKey = 'skip_version';
+  static const Duration _autoCheckInterval = Duration(hours: 3);
+  static const MethodChannel _installChannel = MethodChannel('com.example.gamelog/update');
+
+  static final UpdateService instance = UpdateService._();
+  factory UpdateService() => instance;
+  UpdateService._();
+
+  BuildContext Function()? _contextProvider;
+  Timer? _timer;
+  bool _checking = false;
+  bool _dialogShowing = false;
+
+  /// Start background checks. [contextProvider] must return a mounted context
+  /// under the app's Navigator (or null-check before use).
+  void startAutoChecks(BuildContext Function() contextProvider) {
+    _contextProvider = contextProvider;
+    WidgetsBinding.instance.removeObserver(this);
+    WidgetsBinding.instance.addObserver(this);
+    _timer?.cancel();
+    _timer = Timer.periodic(_autoCheckInterval, (_) => _autoCheck());
+    // Let the first frame and sign-in settle before hitting the network.
+    Future.delayed(const Duration(seconds: 3), _autoCheck);
+  }
+
+  void stopAutoChecks() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    _timer = null;
+    _contextProvider = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _autoCheck();
+  }
+
+  Future<void> _autoCheck() async {
+    if (_checking || _dialogShowing || _contextProvider == null) return;
+    _checking = true;
     try {
-      // Check if we should skip this check
-      if (!forceCheck && !await _shouldCheckForUpdates()) {
+      final prefs = await SharedPreferences.getInstance();
+      final last = prefs.getInt(_lastCheckKey);
+      if (last != null &&
+          DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < _autoCheckInterval) {
         return;
       }
 
-      // Check for updates
-      final updateInfo = await checkForUpdates();
-      
-      if (updateInfo != null && updateInfo.isUpdateAvailable) {
-        // Check if user has skipped this version
-        final prefs = await SharedPreferences.getInstance();
-        final skippedVersion = prefs.getString(_skipVersionKey);
-        
-        if (!forceCheck && skippedVersion == updateInfo.version) {
-          debugPrint('⏭️ User has skipped version ${updateInfo.version}');
-          return;
-        }
+      final info = await checkForUpdates();
+      if (info == null) return; // offline or GitHub unavailable: retry next time
+      await prefs.setInt(_lastCheckKey, DateTime.now().millisecondsSinceEpoch);
 
-        // Show update dialog
-        if (context.mounted) {
-          await showUpdateDialogIfAvailable(context, updateInfo);
-        }
+      if (!info.isUpdateAvailable || prefs.getString(_skipVersionKey) == info.version) return;
+
+      final context = _contextProvider?.call();
+      if (context != null && context.mounted) {
+        await showUpdateDialog(context, info);
       }
-
-      // Update last check time
-      await _updateLastCheckTime();
     } catch (e) {
-      debugPrint('❌ Error in automatic update check: $e');
+      debugPrint('Update check failed: $e');
+    } finally {
+      _checking = false;
     }
   }
 
-  /// Check if we should perform an update check based on time interval
-  Future<bool> _shouldCheckForUpdates() async {
+  /// Show the "update available" dialog (also used by Settings > About).
+  Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
+    if (_dialogShowing) return;
+    _dialogShowing = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final lastCheckTime = prefs.getInt(_lastUpdateCheckKey);
-      
-      if (lastCheckTime == null) {
-        return true; // First time check
-      }
-      
-      final lastCheck = DateTime.fromMillisecondsSinceEpoch(lastCheckTime);
-      final now = DateTime.now();
-      
-      return now.difference(lastCheck) >= _updateCheckInterval;
-    } catch (e) {
-      debugPrint('Error checking update interval: $e');
-      return true; // Default to checking
+      final current = (await getCurrentVersionInfo())['version'] ?? '';
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => UpdateAvailableDialog(info: info, currentVersion: current),
+      );
+    } finally {
+      _dialogShowing = false;
     }
   }
 
-  /// Update the last check time
-  Future<void> _updateLastCheckTime() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_lastUpdateCheckKey, DateTime.now().millisecondsSinceEpoch);
-    } catch (e) {
-      debugPrint('Error updating last check time: $e');
-    }
-  }
-
-  /// Show the update dialog
-  Future<void> showUpdateDialogIfAvailable(BuildContext context, UpdateInfo updateInfo) async {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        final theme = Theme.of(context);
-        
-        return AlertDialog(
-          backgroundColor: theme.colorScheme.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: theme.colorScheme.primary,
-                ),
-                child: const Icon(Icons.system_update, color: Colors.white, size: 24),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(child: Text('Update Available!')),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  color: theme.colorScheme.primary,
-                ),
-                child: Text(
-                  'Version ${updateInfo.version}',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text('Build: ${updateInfo.buildNumber}'),
-              Text('Released: ${_formatDate(updateInfo.releaseDate)}'),
-              if (updateInfo.releaseNotes.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text('What\'s New:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: theme.colorScheme.surface,
-                    border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-                  ),
-                  child: Text(
-                    _formatReleaseNotes(updateInfo.releaseNotes),
-                    maxLines: 6,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await skipVersion(updateInfo.version);
-                if (context.mounted) Navigator.of(context).pop();
-              },
-              child: const Text('Skip This Version'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Later'),
-            ),
-            ElevatedButton.icon(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                
-                if (updateInfo.downloadUrl.isNotEmpty) {
-                  // Show instant download dialog with progress
-                  await _showDownloadDialog(context, updateInfo);
-                } else {
-                  await openReleasesPage();
-                }
-              },
-              icon: const Icon(Icons.download, size: 18),
-              label: Text(updateInfo.downloadUrl.isEmpty ? 'View on GitHub' : 'Download Now'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Show download dialog with real-time progress (public method)
-  Future<void> showDownloadDialog(BuildContext context, UpdateInfo updateInfo) async {
-    return _showDownloadDialog(context, updateInfo);
-  }
-
-  /// Show download dialog with real-time progress
-  Future<void> _showDownloadDialog(BuildContext context, UpdateInfo updateInfo) async {
-    double progress = 0.0;
-    String status = 'Preparing download...';
-    bool isCompleted = false;
-    bool hasError = false;
-    bool downloadStarted = false; // Flag to prevent multiple download starts
-    
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            // Start download immediately when dialog opens (only once)
-            if (!downloadStarted) {
-              downloadStarted = true; // Set flag immediately to prevent re-entry
-              Future.microtask(() async {
-                final success = await downloadAndInstallUpdate(
-                  updateInfo.downloadUrl,
-                  onProgress: (p) {
-                    if (dialogContext.mounted) {
-                      setState(() {
-                        progress = p;
-                      });
-                    }
-                  },
-                  onStatusChange: (s) {
-                    if (dialogContext.mounted) {
-                      setState(() {
-                        status = s;
-                        if (s.contains('Installation started')) {
-                          isCompleted = true;
-                        } else if (s.contains('Error') || s.contains('failed')) {
-                          hasError = true;
-                        }
-                      });
-                    }
-                  },
-                );
-                
-                if (dialogContext.mounted) {
-                  setState(() {
-                    if (success) {
-                      isCompleted = true;
-                      status = 'Installation started! Please install the APK.';
-                    } else {
-                      hasError = true;
-                      status = 'Download failed. Please try again or download manually.';
-                    }
-                  });
-                  
-                  // Auto-close dialog after 3 seconds if completed or failed
-                  Future.delayed(const Duration(seconds: 3), () {
-                    if (dialogContext.mounted) {
-                      Navigator.of(dialogContext).pop();
-                    }
-                  });
-                }
-              });
-            }
-            
-            final theme = Theme.of(context);
-            
-            return AlertDialog(
-              backgroundColor: theme.colorScheme.surface,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: hasError 
-                          ? Colors.red 
-                          : isCompleted 
-                              ? Colors.green 
-                              : theme.colorScheme.primary,
-                    ),
-                    child: Icon(
-                      hasError 
-                          ? Icons.error 
-                          : isCompleted 
-                              ? Icons.check_circle 
-                              : Icons.download,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      hasError 
-                          ? 'Download Failed' 
-                          : isCompleted 
-                              ? 'Download Complete!' 
-                              : 'Downloading Update',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Progress indicator
-                  if (!isCompleted && !hasError) ...[
-                    LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.3),
-                      valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${(progress * 100).toInt()}%',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ] else if (isCompleted) ...[
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle, color: Colors.green, size: 24),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Download completed successfully!',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ] else if (hasError) ...[
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error, color: Colors.red, size: 24),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Download failed',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  
-                  // Status text
-                  Text(
-                    status,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Action buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (hasError) ...[
-                        TextButton(
-                          onPressed: () {
-                            Navigator.of(dialogContext).pop();
-                            openReleasesPage();
-                          },
-                          child: const Text('Open GitHub'),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        child: Text(isCompleted ? 'Done' : 'Cancel'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-
-  String _formatReleaseNotes(String notes) {
-    return notes
-        .replaceAll(RegExp(r'#{1,6}\s*'), '')
-        .replaceAll(RegExp(r'\*\*(.*?)\*\*'), r'$1')
-        .replaceAll(RegExp(r'\*(.*?)\*'), r'$1')
-        .replaceAll(RegExp(r'`(.*?)`'), r'$1')
-        .replaceAll(RegExp(r'\n\s*\n'), '\n')
-        .trim();
-  }
-
-  /// Skip a specific version
-  Future<void> skipVersion(String version) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_skipVersionKey, version);
-      debugPrint('⏭️ Skipped version: $version');
-    } catch (e) {
-      debugPrint('Error skipping version: $e');
-    }
-  }
-
-  /// Clear skipped version (for testing or manual checks)
-  Future<void> clearSkippedVersion() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_skipVersionKey);
-      debugPrint('🗑️ Cleared skipped version');
-    } catch (e) {
-      debugPrint('Error clearing skipped version: $e');
-    }
-  }
+  /// Fetch the latest published release. Returns null if it can't be reached.
   Future<UpdateInfo?> checkForUpdates() async {
     try {
-      debugPrint('🔍 Checking for updates from GitHub test branch...');
-      
-      // Check if repository is configured
-      if (!_isRepositoryConfigured) {
-        debugPrint('⚠️ Repository not configured - using demo response');
-        return _createDemoUpdateInfo();
-      }
-      
-      // Get current app version
-      final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
-      final currentBuildNumber = packageInfo.buildNumber;
-      
-      debugPrint('📱 Current version: $currentVersion ($currentBuildNumber)');
-      
-      // Check for latest release on test branch
-      final url = '$_githubApiUrl/$_repoOwner/$_repoName/releases';
       final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
+        Uri.parse(_latestReleaseApi),
+        headers: const {
+          'Accept': 'application/vnd.github+json',
           'User-Agent': 'GameLog-App',
         },
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final List<dynamic> releases = json.decode(response.body);
-        
-        if (releases.isEmpty) {
-          debugPrint('❌ No releases found');
-          return null;
-        }
-
-        // GitHub lists newest first; only offer stable, published releases.
-        Map<String, dynamic>? latestRelease;
-        for (final release in releases) {
-          if (release['prerelease'] != true && release['draft'] != true) {
-            latestRelease = release;
-            break;
-          }
-        }
-
-        if (latestRelease == null) {
-          debugPrint('❌ No suitable releases found');
-          return null;
-        }
-        
-        final updateInfo = UpdateInfo.fromJson(latestRelease);
-        
-        // Compare versions to determine if update is available
-        final isUpdateAvailable = isNewerVersion(
-          updateInfo.version, 
-          updateInfo.buildNumber, 
-          currentVersion, 
-          currentBuildNumber,
-        );
-        
-        debugPrint('🆕 Latest version: ${updateInfo.version} (${updateInfo.buildNumber})');
-        debugPrint('✅ Update available: $isUpdateAvailable');
-        
-        return UpdateInfo(
-          version: updateInfo.version,
-          buildNumber: updateInfo.buildNumber,
-          downloadUrl: updateInfo.downloadUrl,
-          releaseNotes: updateInfo.releaseNotes,
-          releaseDate: updateInfo.releaseDate,
-          isUpdateAvailable: isUpdateAvailable,
-        );
-      } else {
-        debugPrint('❌ Failed to check for updates: ${response.statusCode}');
+      if (response.statusCode == 404) {
+        // No published (non-prerelease) release yet.
+        return UpdateInfo(version: '', downloadUrl: '', releaseNotes: '', releaseDate: DateTime.now());
+      }
+      if (response.statusCode != 200) {
+        debugPrint('Update check: GitHub returned ${response.statusCode}');
         return null;
       }
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final packageInfo = await PackageInfo.fromPlatform();
+      final latest = UpdateInfo.fromJson(json);
+      return UpdateInfo.fromJson(
+        json,
+        isUpdateAvailable: latest.version.isNotEmpty &&
+            isNewerVersion(latest.version, '0', packageInfo.version, '0'),
+      );
     } catch (e) {
-      debugPrint('❌ Error checking for updates: $e');
+      debugPrint('Update check failed: $e');
       return null;
     }
   }
 
-  /// Create a demo update info for when repository is not configured
-  UpdateInfo _createDemoUpdateInfo() {
-    // Demo response when repository is not configured - simulate update available
-    return UpdateInfo(
-      version: '1.2.0',
-      buildNumber: '6',
-      downloadUrl: '', // Empty URL will trigger GitHub fallback
-      releaseNotes: '''🚀 GameLog v1.2.0 - Major Update!
-
-✨ New Features:
-- In-app update system with automatic checking
-- Enhanced UI with better animations
-- Improved performance and bug fixes
-- New social features and recommendations
-
-🔧 Performance Improvements:
-- Faster loading times
-- Better memory management
-- Optimized image caching
-
-🐛 Bug Fixes:
-- Fixed various UI issues
-- Improved stability
-- Better error handling
-
-📥 Download Instructions:
-Since this is a demo mode, please visit our GitHub repository to download the latest release manually.''',
-      releaseDate: DateTime.now().subtract(const Duration(days: 1)),
-      isUpdateAvailable: true, // Force show update for demo
-    );
+  Future<void> skipVersion(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_skipVersionKey, version);
   }
 
-  /// Compare version strings to determine if an update is available
+  /// True when [remoteVersion] is newer than [currentVersion]. Versions are
+  /// dotted numbers ("1.2.3", "v1.2.2.1"); build numbers break ties.
+  /// Anything unparseable is treated as not newer.
   @visibleForTesting
   static bool isNewerVersion(String remoteVersion, String remoteBuild, String currentVersion, String currentBuild) {
-    try {
-      // Remove 'v' prefix if present
-      final cleanRemoteVersion = remoteVersion.replaceFirst('v', '');
-      final cleanCurrentVersion = currentVersion.replaceFirst('v', '');
-      
-      // Parse version numbers (e.g., "1.2.3" -> [1, 2, 3])
-      final remoteParts = cleanRemoteVersion.split('.').map(int.parse).toList();
-      final currentParts = cleanCurrentVersion.split('.').map(int.parse).toList();
-      
-      // Ensure both have same number of parts
-      while (remoteParts.length < 3) remoteParts.add(0);
-      while (currentParts.length < 3) currentParts.add(0);
-      
-      // Compare major.minor.patch
-      for (int i = 0; i < 3; i++) {
-        if (remoteParts[i] > currentParts[i]) return true;
-        if (remoteParts[i] < currentParts[i]) return false;
-      }
-      
-      // If versions are equal, compare build numbers
-      final remoteBuildNum = int.tryParse(remoteBuild) ?? 0;
-      final currentBuildNum = int.tryParse(currentBuild) ?? 0;
-      
-      return remoteBuildNum > currentBuildNum;
-    } catch (e) {
-      debugPrint('Error comparing versions: $e');
-      return false;
+    final remote = _parseVersion(remoteVersion);
+    final current = _parseVersion(currentVersion);
+    if (remote == null || current == null) return false;
+
+    final length = remote.length > current.length ? remote.length : current.length;
+    for (var i = 0; i < length; i++) {
+      final r = i < remote.length ? remote[i] : 0;
+      final c = i < current.length ? current[i] : 0;
+      if (r != c) return r > c;
     }
+    return (int.tryParse(remoteBuild) ?? 0) > (int.tryParse(currentBuild) ?? 0);
   }
 
-  /// Download and install update with progress callback (Android only)
-  Future<bool> downloadAndInstallUpdate(String downloadUrl, {
-    Function(double progress)? onProgress,
-    Function(String status)? onStatusChange,
+  static List<int>? _parseVersion(String version) {
+    final clean = version.trim().replaceFirst(RegExp('^[vV]'), '').split(RegExp('[+-]')).first;
+    final parts = clean.split('.').map(int.tryParse).toList();
+    if (parts.isEmpty || parts.contains(null)) return null;
+    return parts.cast<int>();
+  }
+
+  /// Download the APK to the app cache, reporting progress (0..1, or null when
+  /// the size is unknown). Returns the downloaded file.
+  Future<File> downloadUpdate(
+    UpdateInfo info, {
+    required void Function(double? progress, int receivedBytes) onProgress,
+    bool Function()? isCancelled,
   }) async {
+    final dir = Directory('${(await getTemporaryDirectory()).path}/updates');
+    if (await dir.exists()) await dir.delete(recursive: true);
+    await dir.create(recursive: true);
+    final file = File('${dir.path}/gamelog-${info.version}.apk');
+
+    final client = http.Client();
     try {
-      onStatusChange?.call('Preparing download...');
-      
-      if (downloadUrl.isEmpty) {
-        debugPrint('❌ No download URL provided - opening GitHub instead');
-        onStatusChange?.call('No download URL - opening GitHub');
-        await openReleasesPage();
-        return false;
-      }
-
-      if (!Platform.isAndroid) {
-        debugPrint('❌ Auto-update only supported on Android');
-        onStatusChange?.call('Auto-update only supported on Android');
-        await openReleasesPage();
-        return false;
-      }
-
-      debugPrint('📥 Starting download from: $downloadUrl');
-      onStatusChange?.call('Checking download URL...');
-      
-      // Verify URL is accessible first
-      final headResponse = await http.head(Uri.parse(downloadUrl)).timeout(
-        const Duration(seconds: 10),
-      );
-      
-      if (headResponse.statusCode != 200) {
-        debugPrint('❌ Download URL not accessible: ${headResponse.statusCode}');
-        onStatusChange?.call('Download URL not accessible');
-        await openReleasesPage();
-        return false;
-      }
-      
-      onStatusChange?.call('Requesting permissions...');
-      
-      // Request storage permission
-      final permission = await Permission.storage.request();
-      if (!permission.isGranted) {
-        debugPrint('❌ Storage permission denied');
-        onStatusChange?.call('Storage permission denied');
-        return false;
-      }
-
-      // Get download directory
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) {
-        debugPrint('❌ Could not access storage directory');
-        onStatusChange?.call('Could not access storage');
-        return false;
-      }
-
-      final filePath = '${directory.path}/gamelog_update.apk';
-      final file = File(filePath);
-
-      onStatusChange?.call('Starting download...');
-      onProgress?.call(0.0);
-
-      // Create HTTP client for streaming download
-      final client = http.Client();
-      final request = http.Request('GET', Uri.parse(downloadUrl));
-      final response = await client.send(request);
-      
+      final response = await client.send(http.Request('GET', Uri.parse(info.downloadUrl)));
       if (response.statusCode != 200) {
-        debugPrint('❌ Download failed: ${response.statusCode}');
-        onStatusChange?.call('Download failed: ${response.statusCode}');
-        await openReleasesPage();
-        return false;
+        throw HttpException('Download failed (HTTP ${response.statusCode})');
       }
-
-      // Get total file size
-      final totalBytes = response.contentLength ?? 0;
-      int downloadedBytes = 0;
-      
-      // Create file sink
+      final total = response.contentLength ?? info.downloadSize;
+      var received = 0;
       final sink = file.openWrite();
-      
       try {
-        // Stream download with progress updates
         await for (final chunk in response.stream) {
+          if (isCancelled?.call() ?? false) throw const _DownloadCancelled();
           sink.add(chunk);
-          downloadedBytes += chunk.length;
-          
-          if (totalBytes > 0) {
-            final progress = downloadedBytes / totalBytes;
-            onProgress?.call(progress);
-            
-            final progressPercent = (progress * 100).toInt();
-            final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
-            final totalMB = (totalBytes / 1024 / 1024).toStringAsFixed(1);
-            
-            onStatusChange?.call('Downloading... $progressPercent% ($downloadedMB MB / $totalMB MB)');
-          } else {
-            final downloadedMB = (downloadedBytes / 1024 / 1024).toStringAsFixed(1);
-            onStatusChange?.call('Downloading... $downloadedMB MB');
-          }
+          received += chunk.length;
+          onProgress(total > 0 ? received / total : null, received);
         }
-        
-        await sink.flush();
-        await sink.close();
-        
-        debugPrint('✅ Download completed: $filePath');
-        onStatusChange?.call('Download completed! Installing...');
-        onProgress?.call(1.0);
-
-        // Install the APK
-        await _installApk(filePath);
-        onStatusChange?.call('Installation started');
-        return true;
-        
-      } catch (e) {
-        await sink.close();
-        debugPrint('❌ Download error: $e');
-        onStatusChange?.call('Download error: $e');
-        return false;
       } finally {
-        client.close();
+        await sink.close();
       }
-      
+      return file;
     } catch (e) {
-      debugPrint('❌ Error downloading update: $e');
-      onStatusChange?.call('Error: $e');
-      // Fallback to GitHub
-      await openReleasesPage();
-      return false;
+      if (await file.exists()) await file.delete();
+      rethrow;
+    } finally {
+      client.close();
     }
   }
 
-  /// Install APK file (Android only)
-  Future<void> _installApk(String filePath) async {
+  /// Hand the APK to Android's package installer. Returns false if the user
+  /// didn't allow GameLog to install apps.
+  Future<bool> installApk(File apk) async {
+    if (!Platform.isAndroid) return false;
+    final status = await Permission.requestInstallPackages.request();
+    if (!status.isGranted) return false;
+    await _installChannel.invokeMethod('installApk', {'filePath': apk.path});
+    return true;
+  }
+
+  /// Open a URL (the APK or the releases page) in the browser.
+  Future<void> openInBrowser([String url = releasesPageUrl]) async {
     try {
-      // Request install permission for Android 8.0+
-      if (Platform.isAndroid) {
-        final permission = await Permission.requestInstallPackages.request();
-        if (!permission.isGranted) {
-          debugPrint('❌ Install permission denied');
-          return;
-        }
-      }
-
-      // Use platform channel to install APK
-      const platform = MethodChannel('com.example.gamelog/update');
-      await platform.invokeMethod('installApk', {'filePath': filePath});
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (e) {
-      debugPrint('❌ Error installing APK: $e');
-      // Fallback: open file manager to let user install manually
-      await _openFileManager(filePath);
+      debugPrint('Could not open $url: $e');
     }
   }
 
-  /// Open file manager to let user install APK manually
-  Future<void> _openFileManager(String filePath) async {
-    try {
-      final uri = Uri.file(filePath);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      }
-    } catch (e) {
-      debugPrint('❌ Error opening file manager: $e');
-    }
-  }
+  Future<void> openReleasesPage() => openInBrowser();
 
-  /// Open GitHub releases page in browser
-  Future<void> openReleasesPage() async {
-    try {
-      String url;
-      if (_isRepositoryConfigured) {
-        url = 'https://github.com/$_repoOwner/$_repoName/releases';
-      } else {
-        // Fallback to a generic GitHub search for GameLog repositories
-        url = 'https://github.com/search?q=gamelog+flutter&type=repositories';
-      }
-      
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      debugPrint('❌ Error opening releases page: $e');
-    }
-  }
-
-  /// Get current app version info
   Future<Map<String, String>> getCurrentVersionInfo() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -838,13 +289,14 @@ Since this is a demo mode, please visit our GitHub repository to download the la
         'packageName': packageInfo.packageName,
       };
     } catch (e) {
-      debugPrint('❌ Error getting version info: $e');
-      return {
-        'version': '1.0.0',
-        'buildNumber': '1',
-        'appName': 'GameLog',
-        'packageName': 'com.example.gamelog',
-      };
+      return {'version': '', 'buildNumber': '', 'appName': 'GameLog', 'packageName': ''};
     }
   }
 }
+
+class _DownloadCancelled implements Exception {
+  const _DownloadCancelled();
+}
+
+/// Whether [error] came from the user cancelling a download.
+bool isDownloadCancelled(Object error) => error is _DownloadCancelled;

@@ -232,7 +232,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
     } catch (e) {
       return [];
@@ -319,7 +319,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
     } catch (e) {
       return [];
@@ -386,7 +386,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} total ratings in database');
@@ -408,7 +408,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} community ratings (limited for performance)');
@@ -432,7 +432,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} top rated reviews');
@@ -456,7 +456,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} popular reviews');
@@ -532,10 +532,10 @@ class RatingService {
       debugPrint('Total ratings: ${querySnapshot.docs.length}');
       debugPrint('Unique games: ${gameRatingCounts.length}');
       
-      gameRatingCounts.forEach((gameId, count) {
+      gameRatingCounts.forEach((gameId, ratingCount) {
         final ratings = gameRatings[gameId]!;
         final average = ratings.reduce((a, b) => a + b) / ratings.length;
-        debugPrint('Game $gameId: $count ratings, avg: ${average.toStringAsFixed(2)}');
+        debugPrint('Game $gameId: $ratingCount ratings, avg: ${average.toStringAsFixed(2)}');
       });
 
       return {

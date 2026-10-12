@@ -198,7 +198,7 @@ class _ForumAdminScreenState extends State<ForumAdminScreen> {
               ),
               child: Text(
                 'Error: ${_cloudStatus!['error']}',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
                   color: Colors.red,
                 ),

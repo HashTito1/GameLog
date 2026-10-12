@@ -122,7 +122,7 @@ class ForumService {
             .get();
         
         final posts = querySnapshot.docs
-            .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+            .map((doc) => ForumPost.fromMap(doc.data()))
             .toList();
         
         // Sort pinned posts to the top manually
@@ -177,7 +177,7 @@ class ForumService {
           .snapshots()
           .map((snapshot) {
         final posts = snapshot.docs
-            .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+            .map((doc) => ForumPost.fromMap(doc.data()))
             .toList();
         
         // Sort pinned posts to the top manually
@@ -205,7 +205,7 @@ class ForumService {
 
       debugPrint('Retrieved ${querySnapshot.docs.length} replies from cloud');
       return querySnapshot.docs
-          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => ForumPost.fromMap(doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting replies from cloud: $e');
@@ -223,7 +223,7 @@ class ForumService {
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
-          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => ForumPost.fromMap(doc.data()))
           .toList();
     });
   }
@@ -369,7 +369,7 @@ class ForumService {
           .get();
 
       final posts = querySnapshot.docs
-          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => ForumPost.fromMap(doc.data()))
           .where((post) => 
               post.title.toLowerCase().contains(query.toLowerCase()) ||
               post.content.toLowerCase().contains(query.toLowerCase()) ||
@@ -396,7 +396,7 @@ class ForumService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => ForumPost.fromMap(doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting user posts: $e');
@@ -473,7 +473,7 @@ class ForumService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => ForumPost.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => ForumPost.fromMap(doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting recent activity: $e');
@@ -528,7 +528,7 @@ class ForumService {
           .get();
 
       final backupData = querySnapshot.docs
-          .map((doc) => doc.data() as Map<String, dynamic>)
+          .map((doc) => doc.data())
           .toList();
 
       debugPrint('Backed up ${backupData.length} forum posts from cloud');

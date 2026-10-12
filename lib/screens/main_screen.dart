@@ -41,18 +41,13 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       vsync: this,
     );
     
-    // Check for updates after a short delay to let the UI settle
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          UpdateService.instance.checkForUpdatesAndShowDialog(context);
-        }
-      });
-    });
+    // Quietly check GitHub for new releases (launch, resume, every few hours).
+    UpdateService.instance.startAutoChecks(() => context);
   }
 
   @override
   void dispose() {
+    UpdateService.instance.stopAutoChecks();
     _pageController.dispose();
     _animationController.dispose();
     super.dispose();

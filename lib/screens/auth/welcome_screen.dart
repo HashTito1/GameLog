@@ -98,7 +98,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                       _buildFloatingElement(
                         top: 350,
                         right: 60,
-                        color: theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                        color: theme.colorScheme.tertiary,
                         size: 40,
                         delay: 1000,
                       ),

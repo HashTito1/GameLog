@@ -29,7 +29,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   late TabController _tabController;
   
   // Track expanded playlists
-  Set<String> _expandedPlaylists = <String>{};
+  final Set<String> _expandedPlaylists = <String>{};
 
   @override
   void initState() {
@@ -418,8 +418,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     descriptionController.text.trim(),
                     isPublic,
                   );
-                  
-                  if (mounted) {
+
+                  if (context.mounted && mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -431,7 +431,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     setState(() {});
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     setDialogState(() => isCreating = false);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -605,7 +605,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                         children: [
                           Icon(
                             playlist['isPublic'] == true ? Icons.lock : Icons.public,
-                            color: Color(0xFF6366F1),
+                            color: const Color(0xFF6366F1),
                             size: 16,
                           ),
                           const SizedBox(width: 8),
@@ -817,8 +817,8 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     nameController.text.trim(),
                     descriptionController.text.trim(),
                   );
-                  
-                  if (mounted) {
+
+                  if (context.mounted && mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -829,7 +829,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                     setState(() {});
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     setDialogState(() => isUpdating = false);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -881,13 +881,14 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           ),
           ElevatedButton(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               Navigator.of(context).pop();
-              
+
               try {
                 await _deletePlaylist(playlist['id']);
-                
+
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text('Playlist "${playlist['name']}" deleted'),
                       backgroundColor: Colors.orange,
@@ -897,7 +898,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text('Failed to delete playlist: $e'),
                       backgroundColor: Colors.red,
@@ -1271,8 +1272,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                                               });
                                               playlist['games'] = games;
                                               
+                                              if (!context.mounted) return;
                                               setDialogState(() {});
-                                              
+
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 SnackBar(
                                                   content: Text('${game.title} added to playlist'),
@@ -1281,6 +1283,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                                               );
                                             }
                                           } catch (e) {
+                                            if (!context.mounted) return;
                                             ScaffoldMessenger.of(context).showSnackBar(
                                               SnackBar(
                                                 content: Text('Failed to add game: $e'),
@@ -1345,6 +1348,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           newPrivacy,
         );
         
+        if (!mounted) return;
         // Update local state
         setState(() {
           playlist['isPublic'] = newPrivacy;
@@ -1362,6 +1366,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to update playlist privacy: $e'),
@@ -1728,9 +1733,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.star,
-                    color: const Color(0xFFFBBF24),
+                    color: Color(0xFFFBBF24),
                     size: 12,
                   ),
                   const SizedBox(width: 2),

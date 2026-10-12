@@ -246,6 +246,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final isAgeVerified = await ContentFilterService.instance.isAgeVerified();
       
       if (!isAgeVerified) {
+        if (!mounted) return;
         // Show age verification dialog
         final verified = await AgeVerificationDialog.showAgeVerification(
           context,
@@ -265,7 +266,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Adult content enabled'),
+              content: const Text('Adult content enabled'),
               backgroundColor: ThemeService().warningColor,
             ),
           );
@@ -358,7 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (shouldLogout == true && mounted) {
             await FirebaseAuthService().logout();
             // Auto-close settings screen after logout
-            if (mounted) {
+            if (context.mounted) {
               Navigator.of(context).pop();
             }
           }

@@ -47,7 +47,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   UserRating? _userRating;
   List<UserRating> _gameRatings = [];
   List<UserRating> _friendRatings = [];
-  Map<String, Map<String, dynamic>> _ratingUserProfiles = {};
   double _averageRating = 0.0;
   int _totalRatings = 0;
   bool _isLoadingUserRating = true;
@@ -208,7 +207,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               id: userRating['id'] ?? '${currentUser.uid}_${widget.gameId}',
               gameId: userRating['gameId'] ?? widget.gameId,
               userId: userRating['userId'] ?? currentUser.uid,
-              username: userRating['username'] ?? currentUser.email?.split('@')[0] ?? 'user',
+              username: userRating['username'] ?? currentUser.email.split('@')[0] ?? 'user',
               rating: (userRating['rating'] ?? 0.0).toDouble(),
               review: userRating['review'],
               createdAt: userRating['createdAt'] != null 
@@ -393,7 +392,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         setState(() {
           _gameRatings = finalEnrichedRatings;
           _friendRatings = finalEnrichedFriendRatings;
-          _ratingUserProfiles = profiles;
           // Update total ratings count and average rating properly
           _updateTotalRatingsCount();
         });
@@ -538,7 +536,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         await RatingService.instance.submitRating(
           gameId: widget.gameId,
           userId: currentUser.uid,
-          username: currentUser.email != null ? currentUser.email!.split('@')[0] : 'user',
+          username: currentUser.email.split('@')[0],
           rating: _selectedRating,
           review: _reviewController.text.trim().isEmpty ? null : _reviewController.text.trim(),
           gameTitle: _game!.title,
@@ -993,11 +991,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       barrierDismissible: false, // User must make a choice
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1F2937),
-        title: Row(
+        title: const Row(
           children: [
-            const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 24),
-            const SizedBox(width: 8),
-            const Text(
+            Icon(Icons.check_circle, color: Color(0xFF10B981), size: 24),
+            SizedBox(width: 8),
+            Text(
               'Game Completed!',
               style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
             ),
@@ -1312,7 +1310,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       pinned: true,
       backgroundColor: const Color(0xFF1F2937),
       flexibleSpace: FlexibleSpaceBar(
-        background: (_game?.coverImage?.isNotEmpty ?? false)
+        background: (_game?.coverImage.isNotEmpty ?? false)
             ? Stack(
                 fit: StackFit.expand,
                 children: [
@@ -1436,7 +1434,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        if ((_game?.releaseDate?.isNotEmpty ?? false)) ...[
+        if ((_game?.releaseDate.isNotEmpty ?? false)) ...[
           Row(
             children: [
               Text(
@@ -1457,7 +1455,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           const SizedBox(height: 12),
         ],
         // Platform chips
-        if (_game?.platforms?.isNotEmpty ?? false) ...[
+        if (_game?.platforms.isNotEmpty ?? false) ...[
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1529,7 +1527,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Widget _buildGameInfo() {
-    final description = (_game?.description?.isNotEmpty ?? false) ? _game!.description : 'No description available.';
+    final description = (_game?.description.isNotEmpty ?? false) ? _game!.description : 'No description available.';
     final isLongDescription = description.length > 200;
     
     return Column(
@@ -1704,22 +1702,22 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         // Display current rating as stars
                         Row(
                           children: List.generate(5, (index) {
-                            return Container(
+                            return SizedBox(
                               width: 24,
                               height: 24,
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.star,
                                     size: 20,
-                                    color: const Color(0xFF374151),
+                                    color: Color(0xFF374151),
                                   ),
                                   if (_userRating!.rating >= index + 1)
-                                    Icon(
+                                    const Icon(
                                       Icons.star,
                                       size: 20,
-                                      color: const Color(0xFF10B981),
+                                      color: Color(0xFF10B981),
                                     ),
                                   if (_userRating!.rating == index + 0.5)
                                     ClipRect(
@@ -1802,7 +1800,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   final localPosition = box.globalToLocal(details.globalPosition);
                   
                   // Calculate which star and which half was tapped
-                  final starsRowWidth = 5 * 36.0; // Reduced star size
+                  const starsRowWidth = 5 * 36.0; // Reduced star size
                   final containerWidth = MediaQuery.of(context).size.width - 32;
                   final startX = (containerWidth - starsRowWidth) / 2;
                   
@@ -1826,24 +1824,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(5, (index) {
-                    return Container(
+                    return SizedBox(
                       width: 36, // Reduced from 40
                       height: 36, // Reduced from 40
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
                           // Background star (empty) - using filled star with gray color
-                          Icon(
+                          const Icon(
                             Icons.star,
                             size: 28, // Reduced from 32
-                            color: const Color(0xFF374151),
+                            color: Color(0xFF374151),
                           ),
                           // Full star overlay - only show if rating is >= index + 1 (full star)
                           if (_selectedRating >= index + 1)
-                            Icon(
+                            const Icon(
                               Icons.star,
                               size: 28, // Reduced from 32
-                              color: const Color(0xFF10B981), // Green color like in reference
+                              color: Color(0xFF10B981), // Green color like in reference
                             ),
                           // Half star overlay - only show if rating is exactly index + 0.5
                           if (_selectedRating == index + 0.5)
@@ -1942,9 +1940,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   final RenderBox box = context.findRenderObject() as RenderBox;
                   final localPosition = box.globalToLocal(details.globalPosition);
                   
-                  final starsRowWidth = 5 * 32.0;
-                  final containerWidth = 280.0; // Dialog width
-                  final startX = (containerWidth - starsRowWidth) / 2;
+                  const starsRowWidth = 5 * 32.0;
+                  const containerWidth = 280.0; // Dialog width
+                  const startX = (containerWidth - starsRowWidth) / 2;
                   
                   final relativeX = localPosition.dx - startX;
                   final starIndex = (relativeX / 32.0).floor();
@@ -1964,22 +1962,22 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(5, (index) {
-                    return Container(
+                    return SizedBox(
                       width: 32,
                       height: 32,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.star,
                             size: 24,
-                            color: const Color(0xFF374151),
+                            color: Color(0xFF374151),
                           ),
                           if (_selectedRating >= index + 1)
-                            Icon(
+                            const Icon(
                               Icons.star,
                               size: 24,
-                              color: const Color(0xFF10B981),
+                              color: Color(0xFF10B981),
                             ),
                           if (_selectedRating == index + 0.5)
                             ClipRect(
@@ -2381,16 +2379,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 children: List.generate(5, (index) {
                   return Stack(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star,
                         size: 10,
-                        color: const Color(0xFF374151),
+                        color: Color(0xFF374151),
                       ),
                       if (rating.rating >= index + 1)
-                        Icon(
+                        const Icon(
                           Icons.star,
                           size: 10,
-                          color: const Color(0xFF10B981),
+                          color: Color(0xFF10B981),
                         ),
                       if (rating.rating == index + 0.5)
                         ClipRect(
@@ -2539,16 +2537,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 children: List.generate(5, (index) {
                   return Stack(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star,
                         size: 10,
-                        color: const Color(0xFF374151),
+                        color: Color(0xFF374151),
                       ),
                       if (rating.rating >= index + 1)
-                        Icon(
+                        const Icon(
                           Icons.star,
                           size: 10,
-                          color: const Color(0xFF6366F1),
+                          color: Color(0xFF6366F1),
                         ),
                       if (rating.rating == index + 0.5)
                         ClipRect(
@@ -2602,153 +2600,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 ),
               ),
               const SizedBox(width: 16),
-              GestureDetector(
-                onTap: currentUser != null ? () => _openRatingComments(rating) : null,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.comment_outlined,
-                      size: 14,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      rating.commentCount.toString(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentRatingItem(UserRating rating) {
-    final userProfile = _ratingUserProfiles[rating.userId];
-    final displayName = userProfile?['displayName'] ?? userProfile?['username'] ?? 'User';
-    final profileImage = userProfile?['profileImage'] ?? '';
-    final currentUser = FirebaseAuthService().currentUser;
-    final isLiked = currentUser != null && rating.likedBy.contains(currentUser.uid);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6), // Reduced from 8
-      padding: const EdgeInsets.all(10), // Reduced from 12
-      decoration: BoxDecoration(
-        color: const Color(0xFF374151),
-        borderRadius: BorderRadius.circular(6), // Reduced from 8
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 10, // Reduced from 12
-                backgroundColor: const Color(0xFF6366F1),
-                backgroundImage: profileImage.isNotEmpty && profileImage.startsWith('http')
-                    ? NetworkImage(profileImage)
-                    : null,
-                child: profileImage.isEmpty || !profileImage.startsWith('http')
-                    ? Text(
-                        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
-                        style: const TextStyle(
-                          fontSize: 8, // Reduced from 10
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 6), // Reduced from 8
-              Expanded(
-                child: Text(
-                  displayName,
-                  style: const TextStyle(
-                    fontSize: 12, // Reduced from 14
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              Row(
-                children: List.generate(5, (index) {
-                  return Stack(
-                    children: [
-                      Icon(
-                        Icons.star,
-                        size: 10, // Reduced from 12
-                        color: const Color(0xFF374151),
-                      ),
-                      // Full star overlay - only show if rating is >= index + 1
-                      if (rating.rating >= index + 1)
-                        Icon(
-                          Icons.star,
-                          size: 10, // Reduced from 12
-                          color: const Color(0xFF10B981), // Green color like in reference
-                        ),
-                      // Half star overlay - only show if rating is exactly index + 0.5
-                      if (rating.rating == index + 0.5)
-                        ClipRect(
-                          clipper: HalfStarClipper(),
-                          child: const Icon(
-                            Icons.star,
-                            size: 10, // Reduced from 12
-                            color: Color(0xFF10B981), // Green color like in reference
-                          ),
-                        ),
-                    ],
-                  );
-                }),
-              ),
-            ],
-          ),
-          if (rating.review != null && rating.review!.isNotEmpty) ...[
-            const SizedBox(height: 6), // Reduced from 8
-            Text(
-              rating.review!,
-              style: const TextStyle(
-                fontSize: 11, // Reduced from 12
-                color: Colors.grey,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-          // Like and comment buttons
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              // Like button
-              GestureDetector(
-                onTap: currentUser != null ? () => _toggleRatingLike(rating) : null,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: 14,
-                      color: isLiked ? Colors.red : Colors.grey,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      rating.likeCount.toString(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Comment button
               GestureDetector(
                 onTap: currentUser != null ? () => _openRatingComments(rating) : null,
                 child: Row(
@@ -2860,7 +2711,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   void _openRatingComments(UserRating rating) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
+        builder: (context) => _buildCommentsScreen(rating: rating),
       ),
     ).then((_) {
       // Refresh the entire rating data when returning from comments to get real-time updates
@@ -2868,134 +2719,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     });
   }
 
-  Widget _FullFunctionalCommentsScreen({required UserRating rating}) {
+  Widget _buildCommentsScreen({required UserRating rating}) {
     return _CommentsScreenStateful(rating: rating);
-  }
-
-  Widget _SimpleCommentsScreen({required UserRating rating}) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Comments'),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-      ),
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Rating display
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        rating.displayName ?? rating.username,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: List.generate(5, (index) {
-                          final starValue = index + 1;
-                          final isFullStar = rating.rating >= starValue;
-                          final isHalfStar = rating.rating >= starValue - 0.5 && rating.rating < starValue;
-                          
-                          return Icon(
-                            isFullStar ? Icons.star : (isHalfStar ? Icons.star_half : Icons.star_border),
-                            size: 16,
-                            color: (isFullStar || isHalfStar) ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
-                          );
-                        }),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        rating.rating.toStringAsFixed(1),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (rating.review != null && rating.review!.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      rating.review!,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Comments section
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.comment_outlined,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Comments Feature',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Comments are now fully functional!\nUsers can like, comment, and interact with reviews.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('Back to Reviews'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _refreshAllRatingData() async {
@@ -3110,7 +2835,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         setState(() {
           _gameRatings = finalEnrichedRatings;
           _friendRatings = finalEnrichedFriendRatings;
-          _ratingUserProfiles = profiles;
           _averageRating = gameRatings.isEmpty 
               ? 0.0 
               : gameRatings.map((r) => r.rating).reduce((a, b) => a + b) / gameRatings.length;
@@ -3119,28 +2843,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     } catch (e) {
       debugPrint('Error refreshing rating data: $e');
-    }
-  }
-
-  Future<void> _refreshSingleRatingInDetail(UserRating rating) async {
-    try {
-      final currentUser = FirebaseAuthService().currentUser;
-      if (currentUser == null) return;
-      
-      // Get updated rating data with interactions
-      final data = await RatingInteractionService.instance.getRatingWithInteractions(rating.id, currentUser.uid);
-      final updatedRating = data['rating'] as UserRating?;
-      
-      if (updatedRating != null) {
-        final ratingIndex = _gameRatings.indexWhere((r) => r.id == rating.id);
-        if (ratingIndex != -1) {
-          setState(() {
-            _gameRatings[ratingIndex] = updatedRating;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error refreshing single rating in detail: $e');
     }
   }
 

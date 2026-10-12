@@ -702,14 +702,14 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
   void _openRatingComments(UserRating rating) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
+        builder: (context) => _buildCommentsScreen(rating: rating),
       ),
     ).then((_) {
       // Comments screen handles its own state, no need to refresh here
     });
   }
 
-  Widget _FullFunctionalCommentsScreen({required UserRating rating}) {
+  Widget _buildCommentsScreen({required UserRating rating}) {
     return _CommentsScreenStateful(rating: rating);
   }
 }

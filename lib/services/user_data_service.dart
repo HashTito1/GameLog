@@ -482,8 +482,8 @@ class UserDataService {
         _getUserRatingStatsOptimized(userId),
       ]);
       
-      final libraryStats = futures[0] as Map<String, dynamic>;
-      final ratingStats = futures[1] as Map<String, dynamic>;
+      final libraryStats = futures[0];
+      final ratingStats = futures[1];
       final now = DateTime.now();
 
       await _firestore

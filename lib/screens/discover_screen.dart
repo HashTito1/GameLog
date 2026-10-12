@@ -982,7 +982,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void _openRatingComments(UserRating rating) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
+        builder: (context) => _buildCommentsScreen(rating: rating),
       ),
     ).then((_) {
       // Refresh only the specific rating's comment count when returning
@@ -990,134 +990,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     });
   }
 
-  Widget _FullFunctionalCommentsScreen({required UserRating rating}) {
+  Widget _buildCommentsScreen({required UserRating rating}) {
     return _CommentsScreenStateful(rating: rating);
-  }
-
-  Widget _SimpleCommentsScreen({required UserRating rating}) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Comments'),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-      ),
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Rating display
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        rating.displayName ?? rating.username,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: List.generate(5, (index) {
-                          final starValue = index + 1;
-                          final isFullStar = rating.rating >= starValue;
-                          final isHalfStar = rating.rating >= starValue - 0.5 && rating.rating < starValue;
-                          
-                          return Icon(
-                            isFullStar ? Icons.star : (isHalfStar ? Icons.star_half : Icons.star_border),
-                            size: 16,
-                            color: (isFullStar || isHalfStar) ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
-                          );
-                        }),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        rating.rating.toStringAsFixed(1),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (rating.review != null && rating.review!.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      rating.review!,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Comments section
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.comment_outlined,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Comments Feature',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Comments are now fully functional!\nUsers can like, comment, and interact with reviews.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('Back to Reviews'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _refreshSingleRatingInDiscover(UserRating rating) async {

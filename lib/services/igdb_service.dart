@@ -1396,7 +1396,7 @@ class IGDBService {
     }
 
     try {
-      final cacheKey = 'igdb_goty_editions';
+      const cacheKey = 'igdb_goty_editions';
       
       // Try to get from cache first
       final cachedGames = await CacheService.getCachedGameList(cacheKey);

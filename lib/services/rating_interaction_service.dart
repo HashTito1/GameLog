@@ -155,7 +155,7 @@ class RatingInteractionService {
           .get();
 
       final comments = querySnapshot.docs
-          .map((doc) => RatingComment.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => RatingComment.fromMap(doc.data()))
           .toList();
 
       // Sort in memory to avoid index requirement
@@ -307,7 +307,7 @@ class RatingInteractionService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => RatingComment.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => RatingComment.fromMap(doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting user comments: $e');

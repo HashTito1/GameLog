@@ -189,6 +189,8 @@ class HelpSupportScreen extends StatelessWidget {
           color: theme.colorScheme.onSurface,
         ),
       ),
+      iconColor: theme.colorScheme.primary,
+      collapsedIconColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -202,8 +204,6 @@ class HelpSupportScreen extends StatelessWidget {
           ),
         ),
       ],
-      iconColor: theme.colorScheme.primary,
-      collapsedIconColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
     );
   }
 

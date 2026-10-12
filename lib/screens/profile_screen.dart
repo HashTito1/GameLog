@@ -34,7 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _userBacklogCount = 0;
   
   // Track expanded playlists
-  Set<String> _expandedPlaylists = <String>{};
+  final Set<String> _expandedPlaylists = <String>{};
 
   @override
   void initState() {
@@ -73,8 +73,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (userData != null && userData['displayName'] == null) {
           // Special case: if displayName is specifically null, set it from username or email
           debugPrint('Setting displayName from username or email...');
-          final email = currentUser.email!;
-          final displayName = currentUser.displayName ?? userData['username'] ?? email.split('@')[0];
+          final displayName = currentUser.displayName;
           
           await UserDataService.saveUserProfile(currentUser.uid, {
             'displayName': displayName,
@@ -274,7 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         },
       );
 
-      if (source != null) {
+      if (source != null && mounted) {
         if (source == 'gallery') {
           imagePath = await ImagePickerService.pickImage(context);
         } else if (source == 'camera') {
@@ -492,7 +491,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         },
       );
 
-      if (source != null) {
+      if (source != null && mounted) {
         if (source == 'gallery') {
           imagePath = await ImagePickerService.pickImage(context);
         } else if (source == 'camera') {
@@ -664,7 +663,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Navigator.pop(context);
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => SettingsScreen(),
+                        builder: (context) => const SettingsScreen(),
                       ),
                     );
                   },
@@ -1173,7 +1172,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           colors: [
                             theme.colorScheme.primary,
                             theme.colorScheme.secondary,
-                            theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                            theme.colorScheme.tertiary,
                             theme.colorScheme.primary.withValues(alpha: 0.8),
                           ],
                         )
@@ -1253,10 +1252,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ? CachedNetworkImage(
                                     imageUrl: profileImage,
                                     fit: BoxFit.cover,
-                                    placeholder: (context, url) => Center(
+                                    placeholder: (context, url) => const Center(
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
                                       ),
                                     ),
                                     errorWidget: (context, url, error) => _buildDefaultAvatar(displayName),

@@ -208,7 +208,8 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
     if (confirmed == true) {
       try {
         await AdminService.instance.deleteForumPost(post.id);
-        
+        if (!mounted) return;
+
         if (post.id == _post?.id) {
           // Main post was deleted, go back
           Navigator.of(context).pop(true);
@@ -470,7 +471,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        ..._replies.map((reply) => _buildReplyItem(reply, theme)).toList(),
+        ..._replies.map((reply) => _buildReplyItem(reply, theme)),
       ],
     );
   }

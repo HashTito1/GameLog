@@ -122,6 +122,13 @@ void main() {
       expect(UpdateService.isNewerVersion('1.1.2', '9', '1.1.2', '8'), isTrue);
     });
 
+    test('handles four-part tags and older in-app versions', () {
+      expect(UpdateService.isNewerVersion('1.3.0', '0', '1.1.2', '0'), isTrue);
+      expect(UpdateService.isNewerVersion('1.2.2.1', '0', '1.2.2', '0'), isTrue);
+      expect(UpdateService.isNewerVersion('1.2.3', '0', '1.3.0', '0'), isFalse);
+      expect(UpdateService.isNewerVersion('1.3.0', '0', '1.3.0', '0'), isFalse);
+    });
+
     test('treats malformed versions as not newer', () {
       expect(UpdateService.isNewerVersion('latest', '1', '1.0.0', '1'), isFalse);
     });
@@ -140,6 +147,23 @@ void main() {
 
     test('returns empty when there is no APK', () {
       expect(UpdateInfo.userApkUrl([]), '');
+    });
+
+    test('reads a GitHub release', () {
+      final info = UpdateInfo.fromJson({
+        'tag_name': 'v1.3.0',
+        'body': 'Notes',
+        'published_at': '2026-10-12T10:00:00Z',
+        'html_url': 'https://github.com/HashTito1/GameLog/releases/tag/v1.3.0',
+        'assets': [
+          {'name': 'GameLog-1.3.0.apk', 'browser_download_url': 'apk', 'size': 1024},
+        ],
+      });
+
+      expect(info.version, '1.3.0');
+      expect(info.downloadUrl, 'apk');
+      expect(info.downloadSize, 1024);
+      expect(info.releaseNotes, 'Notes');
     });
   });
 }

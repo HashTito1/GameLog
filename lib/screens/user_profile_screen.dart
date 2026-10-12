@@ -295,6 +295,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         newPrivacy,
       );
       
+      if (!mounted) return;
       // Update local state
       setState(() {
         playlist['isPublic'] = newPrivacy;
@@ -312,6 +313,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to update playlist privacy: $e'),
@@ -660,7 +662,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         colors: [
                           Theme.of(context).colorScheme.primary,
                           Theme.of(context).colorScheme.secondary,
-                          Theme.of(context).colorScheme.tertiary ?? Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.tertiary,
                           Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
                         ],
                       )
@@ -1459,8 +1461,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 color: Theme.of(context).colorScheme.primary,
                 size: 20,
               ),
-              SizedBox(width: 8),
-              Text(
+              const SizedBox(width: 8),
+              const Text(
                 'Social',
                 style: TextStyle(
                   fontSize: 16,

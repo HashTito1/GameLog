@@ -92,8 +92,9 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
         return;
       }
 
+      if (!mounted) return;
       // Confirm adding admin
-      final confirmed = await showDialog<bool>(
+      final confirmed= await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Add Admin'),

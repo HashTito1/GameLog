@@ -144,7 +144,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                         _buildFloatingElement(
                           top: 200,
                           right: 80,
-                          color: theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                          color: theme.colorScheme.tertiary,
                           size: 30,
                         ),
                         

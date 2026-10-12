@@ -19,7 +19,7 @@ class ProfilePictureViewer extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           shape: BoxShape.circle,
           color: Color(0xFFE5E7EB),
         ),
@@ -34,7 +34,7 @@ class ProfilePictureViewer extends StatelessWidget {
                     return Icon(
                       Icons.person,
                       size: size * 0.6,
-                      color: Color(0xFF9CA3AF),
+                      color: const Color(0xFF9CA3AF),
                     );
                   },
                 ),
@@ -42,7 +42,7 @@ class ProfilePictureViewer extends StatelessWidget {
             : Icon(
                 Icons.person,
                 size: size * 0.6,
-                color: Color(0xFF9CA3AF),
+                color: const Color(0xFF9CA3AF),
               ),
       ),
     );
