@@ -13,6 +13,8 @@ import 'notifications_screen.dart';
 import 'game_detail_screen.dart';
 import 'category_games_screen.dart';
 import 'search_screen.dart';
+import 'main_screen.dart';
+import '../utils/date_format.dart';
 import '../services/recommendation_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -32,6 +34,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Game> _gotyGames = [];
   List<Game> _suggestedGames = [];
   List<UserRating> _friendReviews = [];
+  List<UserRating> _myRecentRatings = [];
+  List<UserRating> _trendingReviews = [];
+  List<Map<String, dynamic>> _communityTopRated = [];
   bool _isLoading = true; // Hot reload trigger - Updated UI
   bool _isLoadingInProgress = false; // Prevent multiple simultaneous loads
 
@@ -125,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Load friend reviews in the background (immediate for refresh)
       if (mounted) {
         _loadFriendReviews();
+        _loadFeedExtras();
       }
     } catch (e) {
       setState(() {
@@ -323,7 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _buildPlayStoreHeader(theme),
+            _buildFeedHeader(theme),
             Expanded(
               child: _isLoading
                   ? _buildLoadingState(theme)
@@ -345,13 +351,15 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Popular Section
-            _buildPopularSection(theme),
-            const SizedBox(height: 32),
-            
-            // Recent Reviews Section
-            _buildRecentReviewsSection(theme),
-            const SizedBox(height: 32),
+            // Feed layout: popular, activity, trending reviews, community top rated
+            _buildPopularRow(theme),
+            const SizedBox(height: 20),
+            _buildActivityFeed(theme),
+            const SizedBox(height: 12),
+            _buildTrendingReviews(theme),
+            const SizedBox(height: 12),
+            _buildCommunityTopRated(theme),
+            const SizedBox(height: 28),
             
             // For You Section
             _buildForYouSection(theme),
@@ -365,199 +373,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildHorizontalGameSection('Top shooters', _actionGames, 'shooter', theme),
             const SizedBox(height: 60),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlayStoreHeader(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      child: Row(
-        children: [
-          // App logo/icon
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4285F4), Color(0xFF34A853), Color(0xFFFBBC05), Color(0xFFEA4335)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.videogame_asset,
-              color: Colors.white,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            'Home',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-          const Spacer(),
-          // Notification bell
-          GestureDetector(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-              ),
-              child: Icon(
-                Icons.notifications_outlined,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                size: 20,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPopularSection(ThemeData theme) {
-    final displayGames = _popularGames.isNotEmpty ? _popularGames : _featuredGames;
-    if (displayGames.isEmpty) return const SizedBox.shrink();
-    
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Popular',
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            height: 240, // Reduced from 320
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: displayGames.take(5).length,
-              itemBuilder: (context, index) {
-                final game = displayGames[index];
-                return Container(
-                  margin: const EdgeInsets.only(right: 16),
-                  child: _buildPopularGameCard(game, theme),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPopularGameCard(Game game, ThemeData theme) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => GameDetailScreen(
-              gameId: game.id,
-              initialGame: game,
-            ),
-          ),
-        );
-      },
-      child: Container(
-        width: 140, // Reduced from 180
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12), // Reduced from 16
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15), // Reduced shadow
-              blurRadius: 8, // Reduced from 12
-              offset: const Offset(0, 4), // Reduced from 6
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Game Cover Image
-              game.coverImage.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: game.coverImage,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        color: theme.colorScheme.surface,
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                          ),
-                        ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: theme.colorScheme.surface,
-                        child: Icon(
-                          Icons.videogame_asset,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                          size: 36, // Reduced from 48
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: theme.colorScheme.surface,
-                      child: Icon(
-                        Icons.videogame_asset,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                        size: 36,
-                      ),
-                    ),
-              
-              // Gradient Overlay
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.7),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Game Title
-              Positioned(
-                bottom: 12, // Reduced from 16
-                left: 12, // Reduced from 16
-                right: 12, // Reduced from 16
-                child: Text(
-                  game.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14, // Reduced from 16
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -636,12 +451,12 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(
             'For you',
             style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
               color: theme.colorScheme.onSurface,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -1056,249 +871,674 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentReviewsSection(ThemeData theme) {
-    // Always show the section for debugging, even if empty
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  // ========== FEED LAYOUT (header, popular, activity, trending, top rated) ==========
+
+  Future<void> _loadFeedExtras() async {
+    final currentUser = FirebaseAuthService.instance.currentUser;
+
+    // Your own latest ratings, shown in "My Activity & Feed" with friends'.
+    if (currentUser != null) {
+      RatingService.getUserRecentRatings(currentUser.uid, limit: 5).then((mine) {
+        if (mounted) setState(() => _myRecentRatings = mine);
+      }).catchError((e) => debugPrint('Error loading own ratings: $e'));
+    }
+
+    // Trending reviews: most-liked written reviews, topped up with recent ones.
+    () async {
+      try {
+        final liked = await RatingService.getPopularReviewsOptimized(limit: 20);
+        final withText = liked.where((r) => (r.review ?? '').trim().isNotEmpty).toList();
+        if (withText.length < 5) {
+          final recent = await RatingService.getAllRecentRatings(limit: 60);
+          final seen = withText.map((r) => r.id).toSet();
+          withText.addAll(recent.where(
+              (r) => (r.review ?? '').trim().isNotEmpty && !seen.contains(r.id)));
+        }
+        // At most two per person, so one prolific reviewer doesn't fill the list.
+        final perUser = <String, int>{};
+        final varied = withText.where((r) => (perUser[r.userId] = (perUser[r.userId] ?? 0) + 1) <= 2).toList();
+        if (mounted) setState(() => _trendingReviews = varied.take(5).toList());
+      } catch (e) {
+        debugPrint('Error loading trending reviews: $e');
+      }
+    }();
+
+    // Community top rated: highest average GameLog rating.
+    RatingService.getTopRatedGames(limit: 12).then((top) {
+      if (mounted) setState(() => _communityTopRated = top);
+    }).catchError((e) => debugPrint('Error loading community top rated: $e'));
+  }
+
+  /// Latest ratings from you and your friends, newest first.
+  List<UserRating> get _activityFeed {
+    final seen = <String>{};
+    final all = [..._myRecentRatings, ..._friendReviews]
+        .where((r) => seen.add('${r.userId}_${r.gameId}'))
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return all.take(4).toList();
+  }
+
+  void _openSearchTab() {
+    context.findAncestorStateOfType<MainScreenState>()?.switchToTab(2);
+  }
+
+  void _openGame(String gameId, {Game? game}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => GameDetailScreen(gameId: gameId, initialGame: game)),
+    );
+  }
+
+  Widget _buildFeedHeader(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Row(
         children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.videogame_asset, color: theme.colorScheme.onPrimary, size: 18),
+          ),
+          const SizedBox(width: 8),
           Text(
-            'Recent reviews',
+            'GameLog',
             style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
               color: theme.colorScheme.onSurface,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'from friends (${_friendReviews.length})',
-            style: TextStyle(
-              fontSize: 14,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_friendReviews.isEmpty)
-            Container(
-              height: 60, // Significantly reduced from 80
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Material(
+              color: theme.colorScheme.surface,
+              shape: StadiumBorder(
+                side: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.25)),
+              ),
+              child: InkWell(
+                customBorder: const StadiumBorder(),
+                onTap: _openSearchTab,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  child: Row(
+                    children: [
+                      Icon(Icons.search, size: 18,
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Search games…',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              child: Row( // Changed from Column to Row for horizontal layout
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.people_outline,
-                      size: 18, // Reduced from 20
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'No friend reviews yet',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          'Add friends to see their reviews here',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+            ),
+            icon: Icon(Icons.notifications_outlined,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
+            tooltip: 'Notifications',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedSectionHeader(ThemeData theme, String title, {VoidCallback? onMore, Widget? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface,
               ),
-            )
-          else
-            SizedBox(
-              height: 108,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _friendReviews.length,
-                itemBuilder: (context, index) {
-                  return _buildRecentReviewCard(_friendReviews[index], theme);
-                },
-              ),
+            ),
+          ),
+          if (trailing != null) Padding(padding: const EdgeInsets.only(right: 8), child: trailing),
+          if (onMore != null)
+            IconButton(
+              onPressed: onMore,
+              icon: Icon(Icons.chevron_right,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+              tooltip: 'See all',
+              visualDensity: VisualDensity.compact,
             ),
         ],
       ),
     );
   }
 
-  Widget _buildRecentReviewCard(UserRating review, ThemeData theme) {
-    final rating = review.rating;
-    final reviewText = review.review?.trim();
-    final username = review.displayName ?? review.username;
-    final profileImage = review.profileImage;
+  Widget _starRow(double rating, {double size = 12}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (i) {
+        final icon = i < rating.floor()
+            ? Icons.star
+            : (i < rating ? Icons.star_half : Icons.star_border);
+        return Icon(icon, size: size, color: ThemeService().starColor);
+      }),
+    );
+  }
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => GameDetailScreen(gameId: review.gameId),
+  Widget _coverThumb(ThemeData theme, String? url, {double width = 44, double height = 58}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: (url != null && url.isNotEmpty)
+            ? CachedNetworkImage(imageUrl: url, fit: BoxFit.cover)
+            : Container(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                child: Icon(Icons.videogame_asset, size: 18, color: theme.colorScheme.primary),
+              ),
+      ),
+    );
+  }
+
+  Widget _avatar(ThemeData theme, String? imageUrl, String name, {double radius = 14}) {
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+      backgroundImage: hasImage ? CachedNetworkImageProvider(imageUrl) : null,
+      child: hasImage
+          ? null
+          : Text(
+              name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: TextStyle(
+                fontSize: radius * 0.8,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+    );
+  }
+
+  String _timeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return formatShortDate(date);
+  }
+
+  // ---------- Popular Games This Week ----------
+
+  Widget _buildPopularRow(ThemeData theme) {
+    final games = _popularGames.isNotEmpty ? _popularGames : _featuredGames;
+    if (games.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _feedSectionHeader(
+          theme,
+          'Popular Games',
+          onMore: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const CategoryGamesScreen(
+                categoryTitle: 'Popular Games',
+                categoryType: 'popular',
+              ),
+            ),
           ),
-        );
-      },
-      child: Container(
-        width: 280,
-        margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         ),
-        // Reviews only store the game id/title, so the cover comes from IGDB
-        // (cached after the first load).
-        child: FutureBuilder<Game?>(
-          future: _gameFor(review.gameId),
-          builder: (context, snapshot) {
-            final game = snapshot.data;
-            final title = game?.title ?? review.gameTitle ?? 'Game';
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 64,
-                    height: 86,
-                    child: (game?.coverImage.isNotEmpty ?? false)
-                        ? CachedNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
-                        : Container(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                            child: Icon(Icons.videogame_asset, color: theme.colorScheme.primary),
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
+        SizedBox(
+          height: 196,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: games.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final game = games[index];
+              return GestureDetector(
+                onTap: () => _openGame(game.id, game: game),
+                child: SizedBox(
+                  width: 100,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: index == 0
+                              ? Border.all(color: theme.colorScheme.primary, width: 2)
+                              : null,
+                          boxShadow: index == 0
+                              ? [
+                                  BoxShadow(
+                                    color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                                    blurRadius: 10,
+                                  ),
+                                ]
+                              : null,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          ...List.generate(5, (starIndex) {
-                            return Icon(
-                              starIndex < rating.floor()
-                                  ? Icons.star
-                                  : (starIndex < rating ? Icons.star_half : Icons.star_border),
-                              color: ThemeService().starColor,
-                              size: 13,
-                            );
-                          }),
-                          const SizedBox(width: 4),
-                          Text(
-                            rating.toStringAsFixed(1),
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                        child: _coverThumb(theme, game.coverImage, width: 100, height: 134),
                       ),
                       const SizedBox(height: 6),
-                      if (reviewText != null && reviewText.isNotEmpty)
-                        Text(
-                          '"$reviewText"',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                            height: 1.3,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      const Spacer(),
                       Row(
                         children: [
-                          CircleAvatar(
-                            radius: 9,
-                            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
-                            backgroundImage: profileImage != null && profileImage.isNotEmpty
-                                ? CachedNetworkImageProvider(profileImage)
-                                : null,
-                            child: profileImage == null || profileImage.isEmpty
-                                ? Text(
-                                    username.isNotEmpty ? username[0].toUpperCase() : '?',
-                                    style: TextStyle(
-                                      color: theme.colorScheme.primary,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              username,
+                              game.title,
                               style: TextStyle(
-                                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                                 fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurface,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (review.likeCount > 0) ...[
-                            Icon(Icons.favorite, size: 12, color: theme.colorScheme.error),
+                          if (game.averageRating > 0) ...[
                             const SizedBox(width: 2),
-                            Text('${review.likeCount}', style: const TextStyle(fontSize: 11)),
-                            const SizedBox(width: 6),
-                          ],
-                          if (review.commentCount > 0) ...[
-                            Icon(Icons.chat_bubble_outline, size: 12,
-                                color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
-                            const SizedBox(width: 2),
-                            Text('${review.commentCount}', style: const TextStyle(fontSize: 11)),
+                            Text(
+                              game.averageRating.toStringAsFixed(1),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                            Icon(Icons.star, size: 11, color: ThemeService().starColor),
                           ],
                         ],
                       ),
+                      if (game.totalReviews > 0)
+                        Text(
+                          '${_compactCount(game.totalReviews)} ratings',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
+      ],
+    );
+  }
+
+  String _compactCount(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return '$n';
+  }
+
+  // ---------- My Activity & Feed ----------
+
+  Widget _buildActivityFeed(ThemeData theme) {
+    final feed = _activityFeed;
+    final currentUid = FirebaseAuthService.instance.currentUser?.uid;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _feedSectionHeader(
+          theme,
+          'My Activity & Feed',
+          trailing: FilledButton.icon(
+            onPressed: _openSearchTab,
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            iconAlignment: IconAlignment.end,
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('Log a game'),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: feed.isEmpty
+              ? _feedEmptyCard(
+                  theme,
+                  Icons.people_outline,
+                  'Nothing here yet',
+                  'Rate a game or add friends to see activity here.',
+                )
+              : Column(
+                  children: [
+                    for (final review in feed)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _buildActivityItem(theme, review, isMine: review.userId == currentUid),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActivityItem(ThemeData theme, UserRating review, {required bool isMine}) {
+    final name = isMine ? 'You' : (review.displayName ?? review.username);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openGame(review.gameId),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: FutureBuilder<Game?>(
+            future: _gameFor(review.gameId),
+            builder: (context, snapshot) {
+              final game = snapshot.data;
+              final title = game?.title ?? review.gameTitle ?? 'a game';
+              return Row(
+                children: [
+                  _coverThumb(theme, game?.coverImage),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text.rich(
+                          TextSpan(
+                            style: TextStyle(fontSize: 13, color: muted),
+                            children: [
+                              TextSpan(
+                                text: name,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              const TextSpan(text: ' rated '),
+                              TextSpan(
+                                text: title,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              const TextSpan(text: '  '),
+                              WidgetSpan(
+                                alignment: PlaceholderAlignment.middle,
+                                child: _starRow(review.rating, size: 12),
+                              ),
+                            ],
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                (review.review ?? '').trim().isNotEmpty ? 'Reviewed' : 'Rated',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(_timeAgo(review.updatedAt), style: TextStyle(fontSize: 11, color: muted)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.favorite, size: 13, color: muted),
+                  const SizedBox(width: 2),
+                  Text('${review.likeCount}', style: TextStyle(fontSize: 11, color: muted)),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chat_bubble, size: 12, color: muted),
+                  const SizedBox(width: 2),
+                  Text('${review.commentCount}', style: TextStyle(fontSize: 11, color: muted)),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------- Trending Reviews ----------
+
+  Widget _buildTrendingReviews(ThemeData theme) {
+    if (_trendingReviews.isEmpty) return const SizedBox.shrink();
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _feedSectionHeader(
+          theme,
+          'Trending Reviews',
+          onMore: () => context.findAncestorStateOfType<MainScreenState>()?.switchToTab(1),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              for (final review in _trendingReviews)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _openGame(review.gameId),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: FutureBuilder<Game?>(
+                          future: _gameFor(review.gameId),
+                          builder: (context, snapshot) {
+                            final game = snapshot.data;
+                            final name = review.displayName ?? review.username;
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _avatar(theme, review.profileImage, name),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text.rich(
+                                        TextSpan(
+                                          style: TextStyle(fontSize: 13, color: muted),
+                                          children: [
+                                            TextSpan(
+                                              text: name,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: theme.colorScheme.onSurface,
+                                              ),
+                                            ),
+                                            const TextSpan(text: ' rated '),
+                                            TextSpan(
+                                              text: game?.title ?? review.gameTitle ?? 'a game',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: theme.colorScheme.onSurface,
+                                              ),
+                                            ),
+                                            const TextSpan(text: '  '),
+                                            WidgetSpan(
+                                              alignment: PlaceholderAlignment.middle,
+                                              child: _starRow(review.rating, size: 12),
+                                            ),
+                                          ],
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        review.review!.trim(),
+                                        style: TextStyle(fontSize: 12, color: muted, height: 1.3),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                _coverThumb(theme, game?.coverImage),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------- Community Top Rated ----------
+
+  Widget _buildCommunityTopRated(ThemeData theme) {
+    if (_communityTopRated.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _feedSectionHeader(theme, 'Community Top Rated'),
+        SizedBox(
+          height: 168,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _communityTopRated.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final entry = _communityTopRated[index];
+              final gameId = entry['gameId'] as String;
+              final average = (entry['averageRating'] as num).toDouble();
+              final count = entry['totalRatings'] as int;
+              return FutureBuilder<Game?>(
+                future: _gameFor(gameId),
+                builder: (context, snapshot) {
+                  final game = snapshot.data;
+                  return GestureDetector(
+                    onTap: () => _openGame(gameId, game: game),
+                    child: SizedBox(
+                      width: 120,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _coverThumb(theme, game?.coverImage, width: 120, height: 104),
+                          const SizedBox(height: 6),
+                          Text(
+                            game?.title ?? '…',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                average.toStringAsFixed(1),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              Icon(Icons.star, size: 12, color: ThemeService().starColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                '($count)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _feedEmptyCard(ThemeData theme, IconData icon, String title, String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
