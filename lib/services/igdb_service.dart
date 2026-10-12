@@ -483,7 +483,7 @@ class IGDBService {
 
     try {
       final currentYear = DateTime.now().year;
-      final cacheKey = 'igdb_genre_${genre}_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+      final cacheKey = 'igdb_genre_v3_${genre}_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
       
       // For page 1, try to get from cache first
       if (page == 1) {
@@ -494,6 +494,23 @@ class IGDBService {
         }
       }
 
+      // Well-known original releases only. Sorting by raw rating used to put
+      // one-review games rated 100 and duplicate editions at the top.
+      // IGDB tags many action games as Shooter, so that list is limited to
+      // first-person games and ranked by how many people rated them.
+      final isShooter = genre == 'Shooter';
+      final genreWhere = [
+        'genres.name = "$genre"',
+        'game_type = 0',
+        'version_parent = null',
+        'total_rating_count >= 150',
+        if (isShooter) 'player_perspectives = (1)',
+        // Open-world games (theme 38) like GTA have shooting but aren't shooters.
+        if (isShooter) 'themes != (38)',
+        if (isShooter) 'total_rating >= 80',
+      ].join(' & ');
+      final genreSort = isShooter ? 'total_rating_count' : 'total_rating';
+
       final offset = (page - 1) * limit;
 
       String igdbQuery = '''
@@ -502,8 +519,8 @@ class IGDBService {
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where genres.name = "$genre";
-        sort rating desc;
+        where $genreWhere;
+        sort $genreSort desc;
       ''';
 
       if (kDebugMode) {

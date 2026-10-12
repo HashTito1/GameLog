@@ -499,7 +499,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   _suggestedGames.isEmpty
                       ? 'Finding games for you…'
                       : RecommendationService.instance.lastWasPersonalized
-                          ? 'Picked from the genres you rate highest, leaving out games already in your library.'
+                          ? (RecommendationService.instance.lastSeedTitles.isNotEmpty
+                              ? 'Because you rated ${RecommendationService.instance.lastSeedTitles.join(', ')} highly. Games already in your library are left out.'
+                              : 'Picked from the genres you rate highest, leaving out games already in your library.')
                           : 'Rate a few games to get recommendations tailored to you. Until then, here\'s what\'s popular.',
                   style: TextStyle(
                     fontSize: 14,
