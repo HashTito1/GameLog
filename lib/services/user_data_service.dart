@@ -683,22 +683,22 @@ class UserDataService {
   /// Get user's playlists with privacy filtering
   static Future<List<Map<String, dynamic>>> getUserPlaylistsFiltered(String userId, {String? currentUserId}) async {
     try {
-      final playlistsSnapshot = await _firestore
-          .collection(_usersCollection)
-          .doc(userId)
-          .collection('playlists')
-          .orderBy('updatedAt', descending: true)
-          .get();
-
-      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
-      
-      // If viewing own profile, show all playlists
-      if (currentUserId == userId) {
-        return allPlaylists;
+      // Other people may only read public playlists, and Firestore rejects a
+      // query that could return private ones, so filter in the query itself.
+      Query<Map<String, dynamic>> query =
+          _firestore.collection(_usersCollection).doc(userId).collection('playlists');
+      if (currentUserId != userId) {
+        query = query.where('isPublic', isEqualTo: true);
       }
-      
-      // If viewing someone else's profile, only show public playlists
-      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+      final playlistsSnapshot = await query.get();
+
+      final playlists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
+      int updated(Map<String, dynamic> p) {
+        final v = p['updatedAt'];
+        return v is Timestamp ? v.millisecondsSinceEpoch : (v as num?)?.toInt() ?? 0;
+      }
+      playlists.sort((a, b) => updated(b).compareTo(updated(a)));
+      return playlists;
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];
@@ -927,22 +927,7 @@ class UserDataService {
   /// Get user's playlists with full game details and privacy filtering
   static Future<List<Map<String, dynamic>>> getUserPlaylistsWithGamesFiltered(String userId, {String? currentUserId}) async {
     try {
-      final playlistsSnapshot = await _firestore
-          .collection(_usersCollection)
-          .doc(userId)
-          .collection('playlists')
-          .orderBy('updatedAt', descending: true)
-          .get();
-
-      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
-      
-      // If viewing own profile, show all playlists
-      if (currentUserId == userId) {
-        return allPlaylists;
-      }
-      
-      // If viewing someone else's profile, only show public playlists
-      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+      return await getUserPlaylistsFiltered(userId, currentUserId: currentUserId);
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];

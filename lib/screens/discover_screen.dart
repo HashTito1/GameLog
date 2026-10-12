@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/rating_service.dart';
+import '../services/follow_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rating_interaction_service.dart';
@@ -23,6 +23,11 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   List<UserRating> _recentReviews = [];
+  Set<String> _followingIds = {};
+  int _priorityCount = 0; // leading reviews by people you follow
+
+  /// Highlight colour for reviews by people you follow.
+  static const Color _followAccent = Color(0xFFF5B83D);
   bool _isLoading = true;
   String _selectedFilter = 'recent';
   String _selectedRating = 'all';
@@ -31,6 +36,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     {'label': 'Recent', 'value': 'recent'},
     {'label': 'Top Rated', 'value': 'top_rated'},
     {'label': 'Popular', 'value': 'popular'},
+    {'label': 'Following', 'value': 'following'},
     {'label': 'Friends', 'value': 'friends'},
   ];
 
@@ -45,124 +51,70 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   void initState() {
     super.initState();
-    _checkDatabaseStats();
     _loadRecentReviews();
-  }
-
-  Future<void> _checkDatabaseStats() async {
-    try {
-      final stats = await RatingService.getDatabaseStats();
-      debugPrint('=== DISCOVER SCREEN DEBUG ===');
-      debugPrint('Database contains ${stats['totalRatings']} total ratings');
-      debugPrint('Database contains ${stats['uniqueGames']} unique games');
-      
-      // Also check if we can query the collection directly
-      final directQuery = await FirebaseFirestore.instance
-          .collection('game_ratings')
-          .limit(5)
-          .get();
-      debugPrint('Direct query found ${directQuery.docs.length} documents');
-      
-      // Check if there are any documents at all
-      if (directQuery.docs.isNotEmpty) {
-        debugPrint('Sample rating data: ${directQuery.docs.first.data()}');
-      }
-      
-      debugPrint('=============================');
-    } catch (e) {
-      debugPrint('Error checking database stats: $e');
-    }
   }
 
   Future<void> _loadRecentReviews() async {
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
-      debugPrint('=== LOADING REVIEWS DEBUG ===');
-      debugPrint('Loading reviews with optimized filter: $_selectedFilter');
-      
-      
+      final following = await FollowService.getFollowingIds();
       List<UserRating> reviews = [];
-      
-      // Use optimized methods for better performance
+
       switch (_selectedFilter) {
         case 'recent':
-          debugPrint('Calling getAllRecentRatings...');
           reviews = await RatingService.getAllRecentRatings(limit: 50);
           break;
         case 'top_rated':
-          debugPrint('Calling getTopRatedReviewsOptimized...');
           reviews = await RatingService.getTopRatedReviewsOptimized(limit: 50);
           break;
         case 'popular':
-          debugPrint('Calling getPopularReviewsOptimized...');
           reviews = await RatingService.getPopularReviewsOptimized(limit: 50);
           break;
+        case 'following':
+          reviews = await RatingService.getRecentRatingsByUsers(following, limit: 50);
+          break;
         case 'friends':
-          // Was 'New Users', which just repeated the Recent list.
           final me = FirebaseAuthService().currentUser;
           reviews = me == null ? [] : await RatingService.getFriendRecentRatings(me.uid, limit: 50);
           break;
       }
-      
-      debugPrint('Retrieved ${reviews.length} reviews from optimized query');
-      
-      if (reviews.isEmpty) {
-        debugPrint('⚠️ No reviews found! This could mean:');
-        debugPrint('1. No ratings exist in the database');
-        debugPrint('2. All ratings belong to the current user');
-        debugPrint('3. There\'s an issue with the query');
-      } else {
-        debugPrint('✅ Found reviews, sample: ${reviews.first.gameId} by ${reviews.first.username}');
+
+      // People you follow come first in the community tabs. On Recent their
+      // latest reviews are pulled in even if they're not in the newest 50.
+      if (following.isNotEmpty && !{'following', 'friends'}.contains(_selectedFilter)) {
+        var priority = <UserRating>[];
+        if (_selectedFilter == 'recent') {
+          priority = await RatingService.getRecentRatingsByUsers(following, limit: 10);
+        }
+        final seen = priority.map((r) => r.id).toSet();
+        priority = [
+          ...priority,
+          ...reviews.where((r) => following.contains(r.userId) && !seen.contains(r.id)),
+        ];
+        final priorityIds = priority.map((r) => r.id).toSet();
+        reviews = [...priority, ...reviews.where((r) => !priorityIds.contains(r.id))];
       }
-      
-      
-      // Filter out current user's ratings
+
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
-        final beforeFilter = reviews.length;
         reviews = reviews.where((rating) => rating.userId != currentUser.id).toList();
-        debugPrint('After filtering current user (${currentUser.id}): ${reviews.length} ratings (was $beforeFilter)');
-      } else {
-        debugPrint('No current user, keeping all ${reviews.length} ratings');
       }
-      
-      // Apply additional filters (rating filter only for now)
       reviews = _applyAdditionalFilters(reviews);
-      debugPrint('After applying additional filters: ${reviews.length} ratings');
-      
-      // If still no reviews, let's check what's in the database
-      if (reviews.isEmpty) {
-        debugPrint('🔍 No reviews after filtering. Checking database directly...');
-        try {
-          final directCheck = await FirebaseFirestore.instance
-              .collection('game_ratings')
-              .limit(10)
-              .get();
-          debugPrint('Direct database check found ${directCheck.docs.length} total ratings');
-          
-          if (directCheck.docs.isNotEmpty) {
-            for (final doc in directCheck.docs) {
-              final data = doc.data();
-              debugPrint('Rating: ${data['gameId']} by ${data['userId']} (${data['username']}) - ${data['rating']} stars');
-            }
-          }
-        } catch (e) {
-          debugPrint('Error in direct database check: $e');
-        }
-      }
-      
-      debugPrint('=== END LOADING REVIEWS DEBUG ===');
-      
-      
+      final priorityCount = _selectedFilter == 'following'
+          ? 0
+          : reviews.takeWhile((r) => following.contains(r.userId)).length;
+
       // Enrich with current user data (profile pics and updated usernames)
       reviews = await _enrichWithCurrentUserData(reviews);
       
       if (mounted) {
         setState(() {
           _recentReviews = reviews;
+          _followingIds = following;
+          _priorityCount = priorityCount;
           _isLoading = false;
         });
       }
@@ -282,9 +234,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               else
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                  sliver: SliverList.builder(
-                    itemCount: _recentReviews.length,
-                    itemBuilder: (context, index) => _buildReviewItem(_recentReviews[index]),
+                  sliver: SliverList.list(
+                    children: [
+                      if (_priorityCount > 0)
+                        _buildSectionLabel(theme, 'From people you follow', Icons.how_to_reg_rounded, _followAccent),
+                      for (var i = 0; i < _recentReviews.length; i++) ...[
+                        if (_priorityCount > 0 && i == _priorityCount)
+                          _buildSectionLabel(theme, 'Community', Icons.public, theme.colorScheme.primary),
+                        _buildReviewItem(_recentReviews[i]),
+                      ],
+                    ],
                   ),
                 ),
             ],
@@ -326,6 +285,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     'recent': Icons.schedule,
     'top_rated': Icons.star_rounded,
     'popular': Icons.local_fire_department,
+    'following': Icons.how_to_reg_rounded,
     'friends': Icons.people_alt_outlined,
   };
 
@@ -434,6 +394,24 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+  Widget _buildSectionLabel(ThemeData theme, String label, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.2, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Divider(color: color.withValues(alpha: 0.25), height: 1)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReviewsList(ThemeData theme) {
     final hasActiveFilters = _selectedRating != 'all';
     if (hasActiveFilters) {
@@ -447,6 +425,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       'top_rated' => ('No top-rated reviews yet', 'Reviews of 4★ and up will appear here.'),
       'popular' => ('No popular reviews yet', 'Reviews other players like will appear here.'),
       'friends' => ('No friend reviews yet', 'Add friends to see what they think of the games they play.'),
+      'following' => ('No reviews from people you follow', 'Follow players from their profiles to see their reviews here first.'),
       _ => ('No reviews yet', 'Be the first to rate and review a game!'),
     };
     return _buildEmptyState(title, subtitle);
@@ -506,12 +485,21 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final hasText = review.review != null && review.review!.trim().isNotEmpty;
     final name = review.displayName ?? review.username;
+    final followed = _followingIds.contains(review.userId);
+    final accent = followed ? _followAccent : theme.colorScheme.primary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        color: followed
+            ? Color.alphaBlend(_followAccent.withValues(alpha: 0.06), theme.colorScheme.surface)
+            : theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: followed
+              ? BorderSide(color: _followAccent.withValues(alpha: 0.7), width: 1.5)
+              : BorderSide.none,
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => Navigator.of(context).push(
@@ -522,6 +510,22 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (followed) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.how_to_reg_rounded, size: 14, color: _followAccent),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          'You follow $name',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _followAccent),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 _buildGameInfo(review),
                 if (hasText) ...[
                   const SizedBox(height: 12),
@@ -532,7 +536,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(12),
                       border: Border(
-                        left: BorderSide(color: theme.colorScheme.primary, width: 3),
+                        left: BorderSide(color: accent, width: 3),
                       ),
                     ),
                     child: Text(

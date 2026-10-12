@@ -11,8 +11,29 @@ class FollowService {
   FollowService._internal();
   static FollowService get instance => _instance;
 
+  static Set<String>? _followingIdsCache;
+  static String? _followingIdsOwner;
+
+  /// Ids of the users you follow (cached until you follow/unfollow someone).
+  static Future<Set<String>> getFollowingIds({bool refresh = false}) async {
+    final me = FirebaseAuthService().currentUser?.uid;
+    if (me == null) return {};
+    if (!refresh && _followingIdsCache != null && _followingIdsOwner == me) {
+      return _followingIdsCache!;
+    }
+    try {
+      final snapshot = await _firestore.collection('users').doc(me).collection('following').get();
+      _followingIdsOwner = me;
+      return _followingIdsCache = snapshot.docs.map((doc) => doc.id).toSet();
+    } catch (e) {
+      debugPrint('Error loading following ids: $e');
+      return _followingIdsCache ?? {};
+    }
+  }
+
   /// Follow a user
   static Future<void> followUser(String targetUserId) async {
+    _followingIdsCache = null;
     try {
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser == null) {
@@ -75,6 +96,7 @@ class FollowService {
 
   /// Unfollow a user
   static Future<void> unfollowUser(String targetUserId) async {
+    _followingIdsCache = null;
     try {
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser == null) {

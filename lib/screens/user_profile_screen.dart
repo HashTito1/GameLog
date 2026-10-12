@@ -8,6 +8,10 @@ import '../services/igdb_service.dart';
 import '../services/library_service.dart';
 import '../services/friends_service.dart';
 import '../services/follow_service.dart';
+import '../services/rating_service.dart';
+import '../models/user_rating.dart';
+import '../utils/date_format.dart';
+import '../widgets/chat_list.dart';
 import 'game_detail_screen.dart';
 import '../models/game.dart';
 
@@ -25,6 +29,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Map<String, dynamic>? _userData;
   Game? _favoriteGame;
   List<Map<String, dynamic>> _userPlaylists = [];
+  List<UserRating> _ratings = [];
+  bool _ratingsLoaded = false;
   int _userRatingsCount = 0;
   double _userAverageRating = 0.0;
   bool _isCurrentUser = false;
@@ -159,6 +165,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           });
         }
 
+        // Ratings feed the Recommends and Recent reviews sections.
+        _loadRatings();
+
         // Load user rating stats
         await _loadUserRatingStats(widget.userId);
 
@@ -176,6 +185,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       debugPrint('Error loading profile data: $e');
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadRatings() async {
+    final ratings = await RatingService.getUserRecentRatings(widget.userId, limit: 40);
+    if (mounted) {
+      setState(() {
+        _ratings = ratings;
+        _ratingsLoaded = true;
+      });
     }
   }
 
@@ -619,20 +638,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           _buildSliverAppBar(bannerImage, profileImage, displayName, username),
           SliverToBoxAdapter(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 16),
+                _buildIdentity(followers, following),
+                if (!_isCurrentUser) _buildActionRow(),
+                const SizedBox(height: 20),
                 _buildStatsSection(gamesPlayed, _userRatingsCount, _userAverageRating),
-                const SizedBox(height: 16),
-                _buildFavoriteGameSection(),
-                const SizedBox(height: 16),
-                if (_userPlaylists.isNotEmpty) ...[
-                  _buildPlaylistsSection(),
-                  const SizedBox(height: 16),
-                ],
-                if (!_isCurrentUser) _buildFriendActions(),
-                const SizedBox(height: 16),
-                _buildFriendsSection(followers, following),
                 const SizedBox(height: 24),
+                if (_isCurrentUser || _favoriteGame != null) ...[
+                  _buildFavoriteGameSection(),
+                  const SizedBox(height: 24),
+                ],
+                _buildRecommendsSection(),
+                const SizedBox(height: 24),
+                _buildPlaylistsSection(),
+                const SizedBox(height: 24),
+                _buildRecentReviewsSection(),
+                const SizedBox(height: 32),
               ],
             ),
           ),
@@ -1040,265 +1062,555 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildPlaylistsSection() {
+  // ---------------------------------------------------------------------------
+  // Profile body sections
+  // ---------------------------------------------------------------------------
+
+  final Map<String, Future<Game?>> _gameLookups = {};
+
+  Future<Game?> _gameFor(String gameId) => _gameLookups.putIfAbsent(gameId, () async {
+        try {
+          return await IGDBService.instance.getGameDetails(gameId);
+        } catch (e) {
+          return null;
+        }
+      });
+
+  /// Highest-rated games, best first (what this player recommends).
+  List<UserRating> get _recommendations {
+    final top = _ratings.where((r) => r.rating >= 4.0).toList()
+      ..sort((a, b) {
+        final byRating = b.rating.compareTo(a.rating);
+        return byRating != 0 ? byRating : b.updatedAt.compareTo(a.updatedAt);
+      });
+    return top.take(12).toList();
+  }
+
+  List<UserRating> get _writtenReviews =>
+      _ratings.where((r) => (r.review ?? '').trim().isNotEmpty).take(5).toList();
+
+  void _openGame(String gameId, [Game? game]) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => GameDetailScreen(gameId: gameId, initialGame: game)),
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon, Color color, {String? trailing}) {
     final theme = Theme.of(context);
-    
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurface),
+          ),
+          const Spacer(),
+          if (trailing != null)
+            Text(
+              trailing,
+              style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyNote(String text, IconData icon) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.5);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: muted),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: TextStyle(color: muted, fontSize: 13.5))),
+        ],
+      ),
+    );
+  }
+
+  /// Bio, join date and follower counts under the banner.
+  Widget _buildIdentity(int followers, int following) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final bio = (_userData?['bio'] ?? '').toString().trim();
+    final joinedMs = _userData?['joinDate'] ?? _userData?['createdAt'];
+    final joined = joinedMs is int ? DateTime.fromMillisecondsSinceEpoch(joinedMs) : null;
+
+    Widget count(int value, String label) => Text.rich(
+          TextSpan(children: [
+            TextSpan(
+              text: '$value ',
+              style: TextStyle(fontWeight: FontWeight.w800, color: theme.colorScheme.onSurface),
+            ),
+            TextSpan(text: label),
+          ]),
+          style: TextStyle(fontSize: 14, color: muted),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Column(
+        children: [
+          if (bio.isNotEmpty) ...[
+            Text(
+              bio,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14.5, height: 1.4, color: theme.colorScheme.onSurface.withValues(alpha: 0.85)),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 16,
+            runSpacing: 6,
+            children: [
+              count(followers, followers == 1 ? 'follower' : 'followers'),
+              count(following, 'following'),
+              if (joined != null)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.calendar_month_outlined, size: 15, color: muted),
+                    const SizedBox(width: 4),
+                    Text('Joined ${_monthYear(joined)}', style: TextStyle(fontSize: 14, color: muted)),
+                  ],
+                ),
+            ],
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+
+  static String _monthYear(DateTime d) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
+  /// Follow / friend / message buttons for someone else's profile.
+  Widget _buildActionRow() {
+    final theme = Theme.of(context);
+    final friends = _friendshipStatus == FriendshipStatus.friends;
+
+    final follow = _isFollowing
+        ? OutlinedButton.icon(
+            onPressed: _isLoadingFollow ? null : _toggleFollow,
+            icon: const Icon(Icons.how_to_reg_rounded, size: 18),
+            label: const Text('Following'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFF5B83D),
+              side: const BorderSide(color: Color(0xFFF5B83D)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          )
+        : FilledButton.icon(
+            onPressed: _isLoadingFollow ? null : _toggleFollow,
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+            label: const Text('Follow'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+
+    final (IconData friendIcon, String friendLabel, VoidCallback? friendAction) = switch (_friendshipStatus) {
+      FriendshipStatus.none => (Icons.group_add_outlined, 'Add friend', _sendFriendRequest),
+      FriendshipStatus.requestSent => (Icons.schedule, 'Requested', null),
+      FriendshipStatus.requestReceived => (Icons.check, 'Accept', _acceptFriendRequest),
+      FriendshipStatus.friends => (Icons.people_alt_rounded, 'Friends', _confirmRemoveFriend),
+      FriendshipStatus.self => (Icons.person, '', null),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.playlist_play,
-                color: theme.colorScheme.secondary,
-                size: 20,
+          Expanded(child: follow),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _isLoadingAction ? null : friendAction,
+              icon: Icon(friendIcon, size: 18),
+              label: Text(friendLabel, overflow: TextOverflow.ellipsis),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.onSurface,
+                side: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              const SizedBox(width: 8),
-              const Text(
-                'Playlists',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${_userPlaylists.length}',
-                style: TextStyle(
-                  color: theme.colorScheme.secondary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
+          if (friends) ...[
+            const SizedBox(width: 10),
+            IconButton.filledTonal(
+              onPressed: () => openChatWith(context, widget.userId, _userData),
+              icon: const Icon(Icons.chat_bubble_outline),
+              tooltip: 'Message',
+              style: IconButton.styleFrom(
+                padding: const EdgeInsets.all(12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmRemoveFriend() async {
+    final name = (_userData?['displayName'] ?? _userData?['username'] ?? 'this user').toString();
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove friend?'),
+        content: Text('You and $name will no longer be friends.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (remove == true) await _removeFriend();
+  }
+
+  /// Horizontal row of the player's top-rated games.
+  Widget _buildRecommendsSection() {
+    final theme = Theme.of(context);
+    final picks = _recommendations;
+    final name = _isCurrentUser ? 'You' : (_userData?['displayName'] ?? _userData?['username'] ?? 'They').toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader('Recommends', Icons.thumb_up_alt_rounded, const Color(0xFF10B981),
+            trailing: picks.isEmpty ? null : '${picks.length}'),
+        if (!_ratingsLoaded)
+          const SizedBox(height: 170, child: Center(child: CircularProgressIndicator()))
+        else if (picks.isEmpty)
+          _emptyNote(
+            _isCurrentUser
+                ? 'Games you rate 4★ or higher show up here as your recommendations.'
+                : "$name hasn't rated anything 4★ or higher yet.",
+            Icons.thumb_up_off_alt,
+          )
+        else
           SizedBox(
-            height: 100, // Increased from 80 to prevent overflow
-            child: ListView.builder(
+            height: 178,
+            child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: _userPlaylists.length,
-              itemBuilder: (context, index) {
-                final playlist = _userPlaylists[index];
-                return GestureDetector(
-                  onTap: () => _showPlaylistDialog(playlist),
-                  onLongPress: _isCurrentUser ? () => _showPlaylistOptions(playlist) : null,
-                  child: Container(
-                    width: 120,
-                    margin: const EdgeInsets.only(right: 12),
-                    padding: const EdgeInsets.all(10), // Reduced padding from 12 to 10
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min, // Added to prevent overflow
-                      children: [
-                        Row(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: picks.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, i) {
+                final pick = picks[i];
+                return FutureBuilder<Game?>(
+                  future: _gameFor(pick.gameId),
+                  builder: (context, snapshot) {
+                    final game = snapshot.data;
+                    final cover = game?.coverImage ?? '';
+                    final title = game?.title ?? pick.gameTitle ?? '';
+                    return GestureDetector(
+                      onTap: () => _openGame(pick.gameId, game),
+                      child: SizedBox(
+                        width: 100,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Flexible( // Wrapped in Flexible to prevent overflow
-                              child: Text(
-                                playlist['name'] ?? 'Untitled',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                            Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    width: 100,
+                                    height: 133,
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                                    child: cover.isEmpty
+                                        ? Icon(Icons.videogame_asset,
+                                            color: theme.colorScheme.onSurface.withValues(alpha: 0.3))
+                                        : CachedNetworkImage(imageUrl: cover, fit: BoxFit.cover),
+                                  ),
                                 ),
-                                maxLines: 2, // Increased from 1 to 2 for better text display
-                                overflow: TextOverflow.ellipsis,
+                                Positioned(
+                                  left: 6,
+                                  bottom: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.7),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.star_rounded, size: 13, color: Color(0xFFFBBF24)),
+                                        const SizedBox(width: 2),
+                                        Text(
+                                          pick.rating.toStringAsFixed(pick.rating % 1 == 0 ? 0 : 1),
+                                          style: const TextStyle(
+                                              fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                height: 1.2,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurface,
                               ),
                             ),
-                            if (_isCurrentUser) ...[
-                              const SizedBox(width: 4),
-                              Icon(
-                                playlist['isPublic'] == true ? Icons.public : Icons.lock,
-                                size: 12,
-                                color: playlist['isPublic'] == true ? theme.colorScheme.secondary : theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                              ),
-                            ],
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${(playlist['games'] as List?)?.length ?? 0} games',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        if (_isCurrentUser && playlist['isPublic'] != true)
-                          const Text(
-                            'Private',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey,
-                              fontStyle: FontStyle.italic,
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The player's latest written reviews.
+  Widget _buildRecentReviewsSection() {
+    final theme = Theme.of(context);
+    final reviews = _writtenReviews;
+    if (_ratingsLoaded && reviews.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader('Recent reviews', Icons.rate_review_rounded, theme.colorScheme.primary),
+        if (!_ratingsLoaded)
+          const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+        else
+          for (final review in reviews)
+            FutureBuilder<Game?>(
+              future: _gameFor(review.gameId),
+              builder: (context, snapshot) {
+                final game = snapshot.data;
+                final cover = game?.coverImage ?? '';
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: Material(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _openGame(review.gameId, game),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                width: 52,
+                                height: 70,
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                                child: cover.isEmpty
+                                    ? null
+                                    : CachedNetworkImage(imageUrl: cover, fit: BoxFit.cover),
+                              ),
                             ),
-                          ),
-                        const Spacer(),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Icon(
-                            Icons.playlist_play,
-                            color: Theme.of(context).colorScheme.secondary,
-                            size: 16,
-                          ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    game?.title ?? review.gameTitle ?? 'Game',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    children: [
+                                      for (var s = 1; s <= 5; s++)
+                                        Icon(
+                                          review.rating >= s
+                                              ? Icons.star_rounded
+                                              : review.rating >= s - 0.5
+                                                  ? Icons.star_half_rounded
+                                                  : Icons.star_outline_rounded,
+                                          size: 15,
+                                          color: const Color(0xFFFBBF24),
+                                        ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        formatShortDate(review.updatedAt),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    review.review!.trim(),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      height: 1.35,
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 );
               },
             ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 
-  Widget _buildFriendActions() {
-    if (_isCurrentUser) return const SizedBox.shrink();
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SizedBox(
-        width: double.infinity,
-        child: _buildFriendshipButton(),
-      ),
-    );
-  }
-
-  Widget _buildFriendshipButton() {
+  /// Public playlists as cards with a 2x2 cover mosaic.
+  Widget _buildPlaylistsSection() {
     final theme = Theme.of(context);
-    
-    switch (_friendshipStatus) {
-      case FriendshipStatus.none:
-        return ElevatedButton.icon(
-          onPressed: _isLoadingAction ? null : _sendFriendRequest,
-          icon: _isLoadingAction
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.person_add, size: 18),
-          label: const Text('Send Friend Request'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-            foregroundColor: theme.colorScheme.primary,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+    final name = (_userData?['displayName'] ?? _userData?['username'] ?? 'This player').toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(_isCurrentUser ? 'Playlists' : 'Public playlists', Icons.playlist_play_rounded,
+            theme.colorScheme.secondary,
+            trailing: _userPlaylists.isEmpty ? null : '${_userPlaylists.length}'),
+        if (_userPlaylists.isEmpty)
+          _emptyNote(
+            _isCurrentUser
+                ? 'Create playlists in your Library and make them public to share recommendations here.'
+                : "$name hasn't shared any playlists yet.",
+            Icons.queue_music_rounded,
+          )
+        else ...[
+          SizedBox(
+            height: 212,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _userPlaylists.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, i) => _buildPlaylistCard(_userPlaylists[i]),
             ),
-            elevation: 0,
           ),
-        );
-      case FriendshipStatus.requestSent:
-        return ElevatedButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.schedule, size: 18),
-          label: const Text('Request Sent'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey.withValues(alpha: 0.1),
-            foregroundColor: Colors.grey,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
+          if (_isCurrentUser)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Text(
+                'Long-press a playlist to make it public or private.',
+                style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+              ),
             ),
-            elevation: 0,
-          ),
-        );
-      case FriendshipStatus.requestReceived:
-        return Row(
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPlaylistCard(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
+    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? const []);
+    final covers = games
+        .map((g) => (g['gameCoverImage'] ?? '').toString())
+        .where((c) => c.isNotEmpty)
+        .take(4)
+        .toList();
+    final isPublic = playlist['isPublic'] == true;
+
+    Widget tile(int i) => i < covers.length
+        ? CachedNetworkImage(imageUrl: covers[i], fit: BoxFit.cover)
+        : Container(color: theme.colorScheme.onSurface.withValues(alpha: 0.06));
+
+    return GestureDetector(
+      onTap: () => _showPlaylistDialog(playlist),
+      onLongPress: _isCurrentUser ? () => _showPlaylistOptions(playlist) : null,
+      child: SizedBox(
+        width: 150,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _isLoadingAction ? null : _acceptFriendRequest,
-                icon: _isLoadingAction
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 150,
+                height: 150,
+                child: covers.isEmpty
+                    ? Container(
+                        color: theme.colorScheme.secondary.withValues(alpha: 0.15),
+                        child: Icon(Icons.queue_music_rounded, size: 44, color: theme.colorScheme.secondary),
                       )
-                    : const Icon(Icons.check, size: 18),
-                label: const Text('Accept'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.secondary.withValues(alpha: 0.1),
-                  foregroundColor: theme.colorScheme.secondary,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: theme.colorScheme.secondary.withValues(alpha: 0.3)),
-                  ),
-                  elevation: 0,
-                ),
+                    : covers.length < 4
+                        ? CachedNetworkImage(imageUrl: covers.first, fit: BoxFit.cover)
+                        : Column(
+                            children: [
+                              Expanded(child: Row(children: [Expanded(child: tile(0)), const SizedBox(width: 2), Expanded(child: tile(1))])),
+                              const SizedBox(height: 2),
+                              Expanded(child: Row(children: [Expanded(child: tile(2)), const SizedBox(width: 2), Expanded(child: tile(3))])),
+                            ],
+                          ),
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _isLoadingAction ? null : _declineFriendRequest,
-                icon: const Icon(Icons.close, size: 18),
-                label: const Text('Decline'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.error.withValues(alpha: 0.1),
-                  foregroundColor: theme.colorScheme.error,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.3)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    (playlist['name'] ?? 'Untitled').toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface),
                   ),
-                  elevation: 0,
                 ),
-              ),
+                if (_isCurrentUser)
+                  Icon(isPublic ? Icons.public : Icons.lock_outline,
+                      size: 14, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+              ],
+            ),
+            Text(
+              '${games.length} ${games.length == 1 ? 'game' : 'games'}',
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
             ),
           ],
-        );
-      case FriendshipStatus.friends:
-        return ElevatedButton.icon(
-          onPressed: _isLoadingAction ? null : _removeFriend,
-          icon: _isLoadingAction
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.person_remove, size: 18),
-          label: const Text('Remove Friend'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: theme.colorScheme.error.withValues(alpha: 0.1),
-            foregroundColor: theme.colorScheme.error,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.3)),
-            ),
-            elevation: 0,
-          ),
-        );
-      case FriendshipStatus.self:
-        return const SizedBox.shrink();
-    }
+        ),
+      ),
+    );
   }
 
   Future<void> _sendFriendRequest() async {
@@ -1367,39 +1679,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  Future<void> _declineFriendRequest() async {
-    setState(() => _isLoadingAction = true);
-    
-    try {
-      final currentUser = FirebaseAuthService.instance.currentUser;
-      if (currentUser != null) {
-        await FriendsService.declineFriendRequest(widget.userId, currentUser.uid);
-        setState(() {
-          _friendshipStatus = FriendshipStatus.none;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Friend request declined'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to decline friend request: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isLoadingAction = false);
-    }
-  }
-
   Future<void> _removeFriend() async {
     setState(() => _isLoadingAction = true);
     
@@ -1431,114 +1710,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     } finally {
       setState(() => _isLoadingAction = false);
     }
-  }
-
-  Widget _buildFriendsSection(int followers, int following) {
-    final theme = Theme.of(context);
-    
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.people,
-                color: Theme.of(context).colorScheme.primary,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Social',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSocialStat('Followers', followers),
-              ),
-              Container(
-                height: 32,
-                width: 1,
-                color: theme.colorScheme.outline.withValues(alpha: 0.3),
-              ),
-              Expanded(
-                child: _buildSocialStat('Following', following),
-              ),
-            ],
-          ),
-          if (!_isCurrentUser) ...[
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isLoadingFollow ? null : _toggleFollow,
-                icon: _isLoadingFollow
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : Icon(_isFollowing ? Icons.person_remove : Icons.person_add),
-                label: Text(_isFollowing ? 'Unfollow' : 'Follow'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isFollowing ? theme.colorScheme.outline.withValues(alpha: 0.3) : theme.colorScheme.secondary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSocialStat(String label, int count) {
-    return Column(
-      children: [
-        Text(
-          count.toString(),
-          style: const TextStyle(
-            fontSize: 18, // Reduced from 20
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
-      ],
-    );
   }
 
   Future<void> _toggleFollow() async {

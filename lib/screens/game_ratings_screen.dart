@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../services/rating_service.dart';
+import '../services/follow_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rating_interaction_service.dart';
 import '../services/firebase_auth_service.dart';
@@ -32,6 +33,10 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
   Map<String, Map<String, dynamic>> _userProfiles = {};
   bool _isLoading = true;
   String _sortBy = 'recent'; // recent, highest, lowest
+  Set<String> _followingIds = {};
+
+  /// Highlight colour for reviews by people you follow (same as Discover).
+  static const Color _followAccent = Color(0xFFF5B83D);
 
   @override
   void initState() {
@@ -94,10 +99,13 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
         enrichedRatings.add(enrichedRating);
       }
 
+      final following = await FollowService.getFollowingIds();
+
       if (mounted) {
         setState(() {
           _ratings = enrichedRatings;
           _userProfiles = profiles;
+          _followingIds = following;
           _isLoading = false;
         });
         _sortRatings();
@@ -137,6 +145,11 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
           _ratings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
           break;
       }
+      // Reviews by people you follow come first, keeping the chosen order.
+      _ratings = [
+        ..._ratings.where((r) => _followingIds.contains(r.userId)),
+        ..._ratings.where((r) => !_followingIds.contains(r.userId)),
+      ];
     });
   }
 
@@ -286,14 +299,19 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     final theme = Theme.of(context);
     final displayName = userProfile?['displayName'] ?? userProfile?['username'] ?? 'User';
     final profileImage = userProfile?['profileImage'] ?? '';
+    final followed = _followingIds.contains(rating.userId);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: followed
+            ? Color.alphaBlend(_followAccent.withValues(alpha: 0.06), theme.colorScheme.surface)
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+        border: followed
+            ? Border.all(color: _followAccent.withValues(alpha: 0.7), width: 1.5)
+            : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -320,8 +338,8 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                      width: 1.5,
+                      color: followed ? _followAccent : theme.colorScheme.primary.withValues(alpha: 0.3),
+                      width: followed ? 2 : 1.5,
                     ),
                   ),
                   child: CircleAvatar(
@@ -348,13 +366,34 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayName,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        if (followed) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: _followAccent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Following',
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _followAccent),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 1),
                     Text(

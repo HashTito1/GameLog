@@ -467,6 +467,30 @@ class RatingService {
     }
   }
 
+  /// Newest ratings written by any of [userIds].
+  static Future<List<UserRating>> getRecentRatingsByUsers(Iterable<String> userIds, {int limit = 20}) async {
+    final ids = userIds.toList();
+    if (ids.isEmpty) return [];
+    try {
+      // whereIn takes at most 30 values, so query in chunks. Sorting happens
+      // here: whereIn + orderBy would need a composite index.
+      final chunks = [
+        for (var i = 0; i < ids.length; i += 30) ids.sublist(i, (i + 30).clamp(0, ids.length)),
+      ];
+      final snapshots = await Future.wait(chunks.map(
+        (chunk) => _firestore.collection(_ratingsCollection).where('userId', whereIn: chunk).get(),
+      ));
+      final ratings = [
+        for (final snapshot in snapshots)
+          for (final doc in snapshot.docs) UserRating.fromMap(doc.data()),
+      ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      return ratings.take(limit).toList();
+    } catch (e) {
+      debugPrint('Error loading ratings by users: $e');
+      return [];
+    }
+  }
+
   // Get recent ratings from friends
   static Future<List<UserRating>> getFriendRecentRatings(String userId, {int limit = 10}) async {
     try {
@@ -482,26 +506,8 @@ class RatingService {
         return [];
       }
 
-      // Get friend IDs
       final friendIds = friends.map((friend) => friend['id'] as String).toList();
-      debugPrint('📋 Friend IDs: $friendIds');
-
-      // whereIn takes at most 30 values, so query friends in chunks. Sorting
-      // happens here: whereIn + orderBy would need a composite index that
-      // doesn't exist, and the query used to fail and show no friend reviews.
-      final ratings = <UserRating>[];
-      for (var i = 0; i < friendIds.length; i += 30) {
-        final chunk = friendIds.sublist(i, (i + 30).clamp(0, friendIds.length));
-        final querySnapshot = await _firestore
-            .collection(_ratingsCollection)
-            .where('userId', whereIn: chunk)
-            .get();
-        ratings.addAll(querySnapshot.docs.map((doc) => UserRating.fromMap(doc.data())));
-      }
-
-      ratings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      debugPrint('✅ Found ${ratings.length} friend ratings');
-      return ratings.take(limit).toList();
+      return await getRecentRatingsByUsers(friendIds, limit: limit);
     } catch (e) {
       debugPrint('❌ Error in getFriendRecentRatings: $e');
       return [];
