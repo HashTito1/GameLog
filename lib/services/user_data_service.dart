@@ -283,6 +283,9 @@ class UserDataService {
           .doc('${userId}_$gameId');
       
       batch.set(globalLibraryRef, {
+        // Rules require the owner on create (the entry may not exist yet).
+        'userId': userId,
+        'gameId': gameId,
         'userRating': rating,
         'userReview': review,
         'dateUpdated': FieldValue.serverTimestamp(),
