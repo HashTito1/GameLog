@@ -416,7 +416,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 12),
                   SizedBox(
-                    height: 120,
+                    height: _smallCoverHeight + 8 + _textSlot(12, lines: 2),
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
                       itemCount: _suggestedGames.take(5).length,
@@ -435,6 +435,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  static const double _smallWidth = 88;
+  static const double _smallCoverHeight = _smallWidth * 4 / 3;
+
   Widget _buildSmallGameCard(Game game, ThemeData theme) {
     return GestureDetector(
       onTap: () {
@@ -448,11 +451,13 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       child: Container(
-        width: 80,
+        width: _smallWidth,
         margin: const EdgeInsets.only(right: 12),
         child: Column(
           children: [
-            Expanded(
+            SizedBox(
+              height: _smallCoverHeight,
+              width: _smallWidth,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: game.coverImage.isNotEmpty
@@ -488,16 +493,20 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
-              game.title,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            SizedBox(
+              height: _textSlot(12, lines: 2),
+              child: Text(
+                game.title,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 12,
+                  height: 1.3,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -715,9 +724,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _coverThumb(ThemeData theme, String? url, {double width = 44, double height = 58}) {
+  Widget _coverThumb(ThemeData theme, String? url, {double width = 44, double height = 58, double radius = 6}) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
         width: width,
         height: height,
@@ -781,7 +790,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         SizedBox(
-          height: 196,
+          height: _tileCoverHeight + 6 + _textSlot(12) + _textSlot(11) + 4,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -792,27 +801,12 @@ class _HomeScreenState extends State<HomeScreen> {
               return GestureDetector(
                 onTap: () => _openGame(game.id, game: game),
                 child: SizedBox(
-                  width: 100,
+                  width: _tileWidth,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: index == 0
-                              ? Border.all(color: theme.colorScheme.primary, width: 2)
-                              : null,
-                          boxShadow: index == 0
-                              ? [
-                                  BoxShadow(
-                                    color: theme.colorScheme.primary.withValues(alpha: 0.35),
-                                    blurRadius: 10,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: _coverThumb(theme, game.coverImage, width: 100, height: 134),
-                      ),
+                      _coverThumb(theme, game.coverImage,
+                          width: _tileWidth, height: _tileCoverHeight, radius: 12),
                       const SizedBox(height: 6),
                       Row(
                         children: [
@@ -939,38 +933,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text.rich(
-                          TextSpan(
-                            style: TextStyle(fontSize: 13, color: muted),
-                            children: [
-                              TextSpan(
-                                text: name,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: theme.colorScheme.onSurface,
-                                ),
-                              ),
-                              const TextSpan(text: ' rated '),
-                              TextSpan(
-                                text: title,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: theme.colorScheme.onSurface,
-                                ),
-                              ),
-                              const TextSpan(text: '  '),
-                              WidgetSpan(
-                                alignment: PlaceholderAlignment.middle,
-                                child: _starRow(review.rating, size: 12),
-                              ),
-                            ],
-                          ),
-                          maxLines: 2,
+                        // Fixed three-line layout so every card is the same
+                        // height whatever the game's title length.
+                        Text(
+                          '$name rated',
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: muted),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
                         Row(
                           children: [
+                            _starRow(review.rating, size: 12),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(
@@ -1072,22 +1058,23 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 color: theme.colorScheme.onSurface,
                                               ),
                                             ),
-                                            const TextSpan(text: '  '),
-                                            WidgetSpan(
-                                              alignment: PlaceholderAlignment.middle,
-                                              child: _starRow(review.rating, size: 12),
-                                            ),
                                           ],
                                         ),
-                                        maxLines: 2,
+                                        maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        review.review!.trim(),
-                                        style: TextStyle(fontSize: 12, color: muted, height: 1.3),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
+                                      const SizedBox(height: 5),
+                                      _starRow(review.rating, size: 12),
+                                      const SizedBox(height: 6),
+                                      // Always two lines tall so cards line up.
+                                      SizedBox(
+                                        height: MediaQuery.textScalerOf(context).scale(12) * 1.35 * 2 + 1,
+                                        child: Text(
+                                          review.review!.trim(),
+                                          style: TextStyle(fontSize: 12, color: muted, height: 1.35),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1119,7 +1106,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _feedSectionHeader(theme, 'Community Top Rated'),
         SizedBox(
-          height: 168,
+          height: _tileCoverHeight + 6 + _textSlot(12) + _textSlot(12) + 4,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1137,11 +1124,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   return GestureDetector(
                     onTap: () => _openGame(gameId, game: game),
                     child: SizedBox(
-                      width: 120,
+                      width: _tileWidth,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _coverThumb(theme, game?.coverImage, width: 120, height: 104),
+                          _coverThumb(theme, game?.coverImage,
+                              width: _tileWidth, height: _tileCoverHeight, radius: 12),
                           const SizedBox(height: 6),
                           Text(
                             game?.title ?? '…',
@@ -1271,7 +1259,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 200,
+          height: _tileCoverHeight + 8 + _textSlot(14, lines: 2) + 2 + _textSlot(12) + 4 + _textSlot(12) + 4,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1284,6 +1272,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
+
+  // Every tile in a row gets the same 3:4 cover and the same two-line title
+  // slot, so a long title no longer squeezes its cover.
+  static const double _tileWidth = 140;
+  static const double _tileCoverHeight = _tileWidth * 4 / 3;
+
+  /// Height of [lines] lines of [fontSize] text (line height 1.3) at the
+  /// device's text size setting, so reserved text slots never overflow.
+  double _textSlot(double fontSize, {int lines = 1}) =>
+      MediaQuery.textScalerOf(context).scale(fontSize) * 1.3 * lines + 1;
 
   Widget _buildPlayStoreGameCard(Game game, ThemeData theme) {
     return GestureDetector(
@@ -1298,15 +1296,17 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       child: Container(
-        width: 140,
-        margin: const EdgeInsets.only(right: 12),
+        width: _tileWidth,
+        margin: const EdgeInsets.only(right: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            SizedBox(
+              height: _tileCoverHeight,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
+                  width: _tileWidth,
                   decoration: BoxDecoration(
                     boxShadow: [
                       BoxShadow(
@@ -1320,7 +1320,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? AppNetworkImage(
                           imageUrl: game.coverImage,
                           fit: BoxFit.cover,
-                          width: double.infinity,
+                          width: _tileWidth,
+                          height: _tileCoverHeight,
                           placeholder: (context, url) => Container(
                             color: theme.colorScheme.surface,
                             child: Center(
@@ -1343,25 +1344,33 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
-              game.title,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+            SizedBox(
+              height: _textSlot(14, lines: 2),
+              child: Text(
+                game.title,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontSize: 14,
+                  height: 1.3,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 2),
-            Text(
-              game.subtitle,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                fontSize: 12,
+            SizedBox(
+              height: _textSlot(12),
+              child: Text(
+                game.subtitle,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             if (game.averageRating > 0)
