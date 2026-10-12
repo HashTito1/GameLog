@@ -145,6 +145,18 @@ void main() {
       expect(url, 'user');
     });
 
+    test('prefers the APK for this device\'s processor, else universal', () {
+      final assets = [
+        {'name': 'GameLog-1.3.1.apk', 'browser_download_url': 'universal'},
+        {'name': 'GameLog-1.3.1-armeabi-v7a.apk', 'browser_download_url': 'v7a'},
+        {'name': 'GameLog-1.3.1-arm64-v8a.apk', 'browser_download_url': 'arm64'},
+        {'name': 'GameLog-admin-1.3.1-arm64-v8a.apk', 'browser_download_url': 'admin'},
+      ];
+      expect(UpdateInfo.userApkUrl(assets, abi: 'arm64-v8a'), 'arm64');
+      expect(UpdateInfo.userApkUrl(assets, abi: 'armeabi-v7a'), 'v7a');
+      expect(UpdateInfo.userApkUrl(assets, abi: 'x86_64'), 'universal');
+    });
+
     test('returns empty when there is no APK', () {
       expect(UpdateInfo.userApkUrl([]), '');
     });

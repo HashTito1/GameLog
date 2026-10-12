@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,17 +49,40 @@ class UpdateInfo {
   /// Releases can carry both the user and admin APKs; never hand the admin
   /// build to regular users.
   @visibleForTesting
-  static String userApkUrl(List<dynamic> assets) =>
-      _userApk(assets)?['browser_download_url'] ?? '';
+  static String userApkUrl(List<dynamic> assets, {String? abi}) =>
+      _userApk(assets, abi: abi)?['browser_download_url'] ?? '';
 
-  static Map<String, dynamic>? _userApk(List<dynamic> assets) {
+  /// Android ABI names used in per-ABI APK file names.
+  static const List<String> knownAbis = ['arm64-v8a', 'armeabi-v7a', 'x86_64'];
+
+  /// This device's ABI, e.g. "arm64-v8a" (null off Android).
+  static String? get deviceAbi {
+    if (!Platform.isAndroid) return null;
+    return switch (Abi.current()) {
+      Abi.androidArm64 => 'arm64-v8a',
+      Abi.androidArm => 'armeabi-v7a',
+      Abi.androidX64 => 'x86_64',
+      _ => null,
+    };
+  }
+
+  /// Prefer the small APK built for this device's processor (about a third of
+  /// the universal APK), then fall back to the universal one. Never the admin
+  /// build.
+  static Map<String, dynamic>? _userApk(List<dynamic> assets, {String? abi}) {
+    abi ??= deviceAbi;
+    Map<String, dynamic>? universal;
     for (final asset in assets) {
       final name = (asset['name'] ?? '').toString().toLowerCase();
-      if (name.endsWith('.apk') && !name.contains('admin')) {
+      if (!name.endsWith('.apk') || name.contains('admin')) continue;
+      final assetAbi = knownAbis.where(name.contains).firstOrNull;
+      if (assetAbi == null) {
+        universal ??= Map<String, dynamic>.from(asset as Map);
+      } else if (assetAbi == abi) {
         return Map<String, dynamic>.from(asset as Map);
       }
     }
-    return null;
+    return universal;
   }
 }
 

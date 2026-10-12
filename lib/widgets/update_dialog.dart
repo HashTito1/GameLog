@@ -23,7 +23,8 @@ class _UpdateAvailableDialogState extends State<UpdateAvailableDialog> {
   int _received = 0;
   String _error = '';
   bool _cancelled = false;
-  File? _apk;
+  DateTime _lastPaint = DateTime.fromMillisecondsSinceEpoch(0);
+File? _apk;
 
   UpdateInfo get _info => widget.info;
 
@@ -44,12 +45,14 @@ class _UpdateAvailableDialogState extends State<UpdateAvailableDialog> {
         _info,
         isCancelled: () => _cancelled,
         onProgress: (progress, received) {
-          if (mounted) {
-            setState(() {
-              _progress = progress;
-              _received = received;
-            });
-          }
+          // Repaint at most ~10 times a second rather than on every chunk.
+          final now = DateTime.now();
+          if (!mounted || now.difference(_lastPaint) < const Duration(milliseconds: 100)) return;
+          _lastPaint = now;
+          setState(() {
+            _progress = progress;
+            _received = received;
+          });
         },
       );
       await _install();
