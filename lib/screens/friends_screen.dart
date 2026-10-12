@@ -4,10 +4,16 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/user_data_service.dart';
 import '../services/friends_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/chat_service.dart';
+import '../utils/date_format.dart';
+import 'chat_screen.dart';
 import 'user_profile_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen({super.key});
+  /// Tab to open on: 'chats', 'friends', 'requests', 'sent' or 'search'.
+  final String initialTab;
+
+  const FriendsScreen({super.key, this.initialTab = 'friends'});
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
@@ -21,14 +27,19 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
   List<Map<String, dynamic>> _searchResults = [];
   bool _isLoading = true;
   bool _isSearching = false;
-  String _selectedTab = 'friends';
+  static const _tabs = ['chats', 'friends', 'requests', 'sent', 'search'];
+  late String _selectedTab = widget.initialTab;
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+      length: _tabs.length,
+      vsync: this,
+      initialIndex: _tabs.contains(widget.initialTab) ? _tabs.indexOf(widget.initialTab) : 1,
+    );
     _tabController.addListener(_onTabChanged);
     _loadData();
     
@@ -50,9 +61,8 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       return;
     }
     
-    final tabs = ['friends', 'requests', 'sent', 'search'];
     setState(() {
-      _selectedTab = tabs[_tabController.index];
+      _selectedTab = _tabs[_tabController.index];
     });
   }
 
@@ -358,9 +368,12 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
         ),
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: Colors.transparent,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
         labelColor: Colors.white,
         unselectedLabelColor: Colors.grey,
         tabs: const [
+          Tab(text: 'Chats'),
           Tab(text: 'Friends'),
           Tab(text: 'Requests'),
           Tab(text: 'Sent'),
@@ -394,6 +407,8 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
 
   Widget _buildTabContent() {
     switch (_selectedTab) {
+      case 'chats':
+        return _buildChatsList();
       case 'friends':
         return _buildFriendsList();
       case 'requests':
@@ -405,6 +420,166 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
       default:
         return _buildFriendsList();
     }
+  }
+
+  void _openChat(Map<String, dynamic> friend) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
+          otherUserId: friend['id'],
+          otherName: (friend['displayName'] ?? friend['username'] ?? 'Friend').toString(),
+          otherAvatar: friend['profileImage'],
+        ),
+      ),
+    );
+  }
+
+  String _chatTime(DateTime time) {
+    final now = DateTime.now();
+    if (time.year == now.year && time.month == now.month && time.day == now.day) {
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+    return formatShortDate(time);
+  }
+
+  /// Conversations (newest first), then friends you haven't messaged yet.
+  Widget _buildChatsList() {
+    final theme = Theme.of(context);
+    final friendsById = {for (final f in _friends) f['id'] as String: f};
+    final me = FirebaseAuthService().currentUser?.uid;
+
+    return StreamBuilder<List<ChatSummary>>(
+      stream: ChatService.instance.watchChats(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          final building = snapshot.error.toString().contains('failed-precondition');
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(
+                building
+                    ? 'Chats are still being set up. Try again in a few minutes.'
+                    : 'Could not load chats. Check your connection and try again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final chats = snapshot.data!;
+        final chatted = chats.map((c) => c.otherUserId).toSet();
+        final others = _friends.where((f) => !chatted.contains(f['id'])).toList();
+
+        if (chats.isEmpty && _friends.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Text(
+                'Add friends to start chatting and sharing games.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (final chat in chats)
+              _buildChatTile(theme, chat, friendsById[chat.otherUserId], me),
+            if (others.isNotEmpty) ...[
+              Padding(
+                padding: EdgeInsets.only(top: chats.isEmpty ? 0 : 16, bottom: 8),
+                child: Text(
+                  'Start a chat',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              for (final friend in others)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: _buildProfileAvatar(friend, radius: 22),
+                  title: Text(
+                    (friend['displayName'] ?? friend['username'] ?? 'Friend').toString(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  trailing: FilledButton.tonalIcon(
+                    onPressed: () => _openChat(friend),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                    label: const Text('Message'),
+                  ),
+                ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildChatTile(ThemeData theme, ChatSummary chat, Map<String, dynamic>? friend, String? me) {
+    final name = (friend?['displayName'] ?? friend?['username'] ?? 'Friend').toString();
+    final unread = chat.unreadCount > 0;
+    final prefix = chat.lastSenderId == me ? 'You: ' : '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        onTap: () => _openChat({'id': chat.otherUserId, ...?friend}),
+        leading: friend != null
+            ? _buildProfileAvatar(friend, radius: 24)
+            : _buildDefaultAvatar(name, 24),
+        title: Text(
+          name,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          '$prefix${chat.lastMessagePreview}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: unread ? Colors.white : Colors.grey),
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(_chatTime(chat.updatedAt), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            if (unread) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${chat.unreadCount}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildFriendsList() {
@@ -648,10 +823,17 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
               ),
             ),
           ),
+          IconButton(
+            onPressed: () => _openChat(friend),
+            icon: const Icon(Icons.chat_bubble_outline, color: Colors.grey),
+            tooltip: 'Message',
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.grey),
             onSelected: (value) {
-              if (value == 'remove') {
+              if (value == 'message') {
+                _openChat(friend);
+              } else if (value == 'remove') {
                 _removeFriend(friend);
               } else if (value == 'profile') {
                 Navigator.push(
@@ -663,6 +845,10 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'message',
+                child: Text('Message'),
+              ),
               const PopupMenuItem(
                 value: 'profile',
                 child: Text('View Profile'),

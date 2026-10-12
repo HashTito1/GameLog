@@ -191,6 +191,47 @@ service cloud.firestore {
                      resource.data.toUserId == request.auth.uid);
     }
 
+    // ---------- Chats ----------
+
+    // chats/{a_b}: one conversation per pair of friends, ids sorted. Firebase
+    // uids never contain '_', so the id alone says who may access it.
+    function inChat(chatId) {
+      return signedIn() && request.auth.uid in chatId.split('_');
+    }
+
+    function friendsWithOtherIn(chatId) {
+      let parts = chatId.split('_');
+      return (parts[0] == request.auth.uid &&
+              exists(/databases/$(database)/documents/friends/$(request.auth.uid + '_' + parts[1]))) ||
+             (parts[1] == request.auth.uid &&
+              exists(/databases/$(database)/documents/friends/$(request.auth.uid + '_' + parts[0])));
+    }
+
+    match /chats/{chatId} {
+      // get works before the chat exists (to check for it); list queries
+      // must filter on participants.
+      allow get: if inChat(chatId);
+      allow list: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if inChat(chatId) && friendsWithOtherIn(chatId) &&
+                    request.resource.data.participants.size() == 2 &&
+                    chatId == request.resource.data.participants[0] + '_' + request.resource.data.participants[1];
+      allow update: if inChat(chatId) &&
+                    request.resource.data.participants == resource.data.participants &&
+                    onlyChanges(['lastMessage', 'updatedAt', 'unread']);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if inChat(chatId);
+        allow create: if inChat(chatId) && friendsWithOtherIn(chatId) && !isBanned() &&
+                      request.resource.data.senderId == request.auth.uid &&
+                      request.resource.data.type in ['text', 'game', 'review'] &&
+                      (request.resource.data.get('text', null) == null ||
+                       request.resource.data.text.size() <= 2000);
+        allow delete: if inChat(chatId) && resource.data.senderId == request.auth.uid;
+        allow update: if false;
+      }
+    }
+
     // ---------- Admin ----------
 
     // admins/list is bootstrapped once from the Firebase console

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/send_to_friend_sheet.dart';
 import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
@@ -567,6 +568,14 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
               onTap: () {
                 Navigator.pop(context);
                 _shareRating(rating);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.send_outlined, color: theme.colorScheme.onSurface),
+              title: Text('Send to a Friend', style: TextStyle(color: theme.colorScheme.onSurface)),
+              onTap: () {
+                Navigator.pop(context);
+                showSendToFriendSheet(this.context, review: rating, gameTitle: widget.gameName);
               },
             ),
             if (rating.userId != FirebaseAuthService().currentUser?.uid)

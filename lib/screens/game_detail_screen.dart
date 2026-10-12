@@ -19,6 +19,7 @@ import '../services/friends_service.dart';
 import '../services/event_bus.dart';
 import '../services/rating_interaction_service.dart';
 import 'game_ratings_screen.dart';
+import '../widgets/send_to_friend_sheet.dart';
 // Forum functionality disabled - keeping import commented
 // import 'create_forum_post_screen.dart';
 
@@ -1394,6 +1395,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         //   icon: const Icon(Icons.forum, color: Colors.white),
         //   tooltip: 'Create Forum Post',
         // ),
+        if (_game != null)
+          IconButton(
+            onPressed: () => showSendToFriendSheet(context, game: _game),
+            icon: const Icon(Icons.send_outlined, color: Colors.white),
+            tooltip: 'Send to a friend',
+          ),
         // Favorite star button
         IconButton(
           onPressed: _isUpdatingFavorite ? null : _toggleFavorite,

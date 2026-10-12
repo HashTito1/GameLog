@@ -10,6 +10,8 @@ import '../services/rating_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/theme_service.dart';
 import 'notifications_screen.dart';
+import 'friends_screen.dart';
+import '../services/chat_service.dart';
 import 'game_detail_screen.dart';
 import 'category_games_screen.dart';
 import 'search_screen.dart';
@@ -37,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<UserRating> _myRecentRatings = [];
   List<UserRating> _trendingReviews = [];
   List<Map<String, dynamic>> _communityTopRated = [];
+  final Stream<int> _unreadChats = ChatService.instance.watchUnreadTotal();
   bool _isLoading = true; // Hot reload trigger - Updated UI
   bool _isLoadingInProgress = false; // Prevent multiple simultaneous loads
 
@@ -986,6 +989,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+          ),
+          StreamBuilder<int>(
+            stream: _unreadChats,
+            builder: (context, snapshot) {
+              final unread = snapshot.hasError ? 0 : (snapshot.data ?? 0);
+              return IconButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const FriendsScreen(initialTab: 'chats'),
+                  ),
+                ),
+                icon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text(unread > 99 ? '99+' : '$unread'),
+                  child: Icon(Icons.chat_bubble_outline,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
+                ),
+                tooltip: 'Chats',
+              );
+            },
           ),
           IconButton(
             onPressed: () => Navigator.of(context).push(
