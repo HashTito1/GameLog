@@ -203,13 +203,16 @@ class FollowService {
   static Future<List<Map<String, dynamic>>> _withProfiles(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> followDocs,
   ) async {
+    // Entries are keyed by the other user's id; older ones may also carry it
+    // as a userId field.
     final userDocs = await Future.wait(followDocs.map((doc) =>
-        _firestore.collection('users').doc(doc.data()['userId']).get()));
+        _firestore.collection('users').doc((doc.data()['userId'] ?? doc.id).toString()).get()));
 
     final List<Map<String, dynamic>> users = [];
     for (var i = 0; i < userDocs.length; i++) {
       if (userDocs[i].exists) {
         final userData = userDocs[i].data()!;
+        userData['id'] = userDocs[i].id;
         userData['followedAt'] = followDocs[i].data()['followedAt'];
         users.add(userData);
       }

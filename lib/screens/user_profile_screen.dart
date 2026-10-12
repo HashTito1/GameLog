@@ -14,6 +14,7 @@ import '../models/user_rating.dart';
 import '../utils/date_format.dart';
 import '../widgets/chat_list.dart';
 import 'game_detail_screen.dart';
+import 'follow_list_screen.dart';
 import '../models/game.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -1187,8 +1188,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             spacing: 16,
             runSpacing: 6,
             children: [
-              count(followers, followers == 1 ? 'follower' : 'followers'),
-              count(following, 'following'),
+              _tappable(count(followers, followers == 1 ? 'follower' : 'followers'), 0),
+              _tappable(count(following, 'following'), 1),
               if (joined != null)
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1202,6 +1203,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Follower / following counts open the full lists.
+  Widget _tappable(Widget child, int tab) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => FollowListScreen(
+            userId: widget.userId,
+            displayName: (_userData?['displayName'] ?? _userData?['username'])?.toString(),
+            initialTab: tab,
+          ),
+        ),
+      ),
+      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), child: child),
     );
   }
 

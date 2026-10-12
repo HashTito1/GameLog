@@ -14,6 +14,7 @@ import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
 import 'favorite_game_selection_screen.dart';
 import 'friends_screen.dart';
+import 'follow_list_screen.dart';
 import 'main_screen.dart';
 import 'settings_screen.dart';
 import 'game_detail_screen.dart';
@@ -2107,7 +2108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Row(
             children: [
               Expanded(
-                child: _buildSocialStat('Followers', followers),
+                child: _buildSocialStat('Followers', followers, onTap: () => _openFollowList(0)),
               ),
               Container(
                 height: 32,
@@ -2115,7 +2116,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: theme.colorScheme.outline.withValues(alpha: 0.3),
               ),
               Expanded(
-                child: _buildSocialStat('Following', following),
+                child: _buildSocialStat('Following', following, onTap: () => _openFollowList(1)),
               ),
             ],
           ),
@@ -2124,28 +2125,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSocialStat(String label, int count) {
+  void _openFollowList(int tab) {
+    final me = FirebaseAuthService.instance.currentUser?.uid;
+    if (me == null) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (context) => FollowListScreen(userId: me, initialTab: tab)))
+        .then((_) => _loadData(silent: true));
+  }
+
+  /// Follower / following counts open the full lists.
+  Widget _buildSocialStat(String label, int count, {VoidCallback? onTap}) {
     final theme = Theme.of(context);
     
-    return Column(
-      children: [
-        Text(
-          count.toString(),
-          style: TextStyle(
-            fontSize: 18, // Reduced from 20
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          children: [
+            Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
