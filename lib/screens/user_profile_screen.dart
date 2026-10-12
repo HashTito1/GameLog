@@ -190,18 +190,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _loadRatings() async {
-    final ratings = await RatingService.getUserRecentRatings(widget.userId, limit: 40);
-    if (mounted) {
-      setState(() {
-        _ratings = ratings;
-        _ratingsLoaded = true;
-      });
-    }
+    final ratings = await RatingService.getUserRecentRatings(widget.userId, limit: 200);
+    if (!mounted) return;
+    setState(() {
+      _ratings = ratings;
+      _ratingsLoaded = true;
+      // Someone else's library is private, so their library stats come back
+      // empty; ratings are public, so count and average those instead.
+      if (!_isCurrentUser && ratings.isNotEmpty) {
+        _userRatingsCount = ratings.length;
+        _userAverageRating = ratings.map((r) => r.rating).reduce((a, b) => a + b) / ratings.length;
+        final libraryStats = (_userData?['stats'] as Map?)?['library'] as Map?;
+        final logged = (libraryStats?['totalGames'] as num?)?.toInt() ?? 0;
+        if (_userData != null) {
+          _userData!['gamesPlayed'] = logged > ratings.length ? logged : ratings.length;
+        }
+      }
+    });
   }
 
   Future<void> _loadUserRatingStats(String userId) async {
     try {
-      // Use the same stats loading logic as library screen
+      // Another user's library is private; their ratings fill the stats in
+      // instead (see _loadRatings).
+      if (!_isCurrentUser) return;
       final stats = await LibraryService.instance.getUserLibraryStats(userId);
       
       setState(() {
