@@ -13,7 +13,7 @@ import '../services/image_picker_service.dart';
 import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
 import 'favorite_game_selection_screen.dart';
-import 'friends_screen.dart';
+import 'social_screen.dart';
 import 'follow_list_screen.dart';
 import 'main_screen.dart';
 import 'settings_screen.dart';
@@ -2097,10 +2097,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Spacer(),
               TextButton.icon(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const FriendsScreen()),
+                  MaterialPageRoute(builder: (context) => const SocialScreen()),
                 ),
-                icon: const Icon(Icons.people_outline, size: 18),
-                label: const Text('Friends'),
+                icon: const Icon(Icons.forum_outlined, size: 18),
+                label: const Text('Friends & chats'),
               ),
             ],
           ),

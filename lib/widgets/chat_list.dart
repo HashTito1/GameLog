@@ -28,11 +28,23 @@ class ChatList extends StatefulWidget {
   final String query;
   final EdgeInsets padding;
 
+  /// Scrolls with the list, above the filter pills (e.g. the Social header).
+  final Widget? header;
+
+  /// List friends you haven't messaged under "Start a chat".
+  final bool showStartSection;
+
+  /// Long-press on a conversation (e.g. friend actions).
+  final void Function(String userId, Map<String, dynamic>? friend)? onLongPress;
+
   const ChatList({
     super.key,
     required this.friends,
     this.query = '',
     this.padding = EdgeInsets.zero,
+    this.header,
+    this.showStartSection = true,
+    this.onLongPress,
   });
 
   @override
@@ -61,14 +73,31 @@ class _ChatListState extends State<ChatList> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final building = snapshot.error.toString().contains('failed-precondition');
-          return _Message(
-            icon: Icons.cloud_off_outlined,
-            text: building
-                ? 'Chats are still being set up. Try again in a few minutes.'
-                : 'Could not load chats. Check your connection and try again.',
+          return ListView(
+            padding: widget.padding,
+            children: [
+              if (widget.header != null) widget.header!,
+              _Message(
+                icon: Icons.cloud_off_outlined,
+                text: building
+                    ? 'Chats are still being set up. Try again in a few minutes.'
+                    : 'Could not load chats. Check your connection and try again.',
+              ),
+            ],
           );
         }
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData) {
+          return ListView(
+            padding: widget.padding,
+            children: [
+              if (widget.header != null) widget.header!,
+              const Padding(
+                padding: EdgeInsets.only(top: 48),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          );
+        }
 
         final all = snapshot.data!;
         final unreadCount = all.where((c) => c.unreadCount > 0).length;
@@ -77,13 +106,14 @@ class _ChatListState extends State<ChatList> {
             .where((c) => _matches(friendsById[c.otherUserId]))
             .toList();
         final chatted = all.map((c) => c.otherUserId).toSet();
-        final others = _unreadOnly
+        final others = _unreadOnly || !widget.showStartSection
             ? const <Map<String, dynamic>>[]
             : widget.friends.where((f) => !chatted.contains(f['id']) && _matches(f)).toList();
 
         return ListView(
           padding: widget.padding,
           children: [
+            if (widget.header != null) widget.header!,
             _FilterBar(
               allCount: all.length,
               unreadCount: unreadCount,
@@ -99,7 +129,9 @@ class _ChatListState extends State<ChatList> {
                         ? "You're all caught up."
                         : widget.friends.isEmpty
                             ? 'Add friends to start chatting and sharing games.'
-                            : 'No chats yet.',
+                            : widget.showStartSection
+                                ? 'No chats yet.'
+                                : 'No chats yet. Tap a friend above to say hi.',
               ),
             for (var i = 0; i < chats.length; i++)
               _ChatRow(
@@ -107,6 +139,9 @@ class _ChatListState extends State<ChatList> {
                 friend: friendsById[chats[i].otherUserId],
                 mine: chats[i].lastSenderId == me,
                 showDivider: i < chats.length - 1,
+                onLongPress: widget.onLongPress == null
+                    ? null
+                    : () => widget.onLongPress!(chats[i].otherUserId, friendsById[chats[i].otherUserId]),
               ),
             if (others.isNotEmpty) ...[
               Container(
@@ -238,8 +273,15 @@ class _ChatRow extends StatelessWidget {
   final Map<String, dynamic>? friend;
   final bool mine;
   final bool showDivider;
+  final VoidCallback? onLongPress;
 
-  const _ChatRow({required this.chat, required this.friend, required this.mine, required this.showDivider});
+  const _ChatRow({
+    required this.chat,
+    required this.friend,
+    required this.mine,
+    required this.showDivider,
+    this.onLongPress,
+  });
 
   static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -266,6 +308,7 @@ class _ChatRow extends StatelessWidget {
 
     return InkWell(
       onTap: () => openChatWith(context, chat.otherUserId, friend),
+      onLongPress: onLongPress,
       child: Padding(
         padding: const EdgeInsets.only(left: 12),
         child: Row(
