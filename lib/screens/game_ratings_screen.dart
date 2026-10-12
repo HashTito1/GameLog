@@ -50,54 +50,28 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     try {
       debugPrint('🔍 Loading ratings for game: ${widget.gameId}');
       
-      // Get ratings from both old and new systems (same approach as GameDetailScreen)
-      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-      
-      debugPrint('📊 Found ${oldGameRatings.length} old ratings and ${newGameRatings.length} new ratings');
-      
-      // Combine and deduplicate ratings
-      final Map<String, UserRating> allRatingsMap = {};
-      
-      // Add old ratings
-      for (final rating in oldGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      // Add new ratings (will override old ones if same user)
-      for (final rating in newGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      final combinedRatings = allRatingsMap.values.toList();
-      debugPrint('📊 Combined total: ${combinedRatings.length} unique ratings');
-      
-      // Load user profiles for each rating and enrich the rating objects
-      final Map<String, Map<String, dynamic>> profiles = {};
-      final List<UserRating> enrichedRatings = [];
-      
-      for (final rating in combinedRatings) {
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-            debugPrint('👤 Loaded profile for user: ${rating.userId}');
-          } else {
-            debugPrint('❌ No profile found for user: ${rating.userId}');
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create enriched rating with proper user data
-        final enrichedRating = rating.copyWith(
-          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-          username: profile?['username'] ?? rating.username,
-          profileImage: profile?['profileImage'] ?? rating.profileImage,
-        );
-        enrichedRatings.add(enrichedRating);
-      }
+      // Both storage locations, the people you follow and the authors'
+      // profiles are fetched in parallel rather than one after another.
+      final fetched = await Future.wait([
+        RatingService.instance.getGameRatings(widget.gameId),
+        _getAllRatingsForGame(widget.gameId),
+      ]);
+      final combinedRatings = <String, UserRating>{
+        for (final rating in fetched[0]) rating.userId: rating,
+        for (final rating in fetched[1]) rating.userId: rating,
+      }.values.toList();
+
+      final profiles = await UserDataService.getUserProfiles(combinedRatings.map((r) => r.userId));
+      final enrichedRatings = [
+        for (final rating in combinedRatings)
+          rating.copyWith(
+            displayName: profiles[rating.userId]?['displayName'] ??
+                profiles[rating.userId]?['username'] ??
+                rating.displayName,
+            username: profiles[rating.userId]?['username'] ?? rating.username,
+            profileImage: profiles[rating.userId]?['profileImage'] ?? rating.profileImage,
+          ),
+      ];
 
       final following = await FollowService.getFollowingIds();
 
@@ -693,16 +667,6 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasLiked ? 'Rating unliked!' : 'Rating liked!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       // Revert optimistic update on error
       if (ratingIndex != -1) {
@@ -826,31 +790,19 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
 
+    // Update the heart straight away; undo it if the write fails.
+    void flip() {
+      _likeCount += _isLiked ? -1 : 1;
+      _isLiked = !_isLiked;
+    }
+    setState(flip);
+
     try {
       await RatingInteractionService.instance
           .toggleRatingLike(widget.rating.id, currentUser.uid);
-      
-      setState(() {
-        if (_isLiked) {
-          _likeCount--;
-          _isLiked = false;
-        } else {
-          _likeCount++;
-          _isLiked = true;
-        }
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isLiked ? 'Rating liked!' : 'Rating unliked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(flip);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle like: $e'),

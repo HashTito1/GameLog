@@ -18,37 +18,19 @@ class RatingInteractionService {
   // Like/unlike a rating - Updated to work with both storage systems
   Future<void> toggleRatingLike(String ratingId, String userId) async {
     try {
-      debugPrint('Toggling like for rating: $ratingId by user: $userId');
-      
-      // Try to find the rating in the old game_ratings collection first
-      final oldRatingRef = _firestore.collection(_ratingsCollection).doc(ratingId);
-      final oldRatingDoc = await oldRatingRef.get();
-      
-      if (oldRatingDoc.exists) {
-        // Update the old collection
-        await _updateRatingLikes(oldRatingRef, userId);
-      }
-      
-      // Also update the new user subcollection structure
-      // Extract userId and gameId from ratingId (format: userId_gameId)
-      final parts = ratingId.split('_');
-      if (parts.length >= 2) {
-        final ratingUserId = parts[0];
-        final gameId = parts.sublist(1).join('_'); // Handle gameIds with underscores
-        
-        final userRatingRef = _firestore
+      // A rating can live in game_ratings and in the author's ratings
+      // subcollection (id format: <authorId>_<gameId>); update both at once.
+      // Each transaction skips a copy that doesn't exist.
+      final refs = <DocumentReference>[_firestore.collection(_ratingsCollection).doc(ratingId)];
+      final split = ratingId.indexOf('_');
+      if (split > 0) {
+        refs.add(_firestore
             .collection('users')
-            .doc(ratingUserId)
+            .doc(ratingId.substring(0, split))
             .collection('ratings')
-            .doc(gameId);
-            
-        final userRatingDoc = await userRatingRef.get();
-        if (userRatingDoc.exists) {
-          await _updateRatingLikes(userRatingRef, userId);
-        }
+            .doc(ratingId.substring(split + 1)));
       }
-      
-      debugPrint('Rating like toggled successfully');
+      await Future.wait(refs.map((ref) => _updateRatingLikes(ref, userId)));
     } catch (e) {
       debugPrint('Error toggling rating like: $e');
       throw Exception('Failed to toggle like: $e');

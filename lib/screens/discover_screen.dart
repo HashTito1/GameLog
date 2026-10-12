@@ -233,7 +233,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 SliverFillRemaining(hasScrollBody: false, child: _buildReviewsList(theme))
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                   sliver: SliverList.list(
                     children: [
                       if (_priorityCount > 0)
@@ -489,7 +489,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final accent = followed ? _followAccent : theme.colorScheme.primary;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 18),
       child: Material(
         color: followed
             ? Color.alphaBlend(_followAccent.withValues(alpha: 0.06), theme.colorScheme.surface)
@@ -506,7 +506,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             MaterialPageRoute(builder: (context) => GameDetailScreen(gameId: review.gameId)),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -938,16 +938,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasLiked ? 'Rating unliked!' : 'Rating liked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       // Revert optimistic update on error
       if (ratingIndex != -1) {
@@ -1094,31 +1084,19 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
 
+    // Update the heart straight away; undo it if the write fails.
+    void flip() {
+      _likeCount += _isLiked ? -1 : 1;
+      _isLiked = !_isLiked;
+    }
+    setState(flip);
+
     try {
       await RatingInteractionService.instance
           .toggleRatingLike(widget.rating.id, currentUser.uid);
-      
-      setState(() {
-        if (_isLiked) {
-          _likeCount--;
-          _isLiked = false;
-        } else {
-          _likeCount++;
-          _isLiked = true;
-        }
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isLiked ? 'Rating liked!' : 'Rating unliked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(flip);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle like: $e'),

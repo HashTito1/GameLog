@@ -312,13 +312,13 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             // Feed layout: popular, activity, trending reviews, community top rated
             _buildPopularRow(theme),
-            const SizedBox(height: 20),
+            const SizedBox(height: 32),
             _buildActivityFeed(theme),
-            const SizedBox(height: 12),
+            const SizedBox(height: 32),
             _buildTrendingReviews(theme),
-            const SizedBox(height: 12),
+            const SizedBox(height: 32),
             _buildCommunityTopRated(theme),
-            const SizedBox(height: 28),
+            const SizedBox(height: 32),
             
             // For You Section
             _buildForYouSection(theme),
@@ -326,9 +326,9 @@ class _HomeScreenState extends State<HomeScreen> {
             
             // Additional Sections
             _buildHorizontalGameSection('Trending now', _trendingGames, 'trending', theme),
-            const SizedBox(height: 16),
+            const SizedBox(height: 32),
             _buildHorizontalGameSection('Best of ${DateTime.now().year - 1}', _gotyGames, 'goty', theme),
-            const SizedBox(height: 16),
+            const SizedBox(height: 32),
             _buildHorizontalGameSection('Top indie games', _indieGames, 'indie', theme),
             const SizedBox(height: 60),
           ],
@@ -676,7 +676,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _feedSectionHeader(ThemeData theme, String title, {VoidCallback? onMore, Widget? trailing}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 8, 10),
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 14),
       child: Row(
         children: [
           Expanded(
@@ -786,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: games.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (_, __) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final game = games[index];
               return GestureDetector(
@@ -904,7 +904,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     for (final review in feed)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.only(bottom: 12),
                         child: _buildActivityItem(theme, review, isMine: review.userId == currentUid),
                       ),
                   ],
@@ -920,12 +920,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Material(
       color: theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: () => _openGame(review.gameId),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(14),
           child: FutureBuilder<Game?>(
             future: _gameFor(review.gameId),
             builder: (context, snapshot) {
@@ -1030,15 +1030,15 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               for (final review in _trendingReviews)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: Material(
                     color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       onTap: () => _openGame(review.gameId),
                       child: Padding(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(14),
                         child: FutureBuilder<Game?>(
                           future: _gameFor(review.gameId),
                           builder: (context, snapshot) {
@@ -1124,7 +1124,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: _communityTopRated.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (_, __) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final entry = _communityTopRated[index];
               final gameId = entry['gameId'] as String;

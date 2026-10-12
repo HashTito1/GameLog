@@ -64,7 +64,12 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   final TextEditingController _reviewController = TextEditingController();
   bool _isSubmittingRating = false;
   bool _isDescriptionExpanded = false;
-  
+
+  /// Accent colour taken from the cover art; tints the page and the
+  /// Add to library button. Falls back to the app's primary colour.
+  Color? _coverAccent;
+  String? _accentForCover;
+
   // Event subscriptions
   StreamSubscription<LibraryUpdatedEvent>? _libraryUpdateSubscription;
   Timer? _ratingUpdateTimer;
@@ -94,8 +99,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     });
     
-    // Set up periodic updates for rating data (every 30 seconds)
-    _ratingUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    // Keep reviews and likes reasonably fresh while the page is open.
+    _ratingUpdateTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (mounted) {
         _refreshAllRatingData();
       }
@@ -133,16 +138,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         debugPrint('Fetched game: ${_game?.title ?? 'null'}');
       }
 
+      _extractCoverAccent();
+
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
-        // Load user's rating FIRST for immediate display
-        await _loadUserRating();
-        
-        // Check if this game is the user's favorite
-        await _loadFavoriteStatus();
-        
-        // Load current library status
-        final libraryEntry = await LibraryService.instance.getGameFromLibrary(currentUser.uid, widget.gameId);
+        // Your rating, favourite flag and library status don't depend on
+        // each other, so load them together.
+        final results = await Future.wait([
+          _loadUserRating(),
+          _loadFavoriteStatus(),
+          LibraryService.instance.getGameFromLibrary(currentUser.uid, widget.gameId),
+        ]);
+        final libraryEntry = results[2] as Map<String, dynamic>?;
         final currentStatus = libraryEntry?['status'] as String?;
         
         if (mounted) {
@@ -165,6 +172,40 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     }
   }
+
+  /// Pick a vivid, readable accent from the cover (Material's own palette
+  /// extraction, so no extra package).
+  Future<void> _extractCoverAccent() async {
+    final cover = _game?.coverImage ?? '';
+    if (cover.isEmpty || cover == _accentForCover) return;
+    _accentForCover = cover;
+    try {
+      final scheme = await ColorScheme.fromImageProvider(
+        provider: CachedNetworkImageProvider(cover),
+        brightness: Brightness.dark,
+      );
+      final hsl = HSLColor.fromColor(scheme.primary);
+      final accent = hsl
+          .withSaturation(hsl.saturation.clamp(0.45, 0.85))
+          .withLightness(hsl.lightness.clamp(0.55, 0.68))
+          .toColor();
+      if (mounted) setState(() => _coverAccent = accent);
+    } catch (e) {
+      debugPrint('Could not extract cover colour: $e');
+    }
+  }
+
+  Color _accent(ThemeData theme) => _coverAccent ?? theme.colorScheme.primary;
+
+  /// A deeper shade of the accent that white text stays readable on.
+  Color _accentDeep(ThemeData theme) {
+    final hsl = HSLColor.fromColor(_accent(theme));
+    return hsl.withLightness(hsl.lightness.clamp(0.0, 0.42)).toColor();
+  }
+
+  /// The page background with a faint wash of the accent.
+  Color _tint(ThemeData theme, [double amount = 0.10]) =>
+      Color.alphaBlend(_accent(theme).withValues(alpha: amount), theme.scaffoldBackgroundColor);
 
   Future<void> _loadUserRating() async {
     final currentUser = FirebaseAuthService().currentUser;
@@ -286,114 +327,39 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     if (currentUser == null) return;
 
     try {
-      // Get ALL ratings for this game from both old and new structures
-      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-      
-      // Combine and deduplicate ratings
-      final Map<String, UserRating> allRatingsMap = {};
-      
-      // Add old ratings
-      for (final rating in oldGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      // Add new ratings (will override old ones if same user)
-      for (final rating in newGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      final gameRatings = allRatingsMap.values.toList();
-      gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      
-      // Load interaction data for each rating (likes and comments)
-      final enrichedRatings = <UserRating>[];
-      for (final rating in gameRatings) {
-        try {
-          final interactionData = await RatingInteractionService.instance
-              .getRatingWithInteractions(rating.id, currentUser.uid);
-          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-          enrichedRatings.add(enrichedRating);
-        } catch (e) {
-          debugPrint('Error loading interactions for rating ${rating.id}: $e');
-          // Fallback to original rating if interaction loading fails
-          enrichedRatings.add(rating);
-        }
-      }
-      
-      // Load friend ratings for this game
-      final friendRatings = await _getFriendRatingsForGame(widget.gameId);
-      
-      // Enrich friend ratings with interaction data
-      final enrichedFriendRatings = <UserRating>[];
-      for (final rating in friendRatings) {
-        try {
-          final interactionData = await RatingInteractionService.instance
-              .getRatingWithInteractions(rating.id, currentUser.uid);
-          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-          enrichedFriendRatings.add(enrichedRating);
-        } catch (e) {
-          debugPrint('Error loading interactions for friend rating ${rating.id}: $e');
-          // Fallback to original rating if interaction loading fails
-          enrichedFriendRatings.add(rating);
-        }
-      }
-      
-      // Load user profiles for ALL ratings and enrich the rating objects
-      final Map<String, Map<String, dynamic>> profiles = {};
-      final List<UserRating> finalEnrichedRatings = [];
-      final List<UserRating> finalEnrichedFriendRatings = [];
-      
-      // Process community ratings (exclude current user's own review)
-      for (final rating in enrichedRatings) {
-        // Skip current user's own review in community section
-        if (rating.userId == currentUser.uid) continue;
-        
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create final enriched rating with both interaction data and user profile data
-        final finalRating = rating.copyWith(
+      // Everything below is independent, so fetch it all at once. Ratings
+      // already carry their like and comment counts.
+      final results = await Future.wait([
+        RatingService.instance.getGameRatings(widget.gameId),
+        _getAllRatingsForGame(widget.gameId),
+        _getFriendRatingsForGame(widget.gameId),
+      ]);
+
+      // Combine both storage locations, one rating per user.
+      final byUser = <String, UserRating>{
+        for (final rating in results[0]) rating.userId: rating,
+        for (final rating in results[1]) rating.userId: rating,
+      };
+      final community = byUser.values.where((r) => r.userId != currentUser.uid).toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      final friends = results[2];
+
+      final profiles = await UserDataService.getUserProfiles(
+        [...community.map((r) => r.userId), ...friends.map((r) => r.userId)],
+      );
+      UserRating withProfile(UserRating rating) {
+        final profile = profiles[rating.userId];
+        return rating.copyWith(
           displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
           username: profile?['username'] ?? rating.username,
           profileImage: profile?['profileImage'] ?? rating.profileImage,
         );
-        finalEnrichedRatings.add(finalRating);
       }
-      
-      // Process friend ratings
-      for (final rating in enrichedFriendRatings) {
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create final enriched friend rating with both interaction data and user profile data
-        final finalRating = rating.copyWith(
-          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-          username: profile?['username'] ?? rating.username,
-          profileImage: profile?['profileImage'] ?? rating.profileImage,
-        );
-        finalEnrichedFriendRatings.add(finalRating);
-      }
-      
+
       if (mounted) {
         setState(() {
-          _gameRatings = finalEnrichedRatings;
-          _friendRatings = finalEnrichedFriendRatings;
-          // Update total ratings count and average rating properly
+          _gameRatings = community.map(withProfile).toList();
+          _friendRatings = friends.map(withProfile).toList();
           _updateTotalRatingsCount();
         });
       }
@@ -423,44 +389,46 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       if (friendIds.isEmpty) return [];
 
       final List<UserRating> friendRatings = [];
-      
-      // Get ratings from friends for this game
-      for (final friendId in friendIds) {
-        try {
-          final friendRatingSnapshot = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(friendId)
-              .collection('ratings')
-              .where('gameId', isEqualTo: gameId)
-              .get();
-          
-          for (final ratingDoc in friendRatingSnapshot.docs) {
-            final data = ratingDoc.data();
-            final rating = UserRating(
-              id: data['id'] ?? '${friendId}_$gameId',
-              gameId: data['gameId'] ?? gameId,
-              userId: data['userId'] ?? friendId,
-              username: data['username'] ?? 'user',
-              rating: (data['rating'] ?? 0.0).toDouble(),
-              review: data['review'],
-              createdAt: data['createdAt'] != null 
-                  ? (data['createdAt'] is Timestamp 
-                      ? (data['createdAt'] as Timestamp).toDate()
-                      : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
-                  : DateTime.now(),
-              updatedAt: data['updatedAt'] != null 
-                  ? (data['updatedAt'] is Timestamp 
-                      ? (data['updatedAt'] as Timestamp).toDate()
-                      : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
-                  : DateTime.now(),
-              likeCount: data['likeCount'] ?? 0,
-              likedBy: List<String>.from(data['likedBy'] ?? []),
-              commentCount: data['commentCount'] ?? 0,
-            );
-            friendRatings.add(rating);
-          }
-        } catch (e) {
-          debugPrint('Error getting rating for friend $friendId: $e');
+
+      // One small query per friend, all in parallel.
+      final snapshots = await Future.wait(friendIds.map((friendId) => FirebaseFirestore.instance
+          .collection('users')
+          .doc(friendId)
+          .collection('ratings')
+          .where('gameId', isEqualTo: gameId)
+          .get()
+          .then<QuerySnapshot<Map<String, dynamic>>?>((s) => s, onError: (e) {
+        debugPrint('Error getting rating for friend $friendId: $e');
+        return null;
+      })));
+      for (var i = 0; i < friendIds.length; i++) {
+        final friendId = friendIds[i];
+        final friendRatingSnapshot = snapshots[i];
+        if (friendRatingSnapshot == null) continue;
+        for (final ratingDoc in friendRatingSnapshot.docs) {
+          final data = ratingDoc.data();
+          final rating = UserRating(
+            id: data['id'] ?? '${friendId}_$gameId',
+            gameId: data['gameId'] ?? gameId,
+            userId: data['userId'] ?? friendId,
+            username: data['username'] ?? 'user',
+            rating: (data['rating'] ?? 0.0).toDouble(),
+            review: data['review'],
+            createdAt: data['createdAt'] != null 
+                ? (data['createdAt'] is Timestamp 
+                    ? (data['createdAt'] as Timestamp).toDate()
+                    : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
+                : DateTime.now(),
+            updatedAt: data['updatedAt'] != null 
+                ? (data['updatedAt'] is Timestamp 
+                    ? (data['updatedAt'] as Timestamp).toDate()
+                    : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
+                : DateTime.now(),
+            likeCount: data['likeCount'] ?? 0,
+            likedBy: List<String>.from(data['likedBy'] ?? []),
+            commentCount: data['commentCount'] ?? 0,
+          );
+          friendRatings.add(rating);
         }
       }
       
@@ -1277,39 +1245,52 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: CustomScrollView(
-        slivers: [
-          _buildSliverAppBar(),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(12), // Reduced from 16
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildGameHeader(),
-                  const SizedBox(height: 20),
-                  _buildGameInfo(),
-                  const SizedBox(height: 20),
-                  _buildRatingSection(),
-                  const SizedBox(height: 20),
-                  _buildCommunityRatingsSection(),
-                  const SizedBox(height: 20),
-                  _buildSimilarGamesSection(),
-                ],
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 600),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [_tint(theme, 0.14), theme.scaffoldBackgroundColor],
+            stops: const [0.25, 0.7],
+          ),
+        ),
+        child: CustomScrollView(
+          slivers: [
+            _buildSliverAppBar(),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildGameHeader(),
+                    const SizedBox(height: 28),
+                    _buildGameInfo(),
+                    const SizedBox(height: 32),
+                    _buildRatingSection(),
+                    const SizedBox(height: 28),
+                    _buildCommunityRatingsSection(),
+                    const SizedBox(height: 32),
+                    _buildSimilarGamesSection(),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildSliverAppBar() {
+    final theme = Theme.of(context);
     return SliverAppBar(
-      expandedHeight: 300,
+      expandedHeight: 320,
       floating: false,
       pinned: true,
-      backgroundColor: const Color(0xFF1F2937),
+      backgroundColor: _tint(theme, 0.22),
+      surfaceTintColor: Colors.transparent,
       flexibleSpace: FlexibleSpaceBar(
         background: (_game?.coverImage.isNotEmpty ?? false)
             ? Stack(
@@ -1328,7 +1309,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         colors: [
                           Colors.black.withValues(alpha: 0.35),
                           Colors.black.withValues(alpha: 0.15),
-                          const Color(0xFF111827),
+                          _tint(theme, 0.14),
                         ],
                         stops: const [0, 0.6, 1],
                       ),
@@ -1423,73 +1404,111 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Widget _buildGameHeader() {
+    final theme = Theme.of(context);
+    final accent = _accent(theme);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final meta = [
+      if (_game?.releaseDate.isNotEmpty ?? false) _game!.releaseDate,
+      if (_game?.developer.isNotEmpty ?? false) _game!.developer,
+    ].join('  ·  ');
+    final inLibrary = _currentLibraryStatus != null;
+    final statusLabel = switch (_currentLibraryStatus) {
+      'backlog' => 'Backlog',
+      'playing' => 'Playing',
+      'completed' => 'Completed',
+      'dropped' => 'Dropped',
+      _ => 'In library',
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           _game?.title ?? 'Loading...',
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+          style: TextStyle(
+            fontSize: 28,
+            height: 1.15,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+            color: theme.colorScheme.onSurface,
           ),
         ),
-        const SizedBox(height: 8),
-        if ((_game?.releaseDate.isNotEmpty ?? false)) ...[
-          Row(
-            children: [
-              Text(
-                _game!.releaseDate,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
+        if (meta.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(meta, style: TextStyle(fontSize: 14.5, color: muted)),
+        ],
+        const SizedBox(height: 22),
+        // The main action on this page.
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 600),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: inLibrary
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [_accentDeep(theme), Color.lerp(_accentDeep(theme), Colors.black, 0.35)!],
+                  ),
+            color: inLibrary ? accent.withValues(alpha: 0.14) : null,
+            border: inLibrary ? Border.all(color: accent.withValues(alpha: 0.6), width: 1.5) : null,
+            boxShadow: inLibrary
+                ? null
+                : [BoxShadow(color: _accentDeep(theme).withValues(alpha: 0.45), blurRadius: 22, offset: const Offset(0, 8))],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: _showLibraryPopup,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: inLibrary ? accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.2),
+                      ),
+                      child: Icon(
+                        inLibrary ? Icons.bookmark_added_rounded : Icons.add_rounded,
+                        color: inLibrary ? accent : Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            inLibrary ? 'In your library' : 'Add to library',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: inLibrary ? theme.colorScheme.onSurface : Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            inLibrary ? '$statusLabel · tap to change' : 'Track it as playing, completed or backlog',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: inLibrary ? accent : Colors.white.withValues(alpha: 0.85),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      inLibrary ? Icons.edit_rounded : Icons.chevron_right_rounded,
+                      color: inLibrary ? accent : Colors.white,
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.grey,
-                size: 16,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
-        // Platform chips
-        if (_game?.platforms.isNotEmpty ?? false) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _game!.platforms.take(8).map((platform) => _buildPlatformChip(platform)).toList(),
-          ),
-          const SizedBox(height: 16),
-        ],
-        // Add to library button
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _showLibraryPopup,
-            icon: Icon(_currentLibraryStatus == null ? Icons.add : Icons.edit, size: 20),
-            label: Text(
-              switch (_currentLibraryStatus) {
-                null => 'Add to library',
-                'backlog' => 'In library · Backlog',
-                'playing' => 'In library · Playing',
-                'completed' => 'In library · Completed',
-                'dropped' => 'In library · Dropped',
-                _ => 'In library',
-              },
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFBBF24), // Yellow color like in image
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
               ),
             ),
           ),
@@ -1498,21 +1517,59 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
   }
 
-  Widget _buildPlatformChip(String platform) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF374151),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        platform,
-        style: const TextStyle(
-          fontSize: 12,
-          color: Colors.white,
-          fontWeight: FontWeight.w500,
+  /// Short names so the platform row stays one quiet line.
+  static String _shortPlatform(String name) {
+    const names = {
+      'PC (Microsoft Windows)': 'PC',
+      'PlayStation 5': 'PS5',
+      'PlayStation 4': 'PS4',
+      'PlayStation 3': 'PS3',
+      'PlayStation 2': 'PS2',
+      'PlayStation Vita': 'PS Vita',
+      'Xbox Series X|S': 'Xbox Series',
+      'Xbox One': 'Xbox One',
+      'Xbox 360': 'Xbox 360',
+      'Nintendo Switch': 'Switch',
+      'Nintendo Switch 2': 'Switch 2',
+      'Mac': 'Mac',
+      'Linux': 'Linux',
+      'iOS': 'iOS',
+      'Android': 'Android',
+    };
+    return names[name] ?? name;
+  }
+
+  Widget _buildPlatformRow() {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    final platforms = _game!.platforms.map(_shortPlatform).toSet().toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'AVAILABLE ON',
+          style: TextStyle(fontSize: 11, letterSpacing: 1.2, fontWeight: FontWeight.w700, color: muted),
         ),
-      ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final platform in platforms)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.15)),
+                ),
+                child: Text(
+                  platform,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: muted),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1531,11 +1588,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     final description = (_game?.description.isNotEmpty ?? false) ? _game!.description : 'No description available.';
     final isLongDescription = description.length > 200;
     
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Stats row (like in the image)
-        Row(
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.06)),
+          ),
+          child: Row(
           children: [
             _buildStatItem(
               icon: Icons.star,
@@ -1564,8 +1628,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               color: const Color(0xFFEF4444),
             ),
           ],
+          ),
         ),
-        const SizedBox(height: 20),
+        if (_game?.platforms.isNotEmpty ?? false) ...[
+          const SizedBox(height: 24),
+          _buildPlatformRow(),
+        ],
+        const SizedBox(height: 24),
         // Description section
         AnimatedCrossFade(
           duration: const Duration(milliseconds: 300),
@@ -1576,18 +1645,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             isLongDescription 
                 ? '${description.substring(0, 200)}...' 
                 : description,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-              height: 1.5,
+            style: TextStyle(
+              fontSize: 15,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              height: 1.6,
             ),
           ),
           secondChild: Text(
             description,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-              height: 1.5,
+            style: TextStyle(
+              fontSize: 15,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              height: 1.6,
             ),
           ),
         ),
@@ -1601,10 +1670,10 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             },
             child: Text(
               _isDescriptionExpanded ? 'Show less' : 'Show more',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
-                color: Color(0xFF6366F1),
-                fontWeight: FontWeight.w500,
+                color: _accent(theme),
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1656,11 +1725,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   Widget _buildRatingSection() {
     return Container(
-      padding: const EdgeInsets.all(12), // Reduced from 16
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(10), // Reduced from 12
-        border: Border.all(color: const Color(0xFF374151)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _accent(Theme.of(context)).withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1668,7 +1737,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
           Text(
             _userRating != null ? 'Your Rating' : 'Rate This Game',
             style: const TextStyle(
-              fontSize: 16, // Reduced from 18
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
@@ -2659,21 +2728,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       });
     }
 
+    // Friend reviews are a separate list; keep the same review in sync there.
+    final friendIndex = _friendRatings.indexWhere((r) => r.id == rating.id);
+    void syncFriendCopy() {
+      if (friendIndex == -1 || ratingIndex == -1) return;
+      _friendRatings[friendIndex] = _gameRatings[ratingIndex];
+    }
+    if (friendIndex != -1) setState(syncFriendCopy);
+
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
-      
-      // Refresh all rating data to get real-time updates
-      await _refreshAllRatingData();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasLiked ? 'Rating unliked!' : 'Rating liked!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       // Revert optimistic update on error
       if (ratingIndex != -1) {
@@ -2725,126 +2789,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Future<void> _refreshAllRatingData() async {
-    try {
-      final currentUser = FirebaseAuthService().currentUser;
-      if (currentUser == null) return;
-      
-      // Get ALL ratings for this game from both old and new structures
-      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-      
-      // Combine and deduplicate ratings
-      final Map<String, UserRating> allRatingsMap = {};
-      
-      // Add old ratings
-      for (final rating in oldGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      // Add new ratings (will override old ones if same user)
-      for (final rating in newGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      final gameRatings = allRatingsMap.values.toList();
-      gameRatings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      
-      // Load interaction data for each rating (likes and comments)
-      final enrichedRatings = <UserRating>[];
-      for (final rating in gameRatings.take(10)) { // Limit to first 10 for performance
-        try {
-          final interactionData = await RatingInteractionService.instance
-              .getRatingWithInteractions(rating.id, currentUser.uid);
-          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-          enrichedRatings.add(enrichedRating);
-        } catch (e) {
-          debugPrint('Error loading interactions for rating ${rating.id}: $e');
-          // Fallback to original rating if interaction loading fails
-          enrichedRatings.add(rating);
-        }
-      }
-      
-      // Load friend ratings for this game
-      final friendRatings = await _getFriendRatingsForGame(widget.gameId);
-      
-      // Enrich friend ratings with interaction data
-      final enrichedFriendRatings = <UserRating>[];
-      for (final rating in friendRatings) {
-        try {
-          final interactionData = await RatingInteractionService.instance
-              .getRatingWithInteractions(rating.id, currentUser.uid);
-          final enrichedRating = interactionData['rating'] as UserRating? ?? rating;
-          enrichedFriendRatings.add(enrichedRating);
-        } catch (e) {
-          debugPrint('Error loading interactions for friend rating ${rating.id}: $e');
-          // Fallback to original rating if interaction loading fails
-          enrichedFriendRatings.add(rating);
-        }
-      }
-      
-      // Load user profiles for ratings and enrich the rating objects
-      final Map<String, Map<String, dynamic>> profiles = {};
-      final List<UserRating> finalEnrichedRatings = [];
-      final List<UserRating> finalEnrichedFriendRatings = [];
-      
-      // Process community ratings (exclude current user's own review)
-      for (final rating in enrichedRatings) {
-        // Skip current user's own review in community section
-        if (rating.userId == currentUser.uid) continue;
-        
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create final enriched rating with both interaction data and user profile data
-        final finalRating = rating.copyWith(
-          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-          username: profile?['username'] ?? rating.username,
-          profileImage: profile?['profileImage'] ?? rating.profileImage,
-        );
-        finalEnrichedRatings.add(finalRating);
-      }
-      
-      // Process friend ratings
-      for (final rating in enrichedFriendRatings) {
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create final enriched friend rating with both interaction data and user profile data
-        final finalRating = rating.copyWith(
-          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-          username: profile?['username'] ?? rating.username,
-          profileImage: profile?['profileImage'] ?? rating.profileImage,
-        );
-        finalEnrichedFriendRatings.add(finalRating);
-      }
-      
-      if (mounted) {
-        setState(() {
-          _gameRatings = finalEnrichedRatings;
-          _friendRatings = finalEnrichedFriendRatings;
-          _averageRating = gameRatings.isEmpty 
-              ? 0.0 
-              : gameRatings.map((r) => r.rating).reduce((a, b) => a + b) / gameRatings.length;
-          _totalRatings = gameRatings.length;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error refreshing rating data: $e');
-    }
+    await _loadCommunityRatings();
+    if (!mounted) return;
+    final all = [..._gameRatings, if (_userRating != null) _userRating!];
+    setState(() {
+      _totalRatings = all.length;
+      _averageRating = all.isEmpty ? 0.0 : all.map((r) => r.rating).reduce((a, b) => a + b) / all.length;
+    });
   }
 
   Widget _buildSimilarGamesSection() {
@@ -3017,31 +2968,19 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
 
+    // Update the heart straight away; undo it if the write fails.
+    void flip() {
+      _likeCount += _isLiked ? -1 : 1;
+      _isLiked = !_isLiked;
+    }
+    setState(flip);
+
     try {
       await RatingInteractionService.instance
           .toggleRatingLike(widget.rating.id, currentUser.uid);
-      
-      setState(() {
-        if (_isLiked) {
-          _likeCount--;
-          _isLiked = false;
-        } else {
-          _likeCount++;
-          _isLiked = true;
-        }
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isLiked ? 'Rating liked!' : 'Rating unliked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(flip);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle like: $e'),

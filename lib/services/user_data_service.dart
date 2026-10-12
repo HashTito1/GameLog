@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'igdb_service.dart';
 
@@ -651,7 +652,34 @@ class UserDataService {
   }
 
   // Get user profile
-  static Future<Map<String, dynamic>?> getUserProfile(String userId) async {
+  static final Map<String, ({DateTime at, Future<Map<String, dynamic>?> profile})> _profileCache = {};
+  static const Duration _profileCacheTtl = Duration(minutes: 5);
+
+  /// A user's profile. Other people's profiles are cached for a few minutes
+  /// (and concurrent requests share one read) because review lists ask for
+  /// the same authors over and over; your own profile is always read fresh.
+  static Future<Map<String, dynamic>?> getUserProfile(String userId) {
+    final isMe = FirebaseAuthService().currentUser?.uid == userId;
+    final cached = _profileCache[userId];
+    if (!isMe && cached != null && DateTime.now().difference(cached.at) < _profileCacheTtl) {
+      return cached.profile.then((p) => p == null ? null : Map<String, dynamic>.from(p));
+    }
+    final future = _fetchUserProfile(userId);
+    if (!isMe) _profileCache[userId] = (at: DateTime.now(), profile: future);
+    return future;
+  }
+
+  /// Several profiles at once, keyed by user id (missing users are left out).
+  static Future<Map<String, Map<String, dynamic>>> getUserProfiles(Iterable<String> userIds) async {
+    final ids = userIds.toSet().toList();
+    final profiles = await Future.wait(ids.map(getUserProfile));
+    return {
+      for (var i = 0; i < ids.length; i++)
+        if (profiles[i] != null) ids[i]: profiles[i]!,
+    };
+  }
+
+  static Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
     try {
       final doc = await _firestore
           .collection(_usersCollection)
@@ -663,6 +691,7 @@ class UserDataService {
       }
       return null;
     } catch (e) {
+      _profileCache.remove(userId);
       debugPrint('Error getting user profile: $e');
       return null;
     }
