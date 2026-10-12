@@ -38,7 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<UserRating> _trendingReviews = [];
   List<Map<String, dynamic>> _communityTopRated = [];
   final Stream<int> _unreadChats = ChatService.instance.watchUnreadTotal();
-  bool _isLoading = true; // Hot reload trigger - Updated UI
+  bool _isLoading = true;
+  bool _skeletonBright = true; // flips to make the loading skeleton pulse
   bool _isLoadingInProgress = false; // Prevent multiple simultaneous loads
 
   @override
@@ -52,86 +53,47 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _loadAllGames() async {
+  /// Loads every Home section. Cached lists (30 min) are used on launch so
+  /// Home appears straight away; pull-to-refresh passes [refresh] to fetch
+  /// fresh data.
+  Future<void> _loadAllGames({bool refresh = false}) async {
     // Prevent multiple simultaneous loads
     if (_isLoadingInProgress) return;
-    
+
     try {
       setState(() => _isLoadingInProgress = true);
-      
-      // Clear cache to ensure fresh data with current year
-      await CacheService.clearAllCache();
-      
+
+      if (refresh) await CacheService.clearAllCache();
+
       // Check if adult content is enabled
       final includeAdultContent = await ContentFilterService.instance.isAdultContentEnabled();
-      
-      // Load the most important sections first
-      final popularGames = await IGDBService.instance.getPopularGames(
-        limit: 12,
-        includeAdultContent: includeAdultContent,
-      );
-      
-      // Get highly rated games for featured section
-      final highlyRatedGames = await IGDBService.instance.getHighlyRatedGames(
-        limit: 20,
-        includeAdultContent: includeAdultContent,
-      );
+
+      // Everything below is independent, so start it all now rather than
+      // one section after another.
+      _loadTrendingGames(includeAdultContent);
+      _loadGenreGamesInBackground();
+      _loadGOTYGames();
+      _loadPersonalizedSuggestions();
+      _loadFriendReviews();
+      _loadFeedExtras();
+
+      final topRows = await Future.wait([
+        IGDBService.instance.getPopularGames(limit: 12, includeAdultContent: includeAdultContent),
+        IGDBService.instance.getHighlyRatedGames(limit: 20, includeAdultContent: includeAdultContent),
+      ]);
+      final popularGames = topRows[0];
+      final highlyRatedGames = topRows[1];
       
       // Create daily randomized featured games
       final featuredGames = _getDailyRandomizedGames(highlyRatedGames, 10);
       
-      setState(() {
-        _popularGames = popularGames;
-        _featuredGames = featuredGames;
-        _isLoading = false;
-        _isLoadingInProgress = false;
-      });
-
-      // Load trending games
-      Future.delayed(const Duration(milliseconds: 500), () async {
-        if (mounted) {
-          try {
-            final trendingGames = await IGDBService.instance.getTrendingGames(
-              limit: 12,
-              includeAdultContent: includeAdultContent,
-            );
-            
-            if (mounted) {
-              setState(() {
-                _trendingGames = trendingGames;
-              });
-            }
-          } catch (e) {
-            debugPrint('Error loading trending games: $e');
-          }
-        }
-      });
-
-      // Load genre-specific games in the background
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (mounted) {
-          _loadGenreGamesInBackground();
-        }
-      });
-
-      // Load GOTY games in the background
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          _loadGOTYGames();
-        }
-      });
-
-      // Load personalized suggestions in the background
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (mounted) {
-          _loadPersonalizedSuggestions();
-        }
-      });
-
-      // Load friend reviews in the background (immediate for refresh)
       if (mounted) {
-        _loadFriendReviews();
-        _loadFeedExtras();
+        setState(() {
+          _popularGames = popularGames;
+          _featuredGames = featuredGames;
+          _isLoading = false;
+          _isLoadingInProgress = false;
+        });
       }
     } catch (e) {
       setState(() {
@@ -148,6 +110,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _loadTrendingGames(bool includeAdultContent) async {
+    try {
+      final trendingGames = await IGDBService.instance.getTrendingGames(
+        limit: 12,
+        includeAdultContent: includeAdultContent,
+      );
+      if (mounted) setState(() => _trendingGames = trendingGames);
+    } catch (e) {
+      debugPrint('Error loading trending games: $e');
     }
   }
 
@@ -302,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildMainContent(ThemeData theme) {
     return RefreshIndicator(
-      onRefresh: _loadAllGames,
+      onRefresh: () => _loadAllGames(refresh: true),
       color: theme.colorScheme.primary,
       backgroundColor: theme.colorScheme.surface,
       child: SingleChildScrollView(
@@ -514,23 +488,48 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Placeholder shapes in the same layout as the feed, gently pulsing, so
+  /// the page feels instant and nothing jumps when content arrives.
   Widget _buildLoadingState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+    final block = theme.colorScheme.onSurface.withValues(alpha: 0.07);
+    Widget box(double w, double h, {double r = 8}) => Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(color: block, borderRadius: BorderRadius.circular(r)),
+        );
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.55, end: _skeletonBright ? 1.0 : 0.55),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeInOut,
+      builder: (context, value, child) => Opacity(opacity: value, child: child),
+      onEnd: () {
+        if (mounted && _isLoading) setState(() => _skeletonBright = !_skeletonBright);
+      },
+      child: ListView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
         children: [
-          CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-            strokeWidth: 3,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Loading games...',
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-              fontSize: 16,
+          box(150, 20),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: _tileCoverHeight,
+            child: Row(
+              children: [
+                for (var i = 0; i < 3; i++) ...[
+                  box(_tileWidth, _tileCoverHeight, r: 12),
+                  const SizedBox(width: 14),
+                ],
+              ],
             ),
           ),
+          const SizedBox(height: 32),
+          box(190, 20),
+          const SizedBox(height: 14),
+          for (var i = 0; i < 3; i++) ...[
+            box(double.infinity, 86, r: 16),
+            const SizedBox(height: 12),
+          ],
         ],
       ),
     );

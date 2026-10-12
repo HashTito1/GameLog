@@ -135,6 +135,12 @@ class ThemeService extends ChangeNotifier {
       ),
       scaffoldBackgroundColor: config.backgroundColor,
       cardColor: config.cardColor,
+      // Smooth fade-and-slide between pages (Android's modern transition).
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: config.surfaceColor,
         foregroundColor: config.textColor,

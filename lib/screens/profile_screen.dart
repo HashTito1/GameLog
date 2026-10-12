@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../widgets/app_network_image.dart';
@@ -7,6 +8,7 @@ import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/igdb_service.dart';
 import '../services/library_service.dart';
+import '../services/event_bus.dart';
 import '../services/image_picker_service.dart';
 import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
@@ -41,10 +43,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadData();
+    // The Profile tab is kept alive, so pick up new ratings and library
+    // changes without showing the full-screen loader again.
+    _eventSubscriptions = [
+      EventBus().on<RatingSubmittedEvent>().listen((_) => _loadData(silent: true)),
+      EventBus().on<LibraryUpdatedEvent>().listen((_) => _loadData(silent: true)),
+    ];
   }
 
-  void _loadData() async {
-    setState(() => _isLoading = true);
+  List<StreamSubscription> _eventSubscriptions = [];
+
+  @override
+  void dispose() {
+    for (final subscription in _eventSubscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+
+  void _loadData({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     
     try {
       final currentUser = FirebaseAuthService.instance.currentUser;

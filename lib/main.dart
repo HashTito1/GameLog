@@ -22,9 +22,11 @@ void main() async {
     if (e.code != 'duplicate-app') rethrow;
   }
   
-  // Initialize services
-  await FirebaseAuthService().initialize();
-  await ThemeService().initialize();
+  // Independent start-up work runs together.
+  await Future.wait([
+    FirebaseAuthService().initialize(),
+    ThemeService().initialize(),
+  ]);
   
   runApp(const GameLogApp());
 }

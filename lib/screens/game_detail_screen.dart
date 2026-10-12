@@ -126,7 +126,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   Future<void> _loadGameData() async {
-    setState(() => _isLoading = true);
+    // With the game passed in, render it immediately and fill in your rating,
+    // library status and reviews as they arrive.
+    setState(() => _isLoading = _game == null);
 
     try {
       debugPrint('Loading game data for gameId: ${widget.gameId}');

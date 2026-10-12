@@ -49,11 +49,16 @@ class AppNetworkImage extends StatelessWidget {
     if (imageUrl.isEmpty) {
       return errorWidget?.call(context, imageUrl, 'empty url') ?? _box(context, failed: true);
     }
+    // Decode big covers at display size instead of full resolution: much
+    // less memory and no jank while scrolling.
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheWidth = (width != null && width!.isFinite) ? (width! * dpr).round() : null;
     return CachedNetworkImage(
       imageUrl: imageUrl,
       fit: fit,
       width: width,
       height: height,
+      memCacheWidth: cacheWidth,
       fadeInDuration: const Duration(milliseconds: 200),
       placeholder: placeholder ?? (context, url) => _box(context),
       errorWidget: (context, url, error) {

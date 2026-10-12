@@ -18,7 +18,9 @@ class MainScreen extends StatefulWidget {
 
 class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   int _currentIndex = 0;
-  late PageController _pageController;
+  // Tabs are built the first time they're opened and then kept alive, so
+  // switching back is instant and doesn't reload their data.
+  final Set<int> _openedTabs = {0};
   late AnimationController _animationController;
   String? _libraryPlaylistId;
 
@@ -35,8 +37,7 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
-    _animationController = AnimationController(
+    _animationController= AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
@@ -48,7 +49,6 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     UpdateService.instance.stopAutoChecks();
-    _pageController.dispose();
     _animationController.dispose();
     super.dispose();
   }
@@ -74,12 +74,10 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _libraryPlaylistId = null;
     }
     
-    setState(() => _currentIndex = index);
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-    );
+    setState(() {
+      _currentIndex = index;
+      _openedTabs.add(index);
+    });
     _animationController.forward().then((_) => _animationController.reverse());
   }
 
@@ -95,11 +93,31 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         }
       },
       child: Scaffold(
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: (index) => setState(() => _currentIndex = index),
-          physics: const NeverScrollableScrollPhysics(),
-          children: _screens,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            for (var i = 0; i < _screens.length; i++)
+              if (_openedTabs.contains(i))
+                IgnorePointer(
+                  ignoring: i != _currentIndex,
+                  // The fade itself must keep ticking, so only the tab's own
+                  // content is paused (TickerMode) while it's hidden.
+                  child: AnimatedOpacity(
+                    opacity: i == _currentIndex ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    child: AnimatedSlide(
+                      offset: i == _currentIndex ? Offset.zero : const Offset(0, 0.015),
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      child: TickerMode(
+                        enabled: i == _currentIndex,
+                        child: _screens[i],
+                      ),
+                    ),
+                  ),
+                ),
+          ],
         ),
         bottomNavigationBar: NavigationBarTheme(
           data: NavigationBarThemeData(

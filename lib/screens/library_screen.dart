@@ -46,6 +46,18 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     _setupEventListeners();
   }
 
+  @override
+  void didUpdateWidget(covariant LibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final id = widget.initialPlaylistId;
+    if (id != null && id != oldWidget.initialPlaylistId) {
+      setState(() {
+        _tabController.index = 1;
+        _expandedPlaylists.add(id);
+      });
+    }
+  }
+
   void _setupEventListeners() {
     _libraryUpdateSubscription = EventBus().on<LibraryUpdatedEvent>().listen((event) {
       final currentUser = FirebaseAuthService().currentUser;
