@@ -2,15 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../widgets/app_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/game.dart';
 import '../services/library_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
-import '../services/igdb_service.dart';
 import '../services/event_bus.dart';
 import '../models/library_status.dart';
 import 'game_detail_screen.dart';
 import 'main_screen.dart';
+import 'playlist_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   final String? initialPlaylistId;
@@ -37,18 +36,20 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   
   late TabController _tabController;
   
-  // Track expanded playlists
-  final Set<String> _expandedPlaylists = <String>{};
+  // Playlists tab
+  List<Map<String, dynamic>> _playlists = [];
+  bool _playlistsLoaded = false;
+  String? _pendingPlaylistId;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     
-    // If we have an initial playlist ID, switch to playlists tab and expand it
+    // Asked to show a playlist: switch to Playlists and open it once loaded.
     if (widget.initialPlaylistId != null) {
-      _tabController.index = 1; // Switch to playlists tab
-      _expandedPlaylists.add(widget.initialPlaylistId!);
+      _tabController.index = 1;
+      _pendingPlaylistId = widget.initialPlaylistId;
     }
     
     _loadLibrary();
@@ -60,10 +61,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     super.didUpdateWidget(oldWidget);
     final id = widget.initialPlaylistId;
     if (id != null && id != oldWidget.initialPlaylistId) {
-      setState(() {
-        _tabController.index = 1;
-        _expandedPlaylists.add(id);
-      });
+      _tabController.animateTo(1);
+      _pendingPlaylistId = id;
+      _openPendingPlaylist();
     }
   }
 
@@ -102,6 +102,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     }
 
     try {
+      _loadPlaylists();
       final results = await Future.wait([
         LibraryService.instance.getUserLibrary(currentUser.uid),
         LibraryService.instance.getUserLibraryStats(currentUser.uid),
@@ -251,1181 +252,249 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildPlaylistsTab() {
-    return Scaffold(
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _loadUserPlaylists(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          final playlists = snapshot.data ?? [];
-          
-          if (playlists.isEmpty) {
-            return _buildEmptyPlaylistsState();
-          }
-          
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: playlists.length,
-            itemBuilder: (context, index) {
-              final playlist = playlists[index];
-              return _buildPlaylistItemWithGames(playlist);
-            },
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreatePlaylistDialog,
-        backgroundColor: const Color(0xFF6366F1),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // Playlists tab
+  // ---------------------------------------------------------------------------
 
-  Future<List<Map<String, dynamic>>> _loadUserPlaylists() async {
+  Future<void> _loadPlaylists() async {
     final user = FirebaseAuthService().currentUser;
-    if (user == null) return [];
-    
-    // In library screen, user is always viewing their own playlists, so show all
-    return await UserDataService.getUserPlaylistsWithGamesFiltered(user.uid, currentUserId: user.uid);
+    if (user == null) return;
+    final playlists = await UserDataService.getUserPlaylistsWithGamesFiltered(user.uid, currentUserId: user.uid);
+    if (!mounted) return;
+    setState(() {
+      _playlists = playlists;
+      _playlistsLoaded = true;
+    });
+    _openPendingPlaylist();
   }
 
-  Future<void> _showCreatePlaylistDialog() async {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-    bool isCreating = false;
-    bool isPublic = false;
+  /// A playlist asked for from elsewhere (e.g. a shared link) opens once
+  /// playlists have loaded.
+  void _openPendingPlaylist() {
+    final id = _pendingPlaylistId;
+    if (id == null || !_playlistsLoaded) return;
+    _pendingPlaylistId = null;
+    final playlist = _playlists.where((p) => p['id'] == id).firstOrNull;
+    if (playlist != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPlaylist(playlist));
+    }
+  }
 
-    showDialog(
+  Future<void> _openPlaylist(Map<String, dynamic> playlist) async {
+final changed= await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (context) => PlaylistScreen(playlist: playlist, libraryGames: _libraryGames)),
+    );
+    if (changed == true) _loadPlaylists();
+  }
+
+  Future<void> _createPlaylist() async {
+    if (await showPlaylistEditor(context)) _loadPlaylists();
+  }
+
+  void _playlistActions(Map<String, dynamic> playlist) {
+    final theme = Theme.of(context);
+    final isPublic = playlist['isPublic'] == true;
+    showModalBottomSheet<void>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: const Text(
-            'Create Playlist',
-            style: TextStyle(color: Colors.white, fontSize: 18),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'Playlist Name',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  hintText: 'Enter playlist name',
-                  hintStyle: TextStyle(color: Colors.grey),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Description (Optional)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  hintText: 'Enter playlist description',
-                  hintStyle: TextStyle(color: Colors.grey),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF374151),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF4B5563)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isPublic ? Icons.public : Icons.lock,
-                      color: isPublic ? const Color(0xFF10B981) : Colors.grey,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isPublic ? 'Public Playlist' : 'Private Playlist',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          Text(
-                            isPublic 
-                                ? 'Others can see this playlist on your profile'
-                                : 'Only you can see this playlist',
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: isPublic,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          isPublic = value;
-                        });
-                      },
-                      activeThumbColor: const Color(0xFF10B981),
-                      activeTrackColor: const Color(0xFF10B981).withValues(alpha: 0.3),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isCreating ? null : () => Navigator.of(context).pop(),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: isCreating ? null : () async {
-                if (nameController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a playlist name'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                setDialogState(() => isCreating = true);
-
-                try {
-                  await _createPlaylist(
-                    nameController.text.trim(),
-                    descriptionController.text.trim(),
-                    isPublic,
-                  );
-
-                  if (context.mounted && mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Playlist "${nameController.text.trim()}" created!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                    // Refresh the playlists tab
-                    setState(() {});
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    setDialogState(() => isCreating = false);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to create playlist: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              tileColor: Colors.transparent,
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit'),
+              onTap: () async {
+                Navigator.pop(sheet);
+                if (await showPlaylistEditor(context, playlist: playlist)) _loadPlaylists();
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6366F1),
-                foregroundColor: Colors.white,
-              ),
-              child: isCreating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Text('Create'),
             ),
+            ListTile(
+              tileColor: Colors.transparent,
+              leading: Icon(isPublic ? Icons.lock_outline_rounded : Icons.public_rounded),
+              title: Text(isPublic ? 'Make private' : 'Make public'),
+              subtitle: Text(isPublic ? 'Hide it from your profile' : 'Show it on your profile as a recommendation'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _togglePlaylistPrivacy(playlist);
+              },
+            ),
+            ListTile(
+              tileColor: Colors.transparent,
+              leading: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
+              title: Text('Delete playlist', style: TextStyle(color: theme.colorScheme.error)),
+              onTap: () {
+                Navigator.pop(sheet);
+                _deletePlaylist(playlist);
+              },
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _createPlaylist(String name, String description, bool isPublic) async {
+  Future<void> _togglePlaylistPrivacy(Map<String, dynamic> playlist) async {
     final user = FirebaseAuthService().currentUser;
-    if (user == null) throw Exception('User not logged in');
-
-    await UserDataService.createPlaylistWithGames(
-      userId: user.uid,
-      playlistName: name,
-      description: description,
-      gameIds: [], // Empty playlist initially
-      isPublic: isPublic,
-    );
+    if (user == null) return;
+    final next = !(playlist['isPublic'] == true);
+    setState(() => playlist['isPublic'] = next);
+    try {
+      await UserDataService.updatePlaylistPrivacy(user.uid, playlist['id'], next);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => playlist['isPublic'] = !next);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not change privacy. Try again.')));
+    }
   }
 
-  Widget _buildPlaylistItemWithGames(Map<String, dynamic> playlist) {
-    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
-    final playlistId = playlist['id'] ?? '';
-    final isExpanded = _expandedPlaylists.contains(playlistId);
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF374151)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                if (isExpanded) {
-                  _expandedPlaylists.remove(playlistId);
-                } else {
-                  _expandedPlaylists.add(playlistId);
-                }
-              });
-            },
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    _getPlaylistIcon(playlist),
-                    color: const Color(0xFF6366F1),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(playlist['name'] ?? 'Unnamed Playlist',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            playlist['isPublic'] == true ? Icons.public : Icons.lock,
-                            size: 14,
-                            color: playlist['isPublic'] == true ? const Color(0xFF10B981) : Colors.grey,
-                          ),
-                        ],
-                      ),
-                      if ((playlist['description'] ?? '').isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(playlist['description'],
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                Text(
-                  '${games.length} games',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF6366F1),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  isExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: Colors.grey,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
-                  color: const Color(0xFF374151),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'add_games':
-                        _showAddGamesToPlaylistDialog(playlist);
-                        break;
-                      case 'toggle_privacy':
-                        _togglePlaylistPrivacy(playlist);
-                        break;
-                      case 'edit':
-                        _showEditPlaylistDialog(playlist);
-                        break;
-                      case 'delete':
-                        _showDeletePlaylistDialog(playlist);
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'add_games',
-                      child: Row(
-                        children: [
-                          Icon(Icons.add, color: Color(0xFF10B981), size: 16),
-                          SizedBox(width: 8),
-                          Text('Add Games', style: TextStyle(color: Colors.white)),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'toggle_privacy',
-                      child: Row(
-                        children: [
-                          Icon(
-                            playlist['isPublic'] == true ? Icons.lock : Icons.public,
-                            color: const Color(0xFF6366F1),
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            playlist['isPublic'] == true ? 'Make Private' : 'Make Public',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, color: Colors.white, size: 16),
-                          SizedBox(width: 8),
-                          Text('Edit', style: TextStyle(color: Colors.white)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, color: Colors.red, size: 16),
-                          SizedBox(width: 8),
-                          Text('Delete', style: TextStyle(color: Colors.red)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          // Show games based on expansion state
-          if (games.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            if (isExpanded) ...[
-              // Expanded view - show games as a vertical list
-              Column(
-                children: games.map((game) => _buildPlaylistGameItem(game)).toList(),
-              ),
-            ] else ...[
-              // Collapsed view - show horizontal thumbnails
-              SizedBox(
-                height: 80,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: games.length,
-                  itemBuilder: (context, index) {
-                    final game = games[index];
-                    return Container(
-                      width: 60,
-                      margin: const EdgeInsets.only(right: 8),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: game['gameCoverImage']?.isNotEmpty == true
-                                  ? AppNetworkImage(
-                                      imageUrl: game['gameCoverImage'],
-                                      fit: BoxFit.cover,
-                                      width: double.infinity,
-                                      placeholder: (context, url) => Container(
-                                        color: Colors.grey[700],
-                                        child: const Icon(Icons.videogame_asset,
-                                          color: Colors.white54,
-                                          size: 20,
-                                        ),
-                                      ),
-                                      errorWidget: (context, url, error) => Container(
-                                        color: Colors.grey[700],
-                                        child: const Icon(Icons.videogame_asset,
-                                          color: Colors.white54,
-                                          size: 20,
-                                        ),
-                                      ),
-                                    )
-                                  : Container(
-                                      color: Colors.grey[700],
-                                      child: const Icon(Icons.videogame_asset,
-                                        color: Colors.white54,
-                                        size: 20,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            game['gameTitle'] ?? 'Unknown',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ] else ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF374151),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.grey, size: 16),
-                  SizedBox(width: 8),
-                  Text(
-                    'No games in this playlist yet',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showEditPlaylistDialog(Map<String, dynamic> playlist) async {
-    final nameController = TextEditingController(text: playlist['name'] ?? '');
-    final descriptionController = TextEditingController(text: playlist['description'] ?? '');
-    bool isUpdating = false;
-
-    showDialog(
+  Future<void> _deletePlaylist(Map<String, dynamic> playlist) async {
+    final user = FirebaseAuthService().currentUser;
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: const Text(
-            'Edit Playlist',
-            style: TextStyle(color: Colors.white, fontSize: 18),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'Playlist Name',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Description (Optional)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  border: OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF6366F1)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isUpdating ? null : () => Navigator.of(context).pop(),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: isUpdating ? null : () async {
-                if (nameController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a playlist name'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                setDialogState(() => isUpdating = true);
-
-                try {
-                  await _updatePlaylist(
-                    playlist['id'],
-                    nameController.text.trim(),
-                    descriptionController.text.trim(),
-                  );
-
-                  if (context.mounted && mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Playlist updated!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                    setState(() {});
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    setDialogState(() => isUpdating = false);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update playlist: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6366F1),
-                foregroundColor: Colors.white,
-              ),
-              child: isUpdating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showDeletePlaylistDialog(Map<String, dynamic> playlist) async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        title: const Text(
-          'Delete Playlist',
-          style: TextStyle(color: Colors.white, fontSize: 18),
-        ),
-        content: Text(
-          'Are you sure you want to delete "${playlist['name']}"? This action cannot be undone.',
-          style: const TextStyle(color: Colors.grey),
-        ),
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete playlist?'),
+        content: Text('"${playlist['name']}" will be deleted. The games stay in your library.'),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              Navigator.of(context).pop();
-
-              try {
-                await _deletePlaylist(playlist['id']);
-
-                if (mounted) {
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Playlist "${playlist['name']}" deleted'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  setState(() {});
-                }
-              } catch (e) {
-                if (mounted) {
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to delete playlist: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
+            onPressed: () => Navigator.pop(dialog, true),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(dialog).colorScheme.error),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
+    if (ok != true || user == null) return;
+    setState(() => _playlists.remove(playlist));
+    try {
+      await UserDataService.deletePlaylist(userId: user.uid, playlistId: playlist['id']);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not delete it. Try again.')));
+      _loadPlaylists();
+    }
   }
 
-  Widget _buildPlaylistGameItem(Map<String, dynamic> game) {
-    final gameTitle = game['gameTitle'] ?? 'Unknown Game';
-    final gameCoverImage = game['gameCoverImage'] ?? '';
-    final gameDeveloper = game['gameDeveloper'] ?? 'Unknown Developer';
-    final gameId = game['gameId'] ?? '';
+  Widget _buildPlaylistsTab() {
+    final theme = Theme.of(context);
+    if (!_playlistsLoaded) return const Center(child: CircularProgressIndicator());
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
 
-    return GestureDetector(
-      onTap: () {
-        if (gameId.isNotEmpty) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => GameDetailScreen(
-                gameId: gameId,
+    if (_playlists.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadPlaylists,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          children: [
+            const SizedBox(height: 80),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.12), shape: BoxShape.circle),
+                child: Icon(Icons.queue_music_rounded, size: 44, color: theme.colorScheme.primary),
               ),
             ),
-          );
-        }
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF374151),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: gameCoverImage.isNotEmpty
-                  ? AppNetworkImage(
-                      imageUrl: gameCoverImage,
-                      width: 50,
-                      height: 70,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        width: 50,
-                        height: 70,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
-                          size: 20,
-                        ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 50,
-                        height: 70,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.videogame_asset,
-                          color: Colors.white54,
-                          size: 20,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      width: 50,
-                      height: 70,
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.videogame_asset,
-                        color: Colors.white54,
-                        size: 20,
-                      ),
-                    ),
+            const SizedBox(height: 20),
+            const Text('No playlists yet', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(
+              'Group games into collections like "Cozy weekend" or "Best co-op". Make one public to recommend it on your profile.',
+              textAlign: TextAlign.center,
+              style: TextStyle(height: 1.5, color: muted),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 20),
+            Center(
+              child: FilledButton.icon(
+                onPressed: _createPlaylist,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Create playlist'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPlaylists,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+              child: Row(
                 children: [
                   Text(
-                    gameTitle,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    '${_playlists.length} ${_playlists.length == 1 ? 'playlist' : 'playlists'}',
+                    style: TextStyle(fontWeight: FontWeight.w700, color: muted),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    gameDeveloper,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
+                  const Spacer(),
+                  FilledButton.tonalIcon(
+                    onPressed: _createPlaylist,
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('New'),
                   ),
                 ],
               ),
             ),
-            const Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.grey,
-              size: 16,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _updatePlaylist(String playlistId, String name, String description) async {
-    final user = FirebaseAuthService().currentUser;
-    if (user == null) throw Exception('User not logged in');
-
-    // Get current playlist data
-    final currentPlaylist = await UserDataService.getPlaylistDetails(user.id, playlistId);
-    if (currentPlaylist == null) throw Exception('Playlist not found');
-
-    // Update the playlist with new name and description
-    final updatedPlaylist = {
-      ...currentPlaylist,
-      'name': name,
-      'description': description,
-      'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    };
-
-    // Update in user's subcollection
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.id)
-        .collection('playlists')
-        .doc(playlistId)
-        .set(updatedPlaylist);
-
-    // Update user profile playlist reference
-    final userProfile = await UserDataService.getUserProfile(user.id);
-    final playlists = List<Map<String, dynamic>>.from(userProfile?['playlists'] ?? []);
-    final playlistIndex = playlists.indexWhere((p) => p['id'] == playlistId);
-    if (playlistIndex != -1) {
-      playlists[playlistIndex]['name'] = name;
-      playlists[playlistIndex]['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
-      
-      await UserDataService.createOrUpdateUserProfile(
-        userId: user.id,
-        playlists: playlists,
-      );
-    }
-  }
-
-  Future<void> _deletePlaylist(String playlistId) async {
-    final user = FirebaseAuthService().currentUser;
-    if (user == null) throw Exception('User not logged in');
-
-    await UserDataService.deletePlaylist(
-      userId: user.id,
-      playlistId: playlistId,
-    );
-  }
-
-  Future<void> _showAddGamesToPlaylistDialog(Map<String, dynamic> playlist) async {
-    final searchController = TextEditingController();
-    List<Game> searchResults = [];
-    bool isSearching = false;
-    
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1F2937),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.add, color: Color(0xFF10B981), size: 20),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 18,
+                crossAxisSpacing: 14,
+                childAspectRatio: 1 /
+                    (1 + (10 + _textSlot(15) + _textSlot(12.5) + 2) / ((MediaQuery.sizeOf(context).width - 32 - 14) / 2)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Add Games to "${playlist['name']}"',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: MediaQuery.of(context).size.width * 0.9,
-            height: MediaQuery.of(context).size.height * 0.6,
-            child: Column(
-              children: [
-                // Search field
-                TextField(
-                  controller: searchController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search for games...',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    prefixIcon: const Icon(Icons.search, color: Color(0xFF6366F1)),
-                    suffixIcon: isSearching
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                            ),
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: const Color(0xFF374151),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  onChanged: (query) async {
-                    if (query.trim().isEmpty) {
-                      setDialogState(() {
-                        searchResults = [];
-                        isSearching = false;
-                      });
-                      return;
-                    }
-                    
-                    setDialogState(() => isSearching = true);
-                    
-                    try {
-                      final results = await IGDBService.instance.searchGames(query.trim());
-                      setDialogState(() {
-                        searchResults = results;
-                        isSearching = false;
-                      });
-                    } catch (e) {
-                      setDialogState(() => isSearching = false);
-                    }
-                  },
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Search results
-                Expanded(
-                  child: searchResults.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.search,
-                                size: 48,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                searchController.text.isEmpty
-                                    ? 'Search for games to add to your playlist'
-                                    : 'No games found',
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 14,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: searchResults.length,
-                          itemBuilder: (context, index) {
-                            final game = searchResults[index];
-                            final isAlreadyInPlaylist = (playlist['games'] as List?)
-                                ?.any((g) => g['gameId'] == game.id) ?? false;
-                            
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              child: ListTile(
-                                leading: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: game.coverImage.isNotEmpty
-                                      ? Image.network(
-                                          game.coverImage,
-                                          width: 50,
-                                          height: 70,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (context, error, stackTrace) =>
-                                              Container(
-                                            width: 50,
-                                            height: 70,
-                                            color: Colors.grey[700],
-                                            child: const Icon(
-                                              Icons.videogame_asset,
-                                              color: Colors.white54,
-                                            ),
-                                          ),
-                                        )
-                                      : Container(
-                                          width: 50,
-                                          height: 70,
-                                          color: Colors.grey[700],
-                                          child: const Icon(
-                                            Icons.videogame_asset,
-                                            color: Colors.white54,
-                                          ),
-                                        ),
-                                ),
-                                title: Text(
-                                  game.title,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  game.releaseDate.isNotEmpty ? game.releaseDate : 'Unknown release date',
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                trailing: isAlreadyInPlaylist
-                                    ? const Icon(
-                                        Icons.check_circle,
-                                        color: Color(0xFF10B981),
-                                      )
-                                    : IconButton(
-                                        icon: const Icon(
-                                          Icons.add_circle_outline,
-                                          color: Color(0xFF6366F1),
-                                        ),
-                                        onPressed: () async {
-                                          try {
-                                            final user = FirebaseAuthService().currentUser;
-                                            if (user != null) {
-                                              await UserDataService.addGameToPlaylist(
-                                                userId: user.id,
-                                                playlistId: playlist['id'],
-                                                gameId: game.id,
-                                                gameTitle: game.title,
-                                                gameCoverImage: game.coverImage,
-                                                gameDeveloper: game.developer,
-                                                gameGenres: game.genres,
-                                              );
-                                              
-                                              // Update local playlist data
-                                              final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
-                                              games.add({
-                                                'gameId': game.id,
-                                                'gameTitle': game.title,
-                                                'gameCoverImage': game.coverImage,
-                                                'gameDeveloper': game.developer,
-                                                'gameGenres': game.genres,
-                                                'addedAt': DateTime.now().millisecondsSinceEpoch,
-                                              });
-                                              playlist['games'] = games;
-                                              
-                                              if (!context.mounted) return;
-                                              setDialogState(() {});
-
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(
-                                                  content: Text('${game.title} added to playlist'),
-                                                  backgroundColor: const Color(0xFF10B981),
-                                                ),
-                                              );
-                                            }
-                                          } catch (e) {
-                                            if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Failed to add game: $e'),
-                                                backgroundColor: Colors.red,
-                                              ),
-                                            );
-                                          }
-                                        },
-                                      ),
-                                tileColor: const Color(0xFF374151),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                // Refresh the playlists to show updated game count
-                setState(() {});
-              },
-              child: const Text('Done', style: TextStyle(color: Color(0xFF6366F1))),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  IconData _getPlaylistIcon(Map<String, dynamic> playlist) {
-    final games = List<Map<String, dynamic>>.from(playlist['games'] ?? []);
-    final gameCount = games.length;
-    
-    // Choose icon based on playlist characteristics
-    if (gameCount == 0) {
-      return Icons.playlist_add;
-    } else if (gameCount < 5) {
-      return Icons.playlist_play;
-    } else if (gameCount < 15) {
-      return Icons.library_music;
-    } else {
-      return Icons.collections;
-    }
-  }
-
-  Future<void> _togglePlaylistPrivacy(Map<String, dynamic> playlist) async {
-    try {
-      final user = FirebaseAuthService().currentUser;
-      if (user != null) {
-        final newPrivacy = !(playlist['isPublic'] == true);
-        
-        await UserDataService.updatePlaylistPrivacy(
-          user.id,
-          playlist['id'],
-          newPrivacy,
-        );
-        
-        if (!mounted) return;
-        // Update local state
-        setState(() {
-          playlist['isPublic'] = newPrivacy;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              newPrivacy 
-                  ? 'Playlist is now public' 
-                  : 'Playlist is now private',
-            ),
-            backgroundColor: const Color(0xFF10B981),
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update playlist privacy: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Widget _buildEmptyPlaylistsState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.playlist_play_outlined,
-            size: 64,
-            color: Colors.grey.shade600,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No Playlists Yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade300,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Create playlists to organize your games\ninto custom collections',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: _showCreatePlaylistDialog,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Create Playlist'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) => _buildPlaylistCard(theme, _playlists[i]),
+                childCount: _playlists.length,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPlaylistCard(ThemeData theme, Map<String, dynamic> playlist) {
+    final count = List.from(playlist['games'] ?? const []).length;
+    final isPublic = playlist['isPublic'] == true;
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    return GestureDetector(
+      // Opaque so the whole card (cover images included) is tappable.
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openPlaylist(playlist),
+      onLongPress: () => _playlistActions(playlist),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PlaylistCover(playlist: playlist, size: constraints.maxWidth),
+            const SizedBox(height: 10),
+            Text(
+              (playlist['name'] ?? 'Untitled').toString(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 15, height: 1.3, fontWeight: FontWeight.w700),
+            ),
+            Row(
+              children: [
+                Icon(isPublic ? Icons.public_rounded : Icons.lock_outline_rounded, size: 13, color: muted),
+                const SizedBox(width: 4),
+                Text('$count ${count == 1 ? 'game' : 'games'}', style: TextStyle(fontSize: 12.5, height: 1.3, color: muted)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1497,72 +566,42 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final avg = ((_libraryStats['averageRating'] ?? 0.0) as num).toDouble();
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
 
-    Widget stat(String value, String label) => Expanded(
-          child: Column(
-            children: [
-              Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 2),
-              Text(label, style: TextStyle(fontSize: 12.5, color: muted)),
-            ],
-          ),
-        );
-
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.16),
-            theme.colorScheme.onSurface.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.18)),
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              stat('$total', total == 1 ? 'game' : 'games'),
-              stat('$rated', 'rated'),
-              stat(avg > 0 ? avg.toStringAsFixed(1) : '–', 'avg rating'),
+              Text('$total', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 6),
+              Text(total == 1 ? 'game' : 'games', style: TextStyle(color: muted)),
+              const Spacer(),
+              const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFBBF24)),
+              const SizedBox(width: 3),
+              Text(avg > 0 ? avg.toStringAsFixed(1) : '–', style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(' avg · $rated rated', style: TextStyle(fontSize: 13, color: muted)),
             ],
           ),
-          const SizedBox(height: 16),
-          // How the library splits across categories.
+          const SizedBox(height: 10),
+          // How the library splits across categories (colours match the chips).
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(4),
             child: SizedBox(
-              height: 10,
+              height: 6,
               child: Row(
                 children: [
                   for (final s in LibraryStatus.libraryOrder)
-                    if (counts[s]! > 0)
-                      Expanded(flex: counts[s]!, child: Container(color: s.color)),
+                    if (counts[s]! > 0) Expanded(flex: counts[s]!, child: Container(color: s.color)),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 14,
-            runSpacing: 6,
-            alignment: WrapAlignment.center,
-            children: [
-              for (final s in LibraryStatus.libraryOrder)
-                if (counts[s]! > 0)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: s.color, shape: BoxShape.circle)),
-                      const SizedBox(width: 5),
-                      Text('${s.label} ${counts[s]}', style: TextStyle(fontSize: 12, color: muted)),
-                    ],
-                  ),
-            ],
           ),
         ],
       ),
@@ -1748,6 +787,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
     final status = LibraryStatus.forEntry(game);
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => _openGame(game),
       onLongPress: () => _showGameActions(game),
       child: Column(
