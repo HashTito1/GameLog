@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_format.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/friends_service.dart';
@@ -337,7 +338,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'We\'ll notify you when something interesting happens',
+            'Friend requests, and ratings from people you follow, show up here.',
             style: TextStyle(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               fontSize: 14,
@@ -515,7 +516,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } else if (difference.inDays < 7) {
       return '${difference.inDays}d ago';
     } else {
-      return '${time.day}/${time.month}/${time.year}';
+      return formatShortDate(time);
     }
   }
 }

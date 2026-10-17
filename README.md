@@ -31,61 +31,81 @@ A social platform for gamers to track, rate, and review games - like Letterboxd 
 
 ## Security & Privacy
 
-GameLog prioritizes user security and data protection:
+- **Authentication**: Firebase Auth handles all password management; passwords are never stored on devices
+- **Access controls**: [firestore.rules](firestore.rules) restrict every write to the data's owner (likes, follows and reply counters are limited to the caller's own changes). Admin roles are checked server-side by user ID
+- **Private emails**: email addresses are not stored on public profile documents
+- **No secrets in the repo**: API keys are injected at build time (see below)
 
-- ✅ **Secure Authentication**: Firebase Auth handles all password management
-- ✅ **No Local Password Storage**: Passwords never stored on devices
-- ✅ **Encrypted Data**: All communication uses HTTPS/TLS encryption
-- ✅ **Access Controls**: Firestore security rules protect user data
-- ✅ **Secure API Integration**: IGDB credentials properly managed
-- ✅ **Offline-First Design**: Full functionality without external dependencies
-- ✅ **Regular Updates**: Automatic security updates through GitHub releases
+## Game Data APIs
 
-See [SECURITY.md](SECURITY.md) for detailed security information.
-
-## API Integration
-
-GameLog uses the **IGDB API** (Internet Game Database) for comprehensive game data:
-
-- **Setup Required**: You'll need to configure IGDB API credentials
-- **Better Data**: More accurate and comprehensive game information than RAWG
-- **Higher Quality Images**: Better cover art and screenshots
-- **Real Game Data**: Fetches live game information, ratings, and metadata
-- **Comprehensive Database**: Access to 500,000+ games from IGDB
-- **Automatic Caching**: Intelligent caching for better performance
+GameLog uses **IGDB** (via a Twitch developer app) for all game data. Profile pictures and banners are hosted on **ImgBB** (free, no Firebase Blaze plan needed).
 
 ## Getting Started
 
 ### Prerequisites
-- Flutter SDK installed on your system
-- Twitch Developer Account (for IGDB API access)
+- Flutter SDK
+- A Twitch developer app for IGDB ([IGDB docs](https://api-docs.igdb.com/#getting-started))
+- An ImgBB API key ([api.imgbb.com](https://api.imgbb.com/))
 
-### Setup Instructions
+### Setup
 
-1. **Install Dependencies**:
+1. Install dependencies:
    ```bash
    flutter pub get
    ```
 
-2. **Configure IGDB API** (Required):
-   - Follow the detailed setup guide in [IGDB_SETUP.md](IGDB_SETUP.md)
-   - Get your Twitch Client ID and Access Token
-   - Update `lib/services/igdb_service.dart` with your credentials
+2. Configure API keys: copy `dart_defines.example.json` to `dart_defines.json` (git-ignored) and fill in your keys.
 
-3. **Test IGDB Connection**:
+3. Run the app:
    ```bash
-   dart run scripts/test_igdb_connection.dart
+   flutter run --flavor user --dart-define-from-file=dart_defines.json
+   ```
+   VS Code users can use the included launch configurations instead. The admin app runs via `run_admin_app.bat`.
+
+4. Deploy the security rules whenever `firestore.rules` changes:
+   ```bash
+   firebase deploy --only firestore:rules
    ```
 
-4. **Run the App**:
-   ```bash
-   flutter run
-   ```
+Notes:
+- IGDB app access tokens expire after about 60 days. Refresh it with `powershell -ExecutionPolicy Bypass -File scripts\refresh_igdb_token.ps1`, which asks for your Twitch client secret, updates `dart_defines.json` and tests the new token.
+- Anything compiled into an app can be extracted, so use low-privilege keys. Moving the IGDB calls behind a Cloud Function would keep them off devices entirely.
 
-### Important Notes
-- The app requires IGDB API credentials to fetch game data
-- Without proper API setup, the app will show configuration errors
-- See [IGDB_SETUP.md](IGDB_SETUP.md) for detailed setup instructions
+### Admin setup
+
+See [docs/ADMIN_SETUP.md](docs/ADMIN_SETUP.md).
+
+### Android build JDK
+
+The Android build uses Gradle 9.8.1, which runs on JDK 17 through JDK 27. Java and Kotlin compilation uses a **JDK 25 toolchain**, because the Android Gradle Plugin's `jlink` step doesn't work with JDK 27 yet. Android Studio ships a JDK 25. Tell Gradle where it is once per machine by adding this to `%USERPROFILE%\.gradle\gradle.properties`:
+
+```properties
+org.gradle.java.installations.paths=C:/Program Files/Android/Android Studio/jbr
+```
+
+### Release signing
+
+Release APKs must always be signed with the same upload key, or in-app updates will fail to install.
+
+1. Create a keystore once and keep it safe and backed up (never commit it):
+   ```bash
+   keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+   ```
+2. Create `android/key.properties` (git-ignored):
+   ```properties
+   storePassword=...
+   keyPassword=...
+   keyAlias=upload
+   storeFile=../upload-keystore.jks
+   ```
+   `storeFile` is relative to `android/app`.
+3. Build with `build_admin_apk.bat`. Without `key.properties`, release builds fall back to the debug key, which is fine locally but must not be published.
+
+### Tests
+
+```bash
+flutter test
+```
 
 ## Project Structure
 
@@ -119,7 +139,10 @@ lib/
 ## Implemented Features
 
 - ✅ Firebase user authentication with email verification
-- ✅ Game search and discovery via RAWG API
+- ✅ Game search and discovery via IGDB
+- ✅ Community forum, rating comments and likes
+- ✅ Friends, following and notifications
+- ✅ Separate admin app for moderation
 - ✅ Personal game library with status tracking
 - ✅ Rating and review system
 - ✅ User profiles with customization
@@ -127,8 +150,6 @@ lib/
 
 ## Future Enhancements
 
-- Social following system
-- Game recommendations
 - Achievement system
 - Integration with gaming platforms (Steam, PlayStation, Xbox)
 - Photo sharing for gaming moments
@@ -172,6 +193,6 @@ We **strongly encourage contributions** to the main GameLog project! Here's how:
 
 ## Acknowledgments
 
-- [RAWG.io](https://rawg.io/) for providing the video game database API
+- [IGDB](https://www.igdb.com/) for video game data
 - [Firebase](https://firebase.google.com/) for authentication and database services
 - [Flutter](https://flutter.dev/) for the amazing cross-platform framework

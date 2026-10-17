@@ -416,7 +416,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                 colors: [
                   theme.colorScheme.primary,
                   theme.colorScheme.secondary,
-                  theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                  theme.colorScheme.tertiary,
                 ],
                 stops: [0.0, _glowAnimation.value, 1.0],
               ).createShader(bounds),
@@ -470,7 +470,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                       : [
                           theme.colorScheme.primary,
                           theme.colorScheme.secondary,
-                          theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                          theme.colorScheme.tertiary,
                         ],
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
@@ -655,7 +655,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         final colors = [
           theme.colorScheme.primary,
           theme.colorScheme.secondary,
-          theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+          theme.colorScheme.tertiary,
           theme.colorScheme.primary.withValues(alpha: 0.8),
         ];
         

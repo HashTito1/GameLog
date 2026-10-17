@@ -14,6 +14,9 @@ class UserRating {
   final int likeCount;
   final List<String> likedBy;
   final int commentCount;
+  /// Read-only: stored on game_ratings by RatingService.submitRating. Not in
+  /// [toMap], so saving a rating can't overwrite it with null.
+  final String? gameTitle;
 
   UserRating({
     required this.id,
@@ -29,6 +32,7 @@ class UserRating {
     this.likeCount = 0,
     this.likedBy = const [],
     this.commentCount = 0,
+    this.gameTitle,
   });
 
   Map<String, dynamic> toMap() {
@@ -72,6 +76,7 @@ class UserRating {
       likeCount: map['likeCount'] ?? 0,
       likedBy: List<String>.from(map['likedBy'] ?? []),
       commentCount: map['commentCount'] ?? 0,
+      gameTitle: map['gameTitle'],
     );
   }
 
@@ -104,6 +109,7 @@ class UserRating {
       likeCount: likeCount ?? this.likeCount,
       likedBy: likedBy ?? this.likedBy,
       commentCount: commentCount ?? this.commentCount,
+      gameTitle: gameTitle,
     );
   }
 }

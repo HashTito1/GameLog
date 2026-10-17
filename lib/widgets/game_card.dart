@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'app_network_image.dart';
 import '../models/game.dart';
 
 class GameCard extends StatelessWidget {
@@ -25,7 +25,7 @@ class GameCard extends StatelessWidget {
               if (game.coverImage.isNotEmpty)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
+                  child: AppNetworkImage(
                     imageUrl: game.coverImage,
                     height: 120,
                     width: double.infinity,

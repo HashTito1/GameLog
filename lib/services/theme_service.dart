@@ -135,6 +135,12 @@ class ThemeService extends ChangeNotifier {
       ),
       scaffoldBackgroundColor: config.backgroundColor,
       cardColor: config.cardColor,
+      // Smooth fade-and-slide between pages (Android's modern transition).
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: config.surfaceColor,
         foregroundColor: config.textColor,
@@ -188,8 +194,9 @@ class ThemeService extends ChangeNotifier {
       cardTheme: CardThemeData(
         color: config.surfaceColor,
         elevation: 0,
+        margin: const EdgeInsets.symmetric(vertical: 6),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: config.cardColor.withValues(alpha: 0.3)),
         ),
       ),
@@ -258,12 +265,17 @@ class ThemeService extends ChangeNotifier {
         indicatorColor: config.primaryColor,
         dividerColor: config.cardColor,
       ),
+      // A little more air in every list row and chip app-wide.
       listTileTheme: ListTileThemeData(
         textColor: config.textColor,
         iconColor: config.textColor,
         tileColor: config.surfaceColor,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+        minVerticalPadding: 12,
+        horizontalTitleGap: 16,
       ),
       chipTheme: ChipThemeData(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         backgroundColor: config.cardColor,
         labelStyle: TextStyle(color: config.textColor),
         side: BorderSide(color: config.cardColor),

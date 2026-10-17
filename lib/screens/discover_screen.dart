@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/app_network_image.dart';
+import '../utils/date_format.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../models/game.dart';
 import '../services/igdb_service.dart';
 import '../services/rating_service.dart';
+import '../services/follow_service.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rating_interaction_service.dart';
+import '../services/theme_service.dart';
 import 'game_detail_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -21,171 +23,98 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   List<UserRating> _recentReviews = [];
+  Set<String> _followingIds = {};
+  int _priorityCount = 0; // leading reviews by people you follow
+
+  /// Highlight colour for reviews by people you follow.
+  static const Color _followAccent = Color(0xFFF5B83D);
   bool _isLoading = true;
-  String _loadingMessage = 'Loading reviews...';
   String _selectedFilter = 'recent';
-  String _selectedGenre = 'all';
-  String _selectedPlatform = 'all';
   String _selectedRating = 'all';
 
   final List<Map<String, String>> _filterOptions = [
     {'label': 'Recent', 'value': 'recent'},
     {'label': 'Top Rated', 'value': 'top_rated'},
     {'label': 'Popular', 'value': 'popular'},
-    {'label': 'New Users', 'value': 'new_users'},
-  ];
-
-  final List<Map<String, String>> _genreOptions = [
-    {'label': 'All Genres', 'value': 'all'},
-    {'label': 'Action', 'value': 'action'},
-    {'label': 'Adventure', 'value': 'adventure'},
-    {'label': 'RPG', 'value': 'rpg'},
-    {'label': 'Strategy', 'value': 'strategy'},
-    {'label': 'Indie', 'value': 'indie'},
-    {'label': 'Shooter', 'value': 'shooter'},
-  ];
-
-  final List<Map<String, String>> _platformOptions = [
-    {'label': 'All Platforms', 'value': 'all'},
-    {'label': 'PC', 'value': 'pc'},
-    {'label': 'PlayStation', 'value': 'playstation'},
-    {'label': 'Xbox', 'value': 'xbox'},
-    {'label': 'Nintendo', 'value': 'nintendo'},
-    {'label': 'Mobile', 'value': 'mobile'},
+    {'label': 'Following', 'value': 'following'},
+    {'label': 'Friends', 'value': 'friends'},
   ];
 
   final List<Map<String, String>> _ratingOptions = [
-    {'label': 'All Ratings', 'value': 'all'},
-    {'label': '5 Stars', 'value': '5'},
-    {'label': '4+ Stars', 'value': '4'},
-    {'label': '3+ Stars', 'value': '3'},
-    {'label': '2+ Stars', 'value': '2'},
+    {'label': 'Any rating', 'value': 'all'},
+    {'label': '5★', 'value': '5'},
+    {'label': '4★ & up', 'value': '4'},
+    {'label': '3★ & up', 'value': '3'},
+    {'label': '2★ & up', 'value': '2'},
   ];
 
   @override
   void initState() {
     super.initState();
-    _checkDatabaseStats();
     _loadRecentReviews();
-  }
-
-  Future<void> _checkDatabaseStats() async {
-    try {
-      final stats = await RatingService.getDatabaseStats();
-      debugPrint('=== DISCOVER SCREEN DEBUG ===');
-      debugPrint('Database contains ${stats['totalRatings']} total ratings');
-      debugPrint('Database contains ${stats['uniqueGames']} unique games');
-      
-      // Also check if we can query the collection directly
-      final directQuery = await FirebaseFirestore.instance
-          .collection('game_ratings')
-          .limit(5)
-          .get();
-      debugPrint('Direct query found ${directQuery.docs.length} documents');
-      
-      // Check if there are any documents at all
-      if (directQuery.docs.isNotEmpty) {
-        debugPrint('Sample rating data: ${directQuery.docs.first.data()}');
-      }
-      
-      debugPrint('=============================');
-    } catch (e) {
-      debugPrint('Error checking database stats: $e');
-    }
   }
 
   Future<void> _loadRecentReviews() async {
     setState(() {
       _isLoading = true;
-      _loadingMessage = 'Loading reviews...';
     });
-    
+
     try {
-      debugPrint('=== LOADING REVIEWS DEBUG ===');
-      debugPrint('Loading reviews with optimized filter: $_selectedFilter');
-      
-      setState(() => _loadingMessage = 'Fetching ${_selectedFilter} reviews...');
-      
+      final following = await FollowService.getFollowingIds();
       List<UserRating> reviews = [];
-      
-      // Use optimized methods for better performance
+
       switch (_selectedFilter) {
         case 'recent':
-          debugPrint('Calling getAllRecentRatings...');
           reviews = await RatingService.getAllRecentRatings(limit: 50);
           break;
         case 'top_rated':
-          debugPrint('Calling getTopRatedReviewsOptimized...');
           reviews = await RatingService.getTopRatedReviewsOptimized(limit: 50);
           break;
         case 'popular':
-          debugPrint('Calling getPopularReviewsOptimized...');
           reviews = await RatingService.getPopularReviewsOptimized(limit: 50);
           break;
-        case 'new_users':
-          debugPrint('Calling getAllRecentRatings for new users...');
-          reviews = await RatingService.getAllRecentRatings(limit: 50);
+        case 'following':
+          reviews = await RatingService.getRecentRatingsByUsers(following, limit: 50);
+          break;
+        case 'friends':
+          final me = FirebaseAuthService().currentUser;
+          reviews = me == null ? [] : await RatingService.getFriendRecentRatings(me.uid, limit: 50);
           break;
       }
-      
-      debugPrint('Retrieved ${reviews.length} reviews from optimized query');
-      
-      if (reviews.isEmpty) {
-        debugPrint('⚠️ No reviews found! This could mean:');
-        debugPrint('1. No ratings exist in the database');
-        debugPrint('2. All ratings belong to the current user');
-        debugPrint('3. There\'s an issue with the query');
-      } else {
-        debugPrint('✅ Found reviews, sample: ${reviews.first.gameId} by ${reviews.first.username}');
+
+      // People you follow come first in the community tabs. On Recent their
+      // latest reviews are pulled in even if they're not in the newest 50.
+      if (following.isNotEmpty && !{'following', 'friends'}.contains(_selectedFilter)) {
+        var priority = <UserRating>[];
+        if (_selectedFilter == 'recent') {
+          priority = await RatingService.getRecentRatingsByUsers(following, limit: 10);
+        }
+        final seen = priority.map((r) => r.id).toSet();
+        priority = [
+          ...priority,
+          ...reviews.where((r) => following.contains(r.userId) && !seen.contains(r.id)),
+        ];
+        final priorityIds = priority.map((r) => r.id).toSet();
+        reviews = [...priority, ...reviews.where((r) => !priorityIds.contains(r.id))];
       }
-      
-      setState(() => _loadingMessage = 'Filtering reviews...');
-      
-      // Filter out current user's ratings
+
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser != null) {
-        final beforeFilter = reviews.length;
         reviews = reviews.where((rating) => rating.userId != currentUser.id).toList();
-        debugPrint('After filtering current user (${currentUser.id}): ${reviews.length} ratings (was $beforeFilter)');
-      } else {
-        debugPrint('No current user, keeping all ${reviews.length} ratings');
       }
-      
-      // Apply additional filters (rating filter only for now)
       reviews = _applyAdditionalFilters(reviews);
-      debugPrint('After applying additional filters: ${reviews.length} ratings');
-      
-      // If still no reviews, let's check what's in the database
-      if (reviews.isEmpty) {
-        debugPrint('🔍 No reviews after filtering. Checking database directly...');
-        try {
-          final directCheck = await FirebaseFirestore.instance
-              .collection('game_ratings')
-              .limit(10)
-              .get();
-          debugPrint('Direct database check found ${directCheck.docs.length} total ratings');
-          
-          if (directCheck.docs.isNotEmpty) {
-            for (final doc in directCheck.docs) {
-              final data = doc.data();
-              debugPrint('Rating: ${data['gameId']} by ${data['userId']} (${data['username']}) - ${data['rating']} stars');
-            }
-          }
-        } catch (e) {
-          debugPrint('Error in direct database check: $e');
-        }
-      }
-      
-      debugPrint('=== END LOADING REVIEWS DEBUG ===');
-      
-      setState(() => _loadingMessage = 'Loading user profiles...');
-      
+      final priorityCount = _selectedFilter == 'following'
+          ? 0
+          : reviews.takeWhile((r) => following.contains(r.userId)).length;
+
       // Enrich with current user data (profile pics and updated usernames)
       reviews = await _enrichWithCurrentUserData(reviews);
       
       if (mounted) {
         setState(() {
           _recentReviews = reviews;
+          _followingIds = following;
+          _priorityCount = priorityCount;
           _isLoading = false;
         });
       }
@@ -250,7 +179,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       debugPrint('After rating filter (>= $minRating): ${filteredReviews.length}');
     }
 
-    // TODO: Genre and platform filtering would require fetching game details from RAWG
+    // TODO: Genre and platform filtering would require fetching game details from IGDB
     // For now, we'll implement basic filtering based on available data
     // This could be enhanced by caching game details or fetching them in batches
     
@@ -260,8 +189,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _clearFilters() {
     setState(() {
-      _selectedGenre = 'all';
-      _selectedPlatform = 'all';
       _selectedRating = 'all';
     });
     
@@ -284,462 +211,525 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(theme),
-            _buildFilterTabs(theme),
-            _buildAdvancedFilters(theme),
-            Expanded(
-              child: _isLoading
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _loadingMessage,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : _buildReviewsList(theme),
-            ),
-          ],
+        child: RefreshIndicator(
+          onRefresh: _loadRecentReviews,
+          color: theme.colorScheme.primary,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(theme)),
+              SliverToBoxAdapter(child: _buildFilterTabs(theme)),
+              SliverToBoxAdapter(child: _buildRatingFilters(theme)),
+              if (_isLoading)
+                SliverList.builder(
+                  itemCount: 3,
+                  itemBuilder: (context, index) => _buildSkeletonCard(theme),
+                )
+              else if (_recentReviews.isEmpty)
+                SliverFillRemaining(hasScrollBody: false, child: _buildReviewsList(theme))
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  sliver: SliverList.list(
+                    children: [
+                      if (_priorityCount > 0)
+                        _buildSectionLabel(theme, 'From people you follow', Icons.how_to_reg_rounded, _followAccent),
+                      for (var i = 0; i < _recentReviews.length; i++) ...[
+                        if (_priorityCount > 0 && i == _priorityCount)
+                          _buildSectionLabel(theme, 'Community', Icons.public, theme.colorScheme.primary),
+                        _buildReviewItem(_recentReviews[i]),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildHeader(ThemeData theme) {
-    final hasActiveFilters = _selectedGenre != 'all' || _selectedPlatform != 'all' || _selectedRating != 'all';
-    
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Discover',
             style: TextStyle(
-              fontSize: 18, // Reduced from 20
-              fontWeight: FontWeight.bold,
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
               color: theme.colorScheme.onSurface,
             ),
           ),
-          if (hasActiveFilters) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                'Filtered',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+          const SizedBox(height: 2),
+          Text(
+            'What the GameLog community is playing',
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
-          ],
-          const Spacer(),
-          IconButton(
-            onPressed: hasActiveFilters ? _clearFilters : null,
-            icon: Icon(
-              Icons.filter_list_off, 
-              color: hasActiveFilters ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.5), 
-              size: 20
-            ), // Smaller icon
-            tooltip: hasActiveFilters ? 'Clear Filters' : 'No active filters',
-            padding: const EdgeInsets.all(8), // Reduced padding
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32), // Smaller button
           ),
         ],
       ),
     );
   }
+
+  static const Map<String, IconData> _filterIcons = {
+    'recent': Icons.schedule,
+    'top_rated': Icons.star_rounded,
+    'popular': Icons.local_fire_department,
+    'following': Icons.how_to_reg_rounded,
+    'friends': Icons.people_alt_outlined,
+  };
 
   Widget _buildFilterTabs(ThemeData theme) {
-    return Container(
-      height: 40, // Reduced from 50
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced margin
+    return SizedBox(
+      height: 56,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        children: _filterOptions.map((filter) => 
-          _buildFilterChip(filter['label']!, filter['value']!, theme)
-        ).toList(),
-      ),
-    );
-  }
-
-  Widget _buildAdvancedFilters(ThemeData theme) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced margin
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(child: _buildDropdownFilter('Genre', _selectedGenre, _genreOptions, (value) {
-                setState(() => _selectedGenre = value!);
-                _loadRecentReviews();
-              }, theme)),
-              const SizedBox(width: 6), // Reduced spacing
-              Expanded(child: _buildDropdownFilter('Platform', _selectedPlatform, _platformOptions, (value) {
-                setState(() => _selectedPlatform = value!);
-                _loadRecentReviews();
-              }, theme)),
-            ],
-          ),
-          const SizedBox(height: 6), // Reduced spacing
-          _buildDropdownFilter('Rating', _selectedRating, _ratingOptions, (value) {
-            setState(() => _selectedRating = value!);
-            _loadRecentReviews();
-          }, theme),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDropdownFilter(String label, String selectedValue, List<Map<String, String>> options, ValueChanged<String?> onChanged, ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3), // Reduced padding
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(6), // Smaller radius
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: selectedValue,
-          onChanged: (value) {
-            if (value != null && value != selectedValue) {
-              onChanged(value);
-            }
-          },
-          dropdownColor: theme.colorScheme.surface,
-          style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 12), // Smaller text
-          icon: Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurface, size: 18), // Smaller icon
-          isExpanded: true,
-          items: options.map((option) => DropdownMenuItem<String>(
-            value: option['value'],
-            child: Text(option['label']!, style: const TextStyle(fontSize: 12)), // Smaller text
-          )).toList(),
-        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        children: _filterOptions
+            .map((filter) => _buildFilterChip(filter['label']!, filter['value']!, theme))
+            .toList(),
       ),
     );
   }
 
   Widget _buildFilterChip(String label, String value, ThemeData theme) {
     final isSelected = _selectedFilter == value;
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: isSelected ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: isSelected ? theme.colorScheme.primary : theme.colorScheme.surface,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: isSelected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline.withValues(alpha: 0.25),
           ),
         ),
-        selected: isSelected,
-        onSelected: (selected) {
-          if (selected) {
-            setState(() {
-              _selectedFilter = value;
-            });
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: () {
+            if (isSelected) return;
+            setState(() => _selectedFilter = value);
             _loadRecentReviews();
-          }
-        },
-        backgroundColor: theme.colorScheme.surface,
-        selectedColor: theme.colorScheme.primary,
-        side: BorderSide.none,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(
+                  _filterIcons[value] ?? Icons.circle,
+                  size: 16,
+                  color: isSelected
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isSelected
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRatingFilters(ThemeData theme) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+        children: [
+          for (final option in _ratingOptions)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(option['label']!),
+                selected: _selectedRating == option['value'],
+                onSelected: (_) {
+                  if (_selectedRating == option['value']) return;
+                  setState(() => _selectedRating = option['value']!);
+                  _loadRecentReviews();
+                },
+                showCheckmark: false,
+                visualDensity: VisualDensity.compact,
+                labelStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _selectedRating == option['value']
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+                backgroundColor: Colors.transparent,
+                selectedColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+                side: BorderSide(
+                  color: _selectedRating == option['value']
+                      ? theme.colorScheme.primary.withValues(alpha: 0.6)
+                      : theme.colorScheme.outline.withValues(alpha: 0.25),
+                ),
+                shape: const StadiumBorder(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionLabel(ThemeData theme, String label, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.2, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Divider(color: color.withValues(alpha: 0.25), height: 1)),
+        ],
       ),
     );
   }
 
   Widget _buildReviewsList(ThemeData theme) {
-    if (_recentReviews.isEmpty) {
-      final hasActiveFilters = _selectedGenre != 'all' || _selectedPlatform != 'all' || _selectedRating != 'all';
-      
-      if (hasActiveFilters) {
-        return _buildEmptyState(
-          'No Reviews Match Filters',
-          'Try adjusting your filters to see more reviews.',
-        );
-      } else {
-        // Different messages based on selected filter
-        String title, subtitle;
-        switch (_selectedFilter) {
-          case 'top_rated':
-            title = 'No Top Rated Games Yet';
-            subtitle = 'Games need at least one rating to appear here. Rate some games to get started!';
-            break;
-          case 'popular':
-            title = 'No Popular Games Yet';
-            subtitle = 'Popular games will appear here once more users rate games.';
-            break;
-          case 'new_users':
-            title = 'No New User Reviews';
-            subtitle = 'Reviews from new users will appear here.';
-            break;
-          default:
-            title = 'No Reviews Yet';
-            subtitle = 'Be the first to discover and review games!';
-        }
-        
-        return _buildEmptyState(title, subtitle);
-      }
+    final hasActiveFilters = _selectedRating != 'all';
+    if (hasActiveFilters) {
+      return _buildEmptyState(
+        'No reviews match',
+        'Try a different rating filter to see more reviews.',
+      );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: _recentReviews.length,
-      itemBuilder: (context, index) {
-        final review = _recentReviews[index];
-        return _buildReviewItem(review);
-      },
+    final (title, subtitle) = switch (_selectedFilter) {
+      'top_rated' => ('No top-rated reviews yet', 'Reviews of 4★ and up will appear here.'),
+      'popular' => ('No popular reviews yet', 'Reviews other players like will appear here.'),
+      'friends' => ('No friend reviews yet', 'Add friends to see what they think of the games they play.'),
+      'following' => ('No reviews from people you follow', 'Follow players from their profiles to see their reviews here first.'),
+      _ => ('No reviews yet', 'Be the first to rate and review a game!'),
+    };
+    return _buildEmptyState(title, subtitle);
+  }
+
+  Widget _buildSkeletonCard(ThemeData theme) {
+    final block = theme.colorScheme.onSurface.withValues(alpha: 0.06);
+    Widget bar(double width, double height) => Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(color: block, borderRadius: BorderRadius.circular(6)),
+        );
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          bar(72, 96),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                bar(160, 16),
+                const SizedBox(height: 8),
+                bar(100, 12),
+                const SizedBox(height: 16),
+                bar(double.infinity, 12),
+                const SizedBox(height: 6),
+                bar(180, 12),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
+  // Game details are looked up once per game, not on every rebuild.
+  final Map<String, Future<Game?>> _gameLookups = {};
+
+  Future<Game?> _gameFor(String gameId) => _gameLookups.putIfAbsent(gameId, () async {
+        try {
+          return await IGDBService.instance.getGameDetails(gameId);
+        } catch (e) {
+          return null;
+        }
+      });
+
   Widget _buildReviewItem(UserRating review) {
     final theme = Theme.of(context);
-    
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => GameDetailScreen(gameId: review.gameId),
-          ),
-        );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final hasText = review.review != null && review.review!.trim().isNotEmpty;
+    final name = review.displayName ?? review.username;
+    final followed = _followingIds.contains(review.userId);
+    final accent = followed ? _followAccent : theme.colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Material(
+        color: followed
+            ? Color.alphaBlend(_followAccent.withValues(alpha: 0.06), theme.colorScheme.surface)
+            : theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: followed
+              ? BorderSide(color: _followAccent.withValues(alpha: 0.7), width: 1.5)
+              : BorderSide.none,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => GameDetailScreen(gameId: review.gameId)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                GestureDetector(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => UserProfileScreen(
-                          userId: review.userId,
-                        ),
-                      ),
-                    );
-                  },
-                  child: _buildUserAvatar(review),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                if (followed) ...[
+                  Row(
                     children: [
-                      Text(
-                        review.displayName ?? review.username,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                      Text(
-                        _formatDate(review.updatedAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      const Icon(Icons.how_to_reg_rounded, size: 14, color: _followAccent),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          'You follow $name',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _followAccent),
                         ),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 10),
+                ],
+                _buildGameInfo(review),
+                if (hasText) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border(
+                        left: BorderSide(color: accent, width: 3),
+                      ),
+                    ),
+                    child: Text(
+                      review.review!.trim(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                      ),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
                 Row(
-                  children: List.generate(5, (index) {
-                    final starValue = index + 1;
-                    final isFullStar = review.rating >= starValue;
-                    final isHalfStar = review.rating >= starValue - 0.5 && review.rating < starValue;
-                    
-                    return Icon(
-                      isFullStar ? Icons.star : (isHalfStar ? Icons.star_half : Icons.star_border),
-                      size: 16,
-                      color: (isFullStar || isHalfStar) ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.3),
-                    );
-                  }),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  review.rating.toStringAsFixed(1),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
-                  ),
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => UserProfileScreen(userId: review.userId)),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildUserAvatar(review),
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 140),
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Text('· ${_formatDate(review.updatedAt)}', style: TextStyle(fontSize: 12, color: muted)),
+                    const Spacer(),
+                    _buildActionPill(
+                      theme,
+                      icon: _isRatingLiked(review) ? Icons.favorite : Icons.favorite_border,
+                      color: _isRatingLiked(review) ? Colors.redAccent : muted,
+                      count: review.likeCount,
+                      onTap: () => _toggleRatingLike(review),
+                      tooltip: _isRatingLiked(review) ? 'Unlike' : 'Like',
+                    ),
+                    const SizedBox(width: 6),
+                    _buildActionPill(
+                      theme,
+                      icon: Icons.chat_bubble_outline,
+                      color: muted,
+                      count: review.commentCount,
+                      onTap: () => _openRatingComments(review),
+                      tooltip: 'Comments',
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            _buildGameInfo(review.gameId),
-            if (review.review != null && review.review!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                review.review!,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                  height: 1.4,
-                ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            // Like and comment buttons
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                // Like button
-                GestureDetector(
-                  onTap: () => _toggleRatingLike(review),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isRatingLiked(review) ? Icons.favorite : Icons.favorite_border,
-                        size: 16,
-                        color: _isRatingLiked(review) ? Colors.red : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        review.likeCount.toString(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 20),
-                // Comment button
-                GestureDetector(
-                  onTap: () => _openRatingComments(review),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.comment_outlined,
-                        size: 16,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        review.commentCount.toString(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildGameInfo(String gameId) {
+  Widget _buildActionPill(
+    ThemeData theme, {
+    required IconData icon,
+    required Color color,
+    required int count,
+    required VoidCallback onTap,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+        shape: const StadiumBorder(),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: color),
+                const SizedBox(width: 4),
+                Text('$count', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGameInfo(UserRating review) {
     final theme = Theme.of(context);
-    
+
     return FutureBuilder<Game?>(
-      future: IGDBService.instance.getGameDetails(gameId),
+      future: _gameFor(review.gameId),
       builder: (context, snapshot) {
         final game = snapshot.data;
-        
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: game?.coverImage != null && game!.coverImage.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: game.coverImage,
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.outline.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Icon(Icons.games, color: theme.colorScheme.onSurface.withValues(alpha: 0.6), size: 20),
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 64,
+                height: 86,
+                child: (game?.coverImage.isNotEmpty ?? false)
+                    ? AppNetworkImage(imageUrl: game!.coverImage, fit: BoxFit.cover)
+                    : Container(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                        child: Icon(Icons.videogame_asset, color: theme.colorScheme.primary),
                       ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.outline.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Icon(Icons.games, color: theme.colorScheme.onSurface.withValues(alpha: 0.6), size: 20),
-                      ),
-                    )
-                  : Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.outline.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(Icons.games, color: theme.colorScheme.onSurface.withValues(alpha: 0.6), size: 20),
-                    ),
+              ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    game?.title ?? 'Loading...',
+                    game?.title ?? review.gameTitle ?? 'Loading…',
                     style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                       color: theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    game?.subtitle ?? '',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    game?.developer ?? 'Loading...',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: ThemeService().starColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star_rounded, size: 15, color: ThemeService().starColor),
+                            const SizedBox(width: 3),
+                            Text(
+                              review.rating.toStringAsFixed(1),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: ThemeService().starColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ...List.generate(5, (index) {
+                        final starValue = index + 1;
+                        final full = review.rating >= starValue;
+                        final half = !full && review.rating >= starValue - 0.5;
+                        return Icon(
+                          full ? Icons.star_rounded : (half ? Icons.star_half_rounded : Icons.star_outline_rounded),
+                          size: 15,
+                          color: (full || half)
+                              ? ThemeService().starColor
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                        );
+                      }),
+                    ],
                   ),
                 ],
               ),
@@ -837,7 +827,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} days ago';
     } else if (difference.inHours > 0) {
@@ -858,7 +848,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         radius: 16,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: review.profileImage!,
             width: 32,
             height: 32,
@@ -867,6 +857,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               width: 32,
               height: 32,
               color: theme.colorScheme.primary,
+              alignment: Alignment.center,
               child: Text(
                 displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                 style: const TextStyle(
@@ -880,6 +871,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               width: 32,
               height: 32,
               color: theme.colorScheme.primary,
+              alignment: Alignment.center,
               child: Text(
                 displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                 style: const TextStyle(
@@ -946,16 +938,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasLiked ? 'Rating unliked!' : 'Rating liked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       // Revert optimistic update on error
       if (ratingIndex != -1) {
@@ -994,7 +976,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   void _openRatingComments(UserRating rating) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
+        builder: (context) => _buildCommentsScreen(rating: rating),
       ),
     ).then((_) {
       // Refresh only the specific rating's comment count when returning
@@ -1002,134 +984,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     });
   }
 
-  Widget _FullFunctionalCommentsScreen({required UserRating rating}) {
+  Widget _buildCommentsScreen({required UserRating rating}) {
     return _CommentsScreenStateful(rating: rating);
-  }
-
-  Widget _SimpleCommentsScreen({required UserRating rating}) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Comments'),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-      ),
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Rating display
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        rating.displayName ?? rating.username,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: List.generate(5, (index) {
-                          final starValue = index + 1;
-                          final isFullStar = rating.rating >= starValue;
-                          final isHalfStar = rating.rating >= starValue - 0.5 && rating.rating < starValue;
-                          
-                          return Icon(
-                            isFullStar ? Icons.star : (isHalfStar ? Icons.star_half : Icons.star_border),
-                            size: 16,
-                            color: (isFullStar || isHalfStar) ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
-                          );
-                        }),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        rating.rating.toStringAsFixed(1),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (rating.review != null && rating.review!.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      rating.review!,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Comments section
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.comment_outlined,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Comments Feature',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Comments are now fully functional!\nUsers can like, comment, and interact with reviews.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('Back to Reviews'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _refreshSingleRatingInDiscover(UserRating rating) async {
@@ -1228,31 +1084,19 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
 
+    // Update the heart straight away; undo it if the write fails.
+    void flip() {
+      _likeCount += _isLiked ? -1 : 1;
+      _isLiked = !_isLiked;
+    }
+    setState(flip);
+
     try {
       await RatingInteractionService.instance
           .toggleRatingLike(widget.rating.id, currentUser.uid);
-      
-      setState(() {
-        if (_isLiked) {
-          _likeCount--;
-          _isLiked = false;
-        } else {
-          _likeCount++;
-          _isLiked = true;
-        }
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isLiked ? 'Rating liked!' : 'Rating unliked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(flip);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle like: $e'),
@@ -1782,7 +1626,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

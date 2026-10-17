@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'igdb_service.dart';
 
@@ -22,7 +23,6 @@ class UserDataService {
     required String userId,
     String? username,
     String? displayName,
-    String? email,
     String? bio,
     String? profileImageUrl,
     String? bannerImageUrl,
@@ -38,12 +38,14 @@ class UserDataService {
         'updatedAt': FieldValue.serverTimestamp(),
         'lastActiveAt': now.millisecondsSinceEpoch,
         'isOnline': true,
+        // Profiles are readable by other users, so email addresses must not
+        // live here. This also strips emails written by older app versions.
+        'email': FieldValue.delete(),
       };
 
       // Only update fields that are provided
       if (username != null) profileData['username'] = username;
       if (displayName != null) profileData['displayName'] = displayName;
-      if (email != null) profileData['email'] = email;
       if (bio != null) profileData['bio'] = bio;
       if (profileImageUrl != null) profileData['profileImage'] = profileImageUrl;
       if (bannerImageUrl != null) profileData['bannerImage'] = bannerImageUrl;
@@ -282,6 +284,9 @@ class UserDataService {
           .doc('${userId}_$gameId');
       
       batch.set(globalLibraryRef, {
+        // Rules require the owner on create (the entry may not exist yet).
+        'userId': userId,
+        'gameId': gameId,
         'userRating': rating,
         'userReview': review,
         'dateUpdated': FieldValue.serverTimestamp(),
@@ -478,8 +483,8 @@ class UserDataService {
         _getUserRatingStatsOptimized(userId),
       ]);
       
-      final libraryStats = futures[0] as Map<String, dynamic>;
-      final ratingStats = futures[1] as Map<String, dynamic>;
+      final libraryStats = futures[0];
+      final ratingStats = futures[1];
       final now = DateTime.now();
 
       await _firestore
@@ -647,7 +652,34 @@ class UserDataService {
   }
 
   // Get user profile
-  static Future<Map<String, dynamic>?> getUserProfile(String userId) async {
+  static final Map<String, ({DateTime at, Future<Map<String, dynamic>?> profile})> _profileCache = {};
+  static const Duration _profileCacheTtl = Duration(minutes: 5);
+
+  /// A user's profile. Other people's profiles are cached for a few minutes
+  /// (and concurrent requests share one read) because review lists ask for
+  /// the same authors over and over; your own profile is always read fresh.
+  static Future<Map<String, dynamic>?> getUserProfile(String userId) {
+    final isMe = FirebaseAuthService().currentUser?.uid == userId;
+    final cached = _profileCache[userId];
+    if (!isMe && cached != null && DateTime.now().difference(cached.at) < _profileCacheTtl) {
+      return cached.profile.then((p) => p == null ? null : Map<String, dynamic>.from(p));
+    }
+    final future = _fetchUserProfile(userId);
+    if (!isMe) _profileCache[userId] = (at: DateTime.now(), profile: future);
+    return future;
+  }
+
+  /// Several profiles at once, keyed by user id (missing users are left out).
+  static Future<Map<String, Map<String, dynamic>>> getUserProfiles(Iterable<String> userIds) async {
+    final ids = userIds.toSet().toList();
+    final profiles = await Future.wait(ids.map(getUserProfile));
+    return {
+      for (var i = 0; i < ids.length; i++)
+        if (profiles[i] != null) ids[i]: profiles[i]!,
+    };
+  }
+
+  static Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
     try {
       final doc = await _firestore
           .collection(_usersCollection)
@@ -659,6 +691,7 @@ class UserDataService {
       }
       return null;
     } catch (e) {
+      _profileCache.remove(userId);
       debugPrint('Error getting user profile: $e');
       return null;
     }
@@ -679,22 +712,22 @@ class UserDataService {
   /// Get user's playlists with privacy filtering
   static Future<List<Map<String, dynamic>>> getUserPlaylistsFiltered(String userId, {String? currentUserId}) async {
     try {
-      final playlistsSnapshot = await _firestore
-          .collection(_usersCollection)
-          .doc(userId)
-          .collection('playlists')
-          .orderBy('updatedAt', descending: true)
-          .get();
-
-      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
-      
-      // If viewing own profile, show all playlists
-      if (currentUserId == userId) {
-        return allPlaylists;
+      // Other people may only read public playlists, and Firestore rejects a
+      // query that could return private ones, so filter in the query itself.
+      Query<Map<String, dynamic>> query =
+          _firestore.collection(_usersCollection).doc(userId).collection('playlists');
+      if (currentUserId != userId) {
+        query = query.where('isPublic', isEqualTo: true);
       }
-      
-      // If viewing someone else's profile, only show public playlists
-      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+      final playlistsSnapshot = await query.get();
+
+      final playlists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
+      int updated(Map<String, dynamic> p) {
+        final v = p['updatedAt'];
+        return v is Timestamp ? v.millisecondsSinceEpoch : (v as num?)?.toInt() ?? 0;
+      }
+      playlists.sort((a, b) => updated(b).compareTo(updated(a)));
+      return playlists;
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];
@@ -702,6 +735,19 @@ class UserDataService {
   }
 
   // Save user profile
+  /// Strip the email address that older app versions stored on the public
+  /// profile document.
+  static Future<void> removeLegacyEmail(String userId) async {
+    try {
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .update({'email': FieldValue.delete()});
+    } catch (e) {
+      debugPrint('Error removing legacy email from profile: $e');
+    }
+  }
+
   static Future<void> saveUserProfile(String userId, Map<String, dynamic> profileData) async {
     try {
       await _firestore
@@ -910,22 +956,7 @@ class UserDataService {
   /// Get user's playlists with full game details and privacy filtering
   static Future<List<Map<String, dynamic>>> getUserPlaylistsWithGamesFiltered(String userId, {String? currentUserId}) async {
     try {
-      final playlistsSnapshot = await _firestore
-          .collection(_usersCollection)
-          .doc(userId)
-          .collection('playlists')
-          .orderBy('updatedAt', descending: true)
-          .get();
-
-      final allPlaylists = playlistsSnapshot.docs.map((doc) => doc.data()).toList();
-      
-      // If viewing own profile, show all playlists
-      if (currentUserId == userId) {
-        return allPlaylists;
-      }
-      
-      // If viewing someone else's profile, only show public playlists
-      return allPlaylists.where((playlist) => playlist['isPublic'] == true).toList();
+      return await getUserPlaylistsFiltered(userId, currentUserId: currentUserId);
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];
@@ -1097,12 +1128,10 @@ class UserDataService {
         
         final username = (data['username'] ?? '').toString().toLowerCase();
         final displayName = (data['displayName'] ?? '').toString().toLowerCase();
-        final email = (data['email'] ?? '').toString().toLowerCase();
-        
-        // Check if query matches username, display name, or email
-        if (username.contains(queryLower) || 
-            displayName.contains(queryLower) || 
-            email.contains(queryLower)) {
+
+        // Check if query matches username or display name
+        if (username.contains(queryLower) ||
+            displayName.contains(queryLower)) {
           results.add(data);
         }
       }
@@ -1159,7 +1188,6 @@ class UserDataService {
           userId: firebaseUser.uid,
           username: firebaseUser.email?.split('@')[0] ?? 'user',
           displayName: firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'User',
-          email: firebaseUser.email ?? '',
           bio: '',
           profileImageUrl: '',
           bannerImageUrl: '',
@@ -1217,6 +1245,28 @@ class UserDataService {
       debugPrint('Error getting user profile by username: $e');
       return null;
     }
+  }
+
+  /// Turn a display name into a valid username that no other user has,
+  /// appending a numeric suffix when the plain form is taken.
+  static Future<String> generateUniqueUsername(String displayName) async {
+    var base = displayName
+        .toLowerCase()
+        .replaceAll(' ', '_')
+        .replaceAll(RegExp(r'[^a-z0-9_]'), '');
+    if (base.length < 3) base = 'player$base';
+
+    var candidate = base;
+    for (var suffix = 1; suffix <= 50; suffix++) {
+      final taken = await _firestore
+          .collection(_usersCollection)
+          .where('username', isEqualTo: candidate)
+          .limit(1)
+          .get();
+      if (taken.docs.isEmpty) return candidate;
+      candidate = '${base}_${suffix + 1}';
+    }
+    return '${base}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
   // Update username while preserving user ID

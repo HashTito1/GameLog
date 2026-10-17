@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
 import '../services/admin_service.dart';
 import '../services/user_data_service.dart';
 
@@ -92,8 +92,9 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
         return;
       }
 
+      if (!mounted) return;
       // Confirm adding admin
-      final confirmed = await showDialog<bool>(
+      final confirmed= await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Add Admin'),
@@ -479,7 +480,7 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
         radius: 24,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: admin['profileImage'],
             width: 48,
             height: 48,

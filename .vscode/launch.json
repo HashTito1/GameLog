@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "GameLog",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": ["--flavor", "user", "--dart-define-from-file=dart_defines.json"]
+    },
+    {
+      "name": "GameLog Admin",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_admin.dart",
+      "args": ["--flavor", "admin", "--dart-define-from-file=dart_defines.json"]
+    }
+  ]
+}

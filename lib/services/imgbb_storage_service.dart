@@ -1,11 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../config/app_config.dart';
 
 class ImgBBStorageService {
-  // ImgBB API configuration
+  // ImgBB API configuration, injected at build time (see lib/config/app_config.dart)
   // Get your free API key from: https://api.imgbb.com/
-  static const String _apiKey = 'aa0abfd2154201a3e8cd5ed7a11adbf8';
+  static const String _apiKey = AppConfig.imgbbApiKey;
   static const String _uploadEndpoint = 'https://api.imgbb.com/1/upload';
   
   /// Upload profile picture to ImgBB
@@ -84,6 +85,10 @@ class ImgBBStorageService {
     required String fileName,
   }) async {
     try {
+      if (_apiKey.isEmpty) {
+        throw Exception('IMGBB_API_KEY is not configured (see dart_defines.example.json)');
+      }
+
       // Convert image bytes to base64
       final base64Image = base64Encode(imageBytes);
       
@@ -100,7 +105,7 @@ class ImgBBStorageService {
       }
       
       // Send request
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 90));
       final response = await http.Response.fromStream(streamedResponse);
       
       if (kDebugMode) {

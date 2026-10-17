@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game.dart';
+import '../models/library_status.dart';
+import 'event_bus.dart';
 import 'igdb_service.dart';
 
 class LibraryService {
@@ -79,6 +81,7 @@ class LibraryService {
       
       if (savedDoc.exists) {
         debugPrint('Game ${game.title} added to library successfully');
+        EventBus().fire(LibraryUpdatedEvent(userId: userId));
       } else {
         throw Exception('Library entry was not saved properly');
       }
@@ -90,7 +93,7 @@ class LibraryService {
   }
 
   // Get user's library (updated to use new data structure and fetch missing game data)
-  Future<List<Map<String, dynamic>>> getUserLibrary(String userId, {int limit = 50}) async {
+  Future<List<Map<String, dynamic>>> getUserLibrary(String userId, {int limit = 500}) async {
     try {
       debugPrint('🔍 Loading library for user: $userId');
       
@@ -144,83 +147,76 @@ class LibraryService {
       final mergedGames = <Map<String, dynamic>>[];
       final processedGameIds = <String>{};
       final igdbService = IGDBService.instance;
-      
-      // Add library games with their ratings first
-      for (final game in libraryGames) {
-        final gameId = game['gameId'] ?? '';
-        if (gameId.isNotEmpty && !processedGameIds.contains(gameId)) {
-          final rating = ratingsMap[gameId];
-          
-          final mergedGame = Map<String, dynamic>.from(game);
-          if (rating != null) {
-            mergedGame['userRating'] = rating['rating'] ?? 0.0;
-            mergedGame['userReview'] = rating['review'];
-          }
-          
-          // Check if game details are missing and fetch them
-          final gameTitle = mergedGame['gameTitle'] ?? '';
-          final gameDeveloper = mergedGame['gameDeveloper'] ?? '';
-          
-          if (gameTitle == 'Unknown Game' || gameTitle.isEmpty || 
-              gameDeveloper == 'Unknown Developer' || gameDeveloper.isEmpty) {
-            debugPrint('🎮 Fetching missing details for library game: $gameId');
-            
-            try {
-              final gameDetails = await igdbService.getGameDetails(gameId);
-              if (gameDetails != null) {
-                mergedGame['gameTitle'] = gameDetails.title;
-                mergedGame['gameCoverImage'] = gameDetails.coverImage;
-                mergedGame['gameDeveloper'] = gameDetails.developer;
-                mergedGame['gameReleaseDate'] = gameDetails.releaseDate;
-                mergedGame['gameGenres'] = gameDetails.genres;
-                mergedGame['gamePlatforms'] = gameDetails.platforms;
-              }
-            } catch (e) {
-              debugPrint('❌ Failed to fetch missing details for $gameId: $e');
-            }
-          }
-          
-          mergedGames.add(mergedGame);
-          processedGameIds.add(gameId);
+
+      Future<Game?> details(String gameId) async {
+        try {
+          return await igdbService.getGameDetails(gameId);
+        } catch (e) {
+          debugPrint('Failed to fetch details for $gameId: $e');
+          return null;
         }
       }
-      
-      // Add rated games that aren't in library yet and fetch their details
-      for (final entry in ratingsMap.entries) {
-        final gameId = entry.key;
-        final rating = entry.value;
-        
-        // Check if this game is already processed
-        if (!processedGameIds.contains(gameId)) {
-          debugPrint('🎮 Fetching game details for rated game: $gameId');
-          
-          // Fetch full game details from RAWG API
-          Game? gameDetails;
-          try {
-            gameDetails = await igdbService.getGameDetails(gameId);
-          } catch (e) {
-            debugPrint('❌ Failed to fetch game details for $gameId: $e');
-          }
-          
-          // Add as a completed game with rating (rated games are considered completed)
-          mergedGames.add({
-            'id': '${userId}_$gameId',
-            'userId': userId,
-            'gameId': gameId,
-            'gameTitle': gameDetails?.title ?? rating['gameTitle'] ?? 'Unknown Game',
-            'gameCoverImage': gameDetails?.coverImage ?? '',
-            'gameDeveloper': gameDetails?.developer ?? 'Unknown Developer',
-            'gameReleaseDate': gameDetails?.releaseDate ?? '',
-            'gameGenres': gameDetails?.genres ?? <String>[],
-            'gamePlatforms': gameDetails?.platforms ?? <String>[],
-            'userRating': rating['rating'] ?? 0.0,
-            'userReview': rating['review'],
-            'status': 'completed', // Rated games are considered completed
-            'dateAdded': _convertToMilliseconds(rating['createdAt']),
-            'dateUpdated': _convertToMilliseconds(rating['updatedAt']),
-          });
-          processedGameIds.add(gameId);
+
+      // Library games with their ratings first. Entries missing their title
+      // or developer get details from IGDB, all fetched in parallel.
+      final libraryEntries = <Map<String, dynamic>>[];
+      for (final game in libraryGames) {
+        final gameId = game['gameId'] ?? '';
+        if (gameId.isEmpty || processedGameIds.contains(gameId)) continue;
+        final mergedGame = Map<String, dynamic>.from(game);
+        final rating = ratingsMap[gameId];
+        if (rating != null) {
+          mergedGame['userRating'] = rating['rating'] ?? 0.0;
+          mergedGame['userReview'] = rating['review'];
         }
+        libraryEntries.add(mergedGame);
+        processedGameIds.add(gameId);
+      }
+      bool missing(Map<String, dynamic> g) {
+        final title = (g['gameTitle'] ?? '').toString();
+        final dev = (g['gameDeveloper'] ?? '').toString();
+        return title.isEmpty || title == 'Unknown Game' || dev.isEmpty || dev == 'Unknown Developer';
+      }
+      final toFill = libraryEntries.where(missing).toList();
+      final filled = await Future.wait(toFill.map((g) => details(g['gameId'])));
+      for (var i = 0; i < toFill.length; i++) {
+        final gameDetails = filled[i];
+        if (gameDetails == null) continue;
+        toFill[i]
+          ..['gameTitle'] = gameDetails.title
+          ..['gameCoverImage'] = gameDetails.coverImage
+          ..['gameDeveloper'] = gameDetails.developer
+          ..['gameReleaseDate'] = gameDetails.releaseDate
+          ..['gameGenres'] = gameDetails.genres
+          ..['gamePlatforms'] = gameDetails.platforms;
+      }
+      mergedGames.addAll(libraryEntries);
+
+      // Rated games that aren't in the library yet (details in parallel).
+      final ratedOnly = ratingsMap.entries.where((e) => !processedGameIds.contains(e.key)).toList();
+      final ratedDetails = await Future.wait(ratedOnly.map((e) => details(e.key)));
+      for (var i = 0; i < ratedOnly.length; i++) {
+        final gameId = ratedOnly[i].key;
+        final rating = ratedOnly[i].value;
+        final gameDetails = ratedDetails[i];
+        // Add as a completed game with rating (rated games are considered completed)
+        mergedGames.add({
+          'id': '${userId}_$gameId',
+          'userId': userId,
+          'gameId': gameId,
+          'gameTitle': gameDetails?.title ?? rating['gameTitle'] ?? 'Unknown Game',
+          'gameCoverImage': gameDetails?.coverImage ?? '',
+          'gameDeveloper': gameDetails?.developer ?? 'Unknown Developer',
+          'gameReleaseDate': gameDetails?.releaseDate ?? '',
+          'gameGenres': gameDetails?.genres ?? <String>[],
+          'gamePlatforms': gameDetails?.platforms ?? <String>[],
+          'userRating': rating['rating'] ?? 0.0,
+          'userReview': rating['review'],
+          'status': 'completed', // Rated games are considered completed
+          'dateAdded': _convertToMilliseconds(rating['createdAt']),
+          'dateUpdated': _convertToMilliseconds(rating['updatedAt']),
+        });
+        processedGameIds.add(gameId);
       }
       
       // Sort by date updated (most recent first)
@@ -357,14 +353,17 @@ class LibraryService {
           .collection('ratings')
           .get();
 
-      final libraryGames = librarySnapshot.docs.map((doc) => doc.data()).toList();
       final ratings = ratingsSnapshot.docs.map((doc) => doc.data()).toList();
       
-      int totalGames = libraryGames.length;
+      // Count distinct games: older app versions could save the same game
+      // twice, and getUserLibrary de-duplicates when listing them.
+      int totalGames = {
+        ...librarySnapshot.docs.map((doc) => (doc.data()['gameId'] ?? doc.id).toString()),
+        ...ratingsSnapshot.docs.map((doc) => (doc.data()['gameId'] ?? doc.id).toString()),
+      }.length;
       double totalRating = 0.0;
       int ratedGames = ratings.length; // Count from ratings collection
-      int backlogGames = 0;
-      int completedGames = 0;
+      final statusCounts = {for (final s in LibraryStatus.values) s.value: 0};
       Map<String, int> genreCounts = {};
       
       // Calculate rating stats from ratings collection
@@ -375,24 +374,30 @@ class LibraryService {
         }
       }
       
-      // Calculate library stats from library collection
-      for (final game in libraryGames) {
-        final status = game['status'] ?? 'rated';
-        
-        if (status == 'backlog' || status == 'want_to_play' || status == 'planToPlay') {
-          backlogGames++;
-        }
-        
-        if (status == 'completed') {
-          completedGames++;
-        }
-        
-        final genres = List<String>.from(game['gameGenres'] ?? []);
+      // Status counts match the Library screen: an entry's status decides its
+      // category, and rated games that aren't in the library count as
+      // Completed.
+      final libraryGameIds = <String>{};
+      for (final doc in librarySnapshot.docs) {
+        final game = doc.data();
+        final gameId = (game['gameId'] ?? doc.id).toString();
+        if (!libraryGameIds.add(gameId)) continue;
+        final status = LibraryStatus.forEntry(game);
+        statusCounts[status.value] = statusCounts[status.value]! + 1;
+
+        final genres= List<String>.from(game['gameGenres'] ?? []);
         for (final genre in genres) {
           genreCounts[genre] = (genreCounts[genre] ?? 0) + 1;
         }
       }
       
+      for (final doc in ratingsSnapshot.docs) {
+        final gameId = (doc.data()['gameId'] ?? doc.id).toString();
+        if (libraryGameIds.add(gameId)) {
+          statusCounts[LibraryStatus.completed.value] = statusCounts[LibraryStatus.completed.value]! + 1;
+        }
+      }
+
       // If no library games but have ratings, count ratings as total games
       if (totalGames == 0 && ratedGames > 0) {
         totalGames = ratedGames;
@@ -402,8 +407,10 @@ class LibraryService {
         'totalGames': totalGames,
         'averageRating': ratedGames > 0 ? totalRating / ratedGames : 0.0,
         'ratedGames': ratedGames, // Count from ratings collection
-        'completedGames': completedGames,
-        'backlogGames': backlogGames,
+        'completedGames': statusCounts[LibraryStatus.completed.value],
+        'backlogGames': statusCounts[LibraryStatus.backlog.value],
+        'wantGames': statusCounts[LibraryStatus.want.value],
+        'statusCounts': statusCounts,
         'favoriteGenres': genreCounts.entries
             .toList()
             ..sort((a, b) => b.value.compareTo(a.value)),
@@ -416,6 +423,8 @@ class LibraryService {
         'ratedGames': 0,
         'completedGames': 0,
         'backlogGames': 0,
+        'wantGames': 0,
+        'statusCounts': <String, int>{},
         'favoriteGenres': <MapEntry<String, int>>[],
       };
     }
@@ -509,11 +518,40 @@ class LibraryService {
           .delete();
       
       debugPrint('✅ Game removed from library successfully: $gameId');
+      EventBus().fire(LibraryUpdatedEvent(userId: userId));
     } catch (e) {
       debugPrint('❌ Error removing game from library: $e');
       debugPrint('❌ Stack trace: ${StackTrace.current}');
       throw Exception('Failed to remove game from library: $e');
     }
+  }
+
+  /// Move a library entry (as returned by [getUserLibrary]) to [status].
+  /// Writes the whole entry so games that were only rated get a proper
+  /// library record.
+  Future<void> setStatus(String userId, Map<String, dynamic> entry, LibraryStatus status) async {
+    final gameId = (entry['gameId'] ?? '').toString();
+    if (gameId.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final data = <String, dynamic>{
+      'id': '${userId}_$gameId',
+      'userId': userId,
+      'gameId': gameId,
+      'gameTitle': entry['gameTitle'] ?? '',
+      'gameCoverImage': entry['gameCoverImage'] ?? '',
+      'gameDeveloper': entry['gameDeveloper'] ?? '',
+      'gameReleaseDate': entry['gameReleaseDate'] ?? '',
+      'gameGenres': entry['gameGenres'] ?? const [],
+      'gamePlatforms': entry['gamePlatforms'] ?? const [],
+      'status': status.value,
+      'dateAdded': entry['dateAdded'] ?? now,
+      'dateUpdated': now,
+    };
+    await Future.wait([
+      _firestore.collection(_libraryCollection).doc('${userId}_$gameId').set(data, SetOptions(merge: true)),
+      _firestore.collection('users').doc(userId).collection('library').doc(gameId).set(data, SetOptions(merge: true)),
+    ]);
+    EventBus().fire(LibraryUpdatedEvent(userId: userId));
   }
 
   // Method aliases for compatibility

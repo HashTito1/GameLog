@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import '../widgets/send_to_friend_sheet.dart';
+import '../utils/date_format.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/user_rating.dart';
 import '../models/rating_comment.dart';
 import '../services/rating_service.dart';
+import '../services/follow_service.dart';
 import '../services/user_data_service.dart';
 import '../services/rating_interaction_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/report_service.dart';
+import '../widgets/report_dialog.dart';
 import 'user_profile_screen.dart';
 
 class GameRatingsScreen extends StatefulWidget {
@@ -28,6 +33,10 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
   Map<String, Map<String, dynamic>> _userProfiles = {};
   bool _isLoading = true;
   String _sortBy = 'recent'; // recent, highest, lowest
+  Set<String> _followingIds = {};
+
+  /// Highlight colour for reviews by people you follow (same as Discover).
+  static const Color _followAccent = Color(0xFFF5B83D);
 
   @override
   void initState() {
@@ -41,59 +50,36 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     try {
       debugPrint('🔍 Loading ratings for game: ${widget.gameId}');
       
-      // Get ratings from both old and new systems (same approach as GameDetailScreen)
-      final oldGameRatings = await RatingService.instance.getGameRatings(widget.gameId);
-      final newGameRatings = await _getAllRatingsForGame(widget.gameId);
-      
-      debugPrint('📊 Found ${oldGameRatings.length} old ratings and ${newGameRatings.length} new ratings');
-      
-      // Combine and deduplicate ratings
-      final Map<String, UserRating> allRatingsMap = {};
-      
-      // Add old ratings
-      for (final rating in oldGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      // Add new ratings (will override old ones if same user)
-      for (final rating in newGameRatings) {
-        allRatingsMap[rating.userId] = rating;
-      }
-      
-      final combinedRatings = allRatingsMap.values.toList();
-      debugPrint('📊 Combined total: ${combinedRatings.length} unique ratings');
-      
-      // Load user profiles for each rating and enrich the rating objects
-      final Map<String, Map<String, dynamic>> profiles = {};
-      final List<UserRating> enrichedRatings = [];
-      
-      for (final rating in combinedRatings) {
-        Map<String, dynamic>? profile;
-        if (!profiles.containsKey(rating.userId)) {
-          profile = await UserDataService.getUserProfile(rating.userId);
-          if (profile != null) {
-            profiles[rating.userId] = profile;
-            debugPrint('👤 Loaded profile for user: ${rating.userId}');
-          } else {
-            debugPrint('❌ No profile found for user: ${rating.userId}');
-          }
-        } else {
-          profile = profiles[rating.userId];
-        }
-        
-        // Create enriched rating with proper user data
-        final enrichedRating = rating.copyWith(
-          displayName: profile?['displayName'] ?? profile?['username'] ?? rating.displayName,
-          username: profile?['username'] ?? rating.username,
-          profileImage: profile?['profileImage'] ?? rating.profileImage,
-        );
-        enrichedRatings.add(enrichedRating);
-      }
+      // Both storage locations, the people you follow and the authors'
+      // profiles are fetched in parallel rather than one after another.
+      final fetched = await Future.wait([
+        RatingService.instance.getGameRatings(widget.gameId),
+        _getAllRatingsForGame(widget.gameId),
+      ]);
+      final combinedRatings = <String, UserRating>{
+        for (final rating in fetched[0]) rating.userId: rating,
+        for (final rating in fetched[1]) rating.userId: rating,
+      }.values.toList();
+
+      final profiles = await UserDataService.getUserProfiles(combinedRatings.map((r) => r.userId));
+      final enrichedRatings = [
+        for (final rating in combinedRatings)
+          rating.copyWith(
+            displayName: profiles[rating.userId]?['displayName'] ??
+                profiles[rating.userId]?['username'] ??
+                rating.displayName,
+            username: profiles[rating.userId]?['username'] ?? rating.username,
+            profileImage: profiles[rating.userId]?['profileImage'] ?? rating.profileImage,
+          ),
+      ];
+
+      final following = await FollowService.getFollowingIds();
 
       if (mounted) {
         setState(() {
           _ratings = enrichedRatings;
           _userProfiles = profiles;
+          _followingIds = following;
           _isLoading = false;
         });
         _sortRatings();
@@ -112,47 +98,7 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
   Future<List<UserRating>> _getAllRatingsForGame(String gameId) async {
     try {
-      // Get all users who have rated this game from the new structure
-      final usersSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .get();
-      
-      final List<UserRating> ratings = [];
-      
-      for (final userDoc in usersSnapshot.docs) {
-        final ratingsSnapshot = await userDoc.reference
-            .collection('ratings')
-            .where('gameId', isEqualTo: gameId)
-            .get();
-        
-        for (final ratingDoc in ratingsSnapshot.docs) {
-          final data = ratingDoc.data();
-          final rating = UserRating(
-            id: data['id'] ?? '${userDoc.id}_$gameId',
-            gameId: data['gameId'] ?? gameId,
-            userId: data['userId'] ?? userDoc.id,
-            username: data['username'] ?? 'user',
-            rating: (data['rating'] ?? 0.0).toDouble(),
-            review: data['review'],
-            createdAt: data['createdAt'] != null 
-                ? (data['createdAt'] is Timestamp 
-                    ? (data['createdAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['createdAt']))
-                : DateTime.now(),
-            updatedAt: data['updatedAt'] != null 
-                ? (data['updatedAt'] is Timestamp 
-                    ? (data['updatedAt'] as Timestamp).toDate()
-                    : DateTime.fromMillisecondsSinceEpoch(data['updatedAt']))
-                : DateTime.now(),
-            likeCount: data['likeCount'] ?? 0,
-            likedBy: List<String>.from(data['likedBy'] ?? []),
-            commentCount: data['commentCount'] ?? 0,
-          );
-          ratings.add(rating);
-        }
-      }
-      
-      return ratings;
+      return await RatingService.getUserRatingsForGame(gameId);
     } catch (e) {
       debugPrint('Error getting all ratings for game: $e');
       return [];
@@ -173,6 +119,11 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
           _ratings.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
           break;
       }
+      // Reviews by people you follow come first, keeping the chosen order.
+      _ratings = [
+        ..._ratings.where((r) => _followingIds.contains(r.userId)),
+        ..._ratings.where((r) => !_followingIds.contains(r.userId)),
+      ];
     });
   }
 
@@ -322,14 +273,19 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     final theme = Theme.of(context);
     final displayName = userProfile?['displayName'] ?? userProfile?['username'] ?? 'User';
     final profileImage = userProfile?['profileImage'] ?? '';
+    final followed = _followingIds.contains(rating.userId);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: followed
+            ? Color.alphaBlend(_followAccent.withValues(alpha: 0.06), theme.colorScheme.surface)
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+        border: followed
+            ? Border.all(color: _followAccent.withValues(alpha: 0.7), width: 1.5)
+            : Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -356,8 +312,8 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                      width: 1.5,
+                      color: followed ? _followAccent : theme.colorScheme.primary.withValues(alpha: 0.3),
+                      width: followed ? 2 : 1.5,
                     ),
                   ),
                   child: CircleAvatar(
@@ -384,13 +340,34 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayName,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        if (followed) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: _followAccent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Following',
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _followAccent),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 1),
                     Text(
@@ -565,6 +542,17 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     );
   }
 
+  void _shareRating(UserRating rating) {
+    final author = rating.displayName ?? rating.username;
+    final stars = rating.rating % 1 == 0 ? rating.rating.toInt().toString() : rating.rating.toString();
+    final review = rating.review?.trim();
+    final text = [
+      '$author rated ${widget.gameName} $stars/5 on GameLog',
+      if (review != null && review.isNotEmpty) '"$review"',
+    ].join('\n\n');
+    SharePlus.instance.share(ShareParams(text: text, subject: '${widget.gameName} review'));
+  }
+
   void _showRatingOptions(UserRating rating) {
     final theme = Theme.of(context);
     showModalBottomSheet(
@@ -592,23 +580,33 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
               title: Text('Share Review', style: TextStyle(color: theme.colorScheme.onSurface)),
               onTap: () {
                 Navigator.pop(context);
-                // Implement share functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Share feature coming soon!')),
-                );
+                _shareRating(rating);
               },
             ),
             ListTile(
-              leading: Icon(Icons.report, color: theme.colorScheme.error),
-              title: Text('Report Review', style: TextStyle(color: theme.colorScheme.error)),
+              leading: Icon(Icons.send_outlined, color: theme.colorScheme.onSurface),
+              title: Text('Send to a Friend', style: TextStyle(color: theme.colorScheme.onSurface)),
               onTap: () {
                 Navigator.pop(context);
-                // Implement report functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Report feature coming soon!')),
-                );
+                showSendToFriendSheet(this.context, review: rating, gameTitle: widget.gameName);
               },
             ),
+            if (rating.userId != FirebaseAuthService().currentUser?.uid)
+              ListTile(
+                leading: Icon(Icons.flag_outlined, color: theme.colorScheme.error),
+                title: Text('Report Review', style: TextStyle(color: theme.colorScheme.error)),
+                onTap: () {
+                  Navigator.pop(context);
+                  showReportDialog(
+                    this.context,
+                    type: ReportType.rating,
+                    targetId: '${rating.userId}_${rating.gameId}',
+                    targetOwnerId: rating.userId,
+                    targetPreview: rating.review ?? '${rating.rating}★ for ${widget.gameName}',
+                    title: 'Report review',
+                  );
+                },
+              ),
           ],
         ),
       ),
@@ -620,7 +618,7 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays} days ago';
     } else if (difference.inHours > 0) {
@@ -669,16 +667,6 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
 
     try {
       await RatingInteractionService.instance.toggleRatingLike(rating.id, currentUser.uid);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(wasLiked ? 'Rating unliked!' : 'Rating liked!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       // Revert optimistic update on error
       if (ratingIndex != -1) {
@@ -717,14 +705,14 @@ class _GameRatingsScreenState extends State<GameRatingsScreen> {
   void _openRatingComments(UserRating rating) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _FullFunctionalCommentsScreen(rating: rating),
+        builder: (context) => _buildCommentsScreen(rating: rating),
       ),
     ).then((_) {
       // Comments screen handles its own state, no need to refresh here
     });
   }
 
-  Widget _FullFunctionalCommentsScreen({required UserRating rating}) {
+  Widget _buildCommentsScreen({required UserRating rating}) {
     return _CommentsScreenStateful(rating: rating);
   }
 }
@@ -802,31 +790,19 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final currentUser = FirebaseAuthService().currentUser;
     if (currentUser == null) return;
 
+    // Update the heart straight away; undo it if the write fails.
+    void flip() {
+      _likeCount += _isLiked ? -1 : 1;
+      _isLiked = !_isLiked;
+    }
+    setState(flip);
+
     try {
       await RatingInteractionService.instance
           .toggleRatingLike(widget.rating.id, currentUser.uid);
-      
-      setState(() {
-        if (_isLiked) {
-          _likeCount--;
-          _isLiked = false;
-        } else {
-          _likeCount++;
-          _isLiked = true;
-        }
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isLiked ? 'Rating liked!' : 'Rating unliked!'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(flip);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle like: $e'),
@@ -1467,7 +1443,7 @@ class _CommentsScreenStatefulState extends State<_CommentsScreenStateful> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

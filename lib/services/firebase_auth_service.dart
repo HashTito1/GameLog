@@ -104,6 +104,10 @@ class FirebaseAuthService extends ChangeNotifier {
       List<Map<String, dynamic>> playlists = [];
 
       if (firestoreData != null) {
+        if (firestoreData.containsKey('email')) {
+          await UserDataService.removeLegacyEmail(_currentUser!.id);
+        }
+
         // Load favorite game from Firestore
         final favoriteGame = firestoreData['favoriteGame'] as Map<String, dynamic>?;
         if (favoriteGame != null) {
@@ -120,7 +124,6 @@ class FirebaseAuthService extends ChangeNotifier {
           'id': _currentUser!.id,
           'username': _currentUser!.username,
           'displayName': _currentUser!.displayName,
-          'email': _currentUser!.email,
           'bio': '',
           'profileImage': profileImagePath ?? '',
           'gamesPlayed': 0,
@@ -245,7 +248,7 @@ class FirebaseAuthService extends ChangeNotifier {
         await credential.user!.sendEmailVerification();
         
         // Create local user data
-        final username = displayName.toLowerCase().replaceAll(' ', '_');
+        final username = await UserDataService.generateUniqueUsername(displayName);
         final user = AuthUser(
           id: credential.user!.uid,
           email: email,
@@ -265,7 +268,6 @@ class FirebaseAuthService extends ChangeNotifier {
           userId: credential.user!.uid,
           username: username,
           displayName: displayName,
-          email: email,
           bio: '',
           profileImageUrl: '',
           bannerImageUrl: '',

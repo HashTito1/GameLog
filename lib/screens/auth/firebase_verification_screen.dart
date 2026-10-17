@@ -213,7 +213,7 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                   ),
                                   child: const Icon(Icons.email_outlined,
                                     size: 60,
-                                    color: const Color(0xFF8B5CF6),
+                                    color: Color(0xFF8B5CF6),
                                   ),
                                 ),
                                 const SizedBox(height: 32),
@@ -259,10 +259,10 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                   const Column(
                                     children: [
                                       CircularProgressIndicator(
-                                        valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF8B5CF6)),
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B5CF6)),
                                       ),
-                                      const SizedBox(height: 16),
-                                      const Text(
+                                      SizedBox(height: 16),
+                                      Text(
                                         'Checking verification status...',
                                         style: TextStyle(
                                           color: Colors.grey,
@@ -280,8 +280,8 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                   width: double.infinity,
                                   height: 56,
                                   decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [const Color(0xFF8B5CF6), const Color(0xFF6366F1)],
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)],
                                       begin: Alignment.centerLeft,
                                       end: Alignment.centerRight,
                                     ),
@@ -347,7 +347,7 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                 
                                 // Tips
                                 Container(
-                                  padding: EdgeInsets.all(16),
+                                  padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF1F2937).withValues(alpha: 0.5),
                                     borderRadius: BorderRadius.circular(12),
@@ -358,7 +358,7 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                   child: const Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
+                                      Text(
                                         '💡 Tips:',
                                         style: TextStyle(
                                           color: Colors.white,
@@ -366,8 +366,8 @@ class _FirebaseVerificationScreenState extends State<FirebaseVerificationScreen>
                                           fontSize: 16,
                                         ),
                                       ),
-                                      const SizedBox(height: 8),
-                                      const Text(
+                                      SizedBox(height: 8),
+                                      Text(
                                         '• Check your spam/junk folder\n• Make sure you clicked the link in the email\n• The verification happens automatically',
                                         style: TextStyle(
                                           color: Colors.grey,

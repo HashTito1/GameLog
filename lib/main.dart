@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,21 +12,21 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Firebase first (with error handling for duplicate initialization)
+  // Initialize Firebase first. A duplicate-app error (e.g. after hot restart)
+  // is harmless; anything else means the app cannot work, so surface it.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (e) {
-    // Firebase already initialized, continue
-    if (kDebugMode) {
-            // Error handled
-    }
+  } on FirebaseException catch (e) {
+    if (e.code != 'duplicate-app') rethrow;
   }
   
-  // Initialize services
-  await FirebaseAuthService().initialize();
-  await ThemeService().initialize();
+  // Independent start-up work runs together.
+  await Future.wait([
+    FirebaseAuthService().initialize(),
+    ThemeService().initialize(),
+  ]);
   
   runApp(const GameLogApp());
 }

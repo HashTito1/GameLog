@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../models/game.dart';
 import 'cache_service.dart';
 import 'content_filter_service.dart';
@@ -8,15 +9,14 @@ import 'content_filter_service.dart';
 class IGDBService {
   static const String _baseUrl = 'https://api.igdb.com/v4';
   
-  // IGDB API credentials - you'll need to get these from Twitch Developer Console
+  // IGDB API credentials come from the Twitch Developer Console and are
+  // injected at build time (see lib/config/app_config.dart).
   // Instructions: https://api-docs.igdb.com/#getting-started
-  static const String _clientId = 'g02kfdnlja8rywkbbf28o9ckdkta08';
-  static const String _accessToken = 'zj6yugrrn92j3ftza3h4z2xx7xsx88';
-  
+  static const String _clientId = AppConfig.igdbClientId;
+  static const String _accessToken = AppConfig.igdbAccessToken;
+
   // Check if API credentials are configured
-  static bool get isConfigured => _clientId.isNotEmpty && _accessToken.isNotEmpty && 
-                                  _clientId != 'YOUR_TWITCH_CLIENT_ID' && 
-                                  _accessToken != 'YOUR_TWITCH_ACCESS_TOKEN';
+  static bool get isConfigured => _clientId.isNotEmpty && _accessToken.isNotEmpty;
   
   // Singleton pattern
   static final IGDBService _instance = IGDBService._internal();
@@ -64,9 +64,11 @@ class IGDBService {
         limit $limit;
       ''';
 
-      // Add search if query is provided
+      // Add search if query is provided (quotes escaped so user input can't
+      // break out of the search string)
       if (query.isNotEmpty) {
-        igdbQuery += 'search "$query"; ';
+        final escaped = query.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+        igdbQuery += 'search "$escaped"; ';
       }
 
       // Build where clause components
@@ -188,7 +190,7 @@ class IGDBService {
       // For page 1, try to get from cache first
       if (page == 1) {
         final currentYear = DateTime.now().year;
-        final cacheKey = 'igdb_popular_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+        final cacheKey = 'igdb_popular_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
         final cachedGames = await CacheService.getCachedGameList(cacheKey);
         if (cachedGames != null && cachedGames.length >= limit) {
           return cachedGames.take(limit).toList();
@@ -203,20 +205,20 @@ class IGDBService {
       final timestampThreeYearsAgo = (threeYearsAgo.millisecondsSinceEpoch / 1000).round();
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
       
+      // One where clause only: IGDB ignores all but the last, which used to
+      // let the adult-content filter silently drop every other condition.
+      final adultFilter = includeAdultContent ? '' : ' & themes != (42)';
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where rating >= 75 & rating_count >= 5 & first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow;
-        sort rating desc;
+        where first_release_date >= $timestampThreeYearsAgo & first_release_date <= $timestampNow
+          & game_type = 0 & version_parent = null
+          & total_rating >= 75 & total_rating_count >= 100$adultFilter;
+        sort total_rating_count desc;
       ''';
-
-      // Apply content filter
-      if (!includeAdultContent) {
-        igdbQuery += 'where themes != (42); '; // Exclude adult themes
-      }
 
       final response = await http.post(
         Uri.parse('$_baseUrl/games'),
@@ -235,7 +237,7 @@ class IGDBService {
         // Cache only the first page for performance
         if (page == 1) {
           final currentYear = DateTime.now().year;
-          final cacheKey = 'igdb_popular_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+          final cacheKey = 'igdb_popular_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
           await CacheService.cacheGameList(cacheKey, filteredGames);
         }
         
@@ -261,7 +263,7 @@ class IGDBService {
       // For page 1, try to get from cache first
       if (page == 1) {
         final currentYear = DateTime.now().year;
-        final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+        final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
         final cachedGames = await CacheService.getCachedGameList(cacheKey);
         if (cachedGames != null && cachedGames.isNotEmpty) {
           final filteredGames = await _filterAdultContent(cachedGames, includeAdultContent);
@@ -271,19 +273,23 @@ class IGDBService {
 
       final offset = (page - 1) * limit;
       final now = DateTime.now();
-      // Use a much broader timeframe - 2 years for trending games
-      final twoYearsAgo = now.subtract(const Duration(days: 730));
-      final timestampTwoYearsAgo = (twoYearsAgo.millisecondsSinceEpoch / 1000).round();
+      // Trending = the most anticipated/discussed original games released in
+      // the last four months. Without the hype/rating floor this returned
+      // whatever obscure title happened to release most recently.
+      final fourMonthsAgo = now.subtract(const Duration(days: 120));
+      final timestampTwoYearsAgo = (fourMonthsAgo.millisecondsSinceEpoch / 1000).round();
       final timestampNow = (now.millisecondsSinceEpoch / 1000).round();
-      
+
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow;
-        sort first_release_date desc;
+        where first_release_date >= $timestampTwoYearsAgo & first_release_date <= $timestampNow
+          & game_type = 0 & version_parent = null & cover != null
+          & (hypes >= 25 | total_rating_count >= 10);
+        sort hypes desc;
       ''';
 
       if (kDebugMode) {
@@ -329,7 +335,7 @@ class IGDBService {
               // Cache the results only for page 1
               if (page == 1) {
                 final currentYear = DateTime.now().year;
-                final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+                final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
                 await CacheService.cacheGameList(cacheKey, filteredGames);
               }
               
@@ -354,7 +360,7 @@ class IGDBService {
         // Cache the results only for page 1
         if (page == 1) {
           final currentYear = DateTime.now().year;
-          final cacheKey = 'igdb_trending_games_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+          final cacheKey = 'igdb_trending_games_v2_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
           await CacheService.cacheGameList(cacheKey, filteredGames);
         }
         
@@ -423,6 +429,52 @@ class IGDBService {
     }
   }
 
+  /// IGDB's curated "similar games" for [gameId], with games that share a
+  /// genre with the original ranked first.
+  Future<List<Game>> getSimilarGames(String gameId, {int limit = 10}) async {
+    if (!isConfigured) return [];
+
+    const sub = 'similar_games';
+    final igdbQuery = '''
+      fields genres.name,
+             $sub.name, $sub.summary, $sub.cover.url, $sub.first_release_date, $sub.rating, $sub.rating_count,
+             $sub.involved_companies.company.name, $sub.involved_companies.developer,
+             $sub.involved_companies.publisher, $sub.genres.name, $sub.platforms.name;
+      where id = $gameId;
+    ''';
+
+    final response = await http.post(Uri.parse('$_baseUrl/games'), headers: _headers, body: igdbQuery);
+    if (response.statusCode != 200) {
+      throw Exception('IGDB API request failed with status: ${response.statusCode}');
+    }
+
+    final List<dynamic> results = json.decode(response.body);
+    if (results.isEmpty) return [];
+
+    final original = results.first as Map<String, dynamic>;
+    final originalGenres = ((original['genres'] as List<dynamic>?) ?? [])
+        .map((g) => g['name'] as String?)
+        .whereType<String>()
+        .toSet();
+
+    final similar = ((original[sub] as List<dynamic>?) ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map((data) => _parseGameFromIGDB(data))
+        .where((game) => game.coverImage.isNotEmpty)
+        .toList();
+
+    int sharedGenres(Game game) => game.genres.where(originalGenres.contains).length;
+    // Stable sort: keep IGDB's order among games with the same overlap.
+    final ranked = [
+      for (final entry in similar.asMap().entries) (entry.key, entry.value),
+    ]..sort((a, b) {
+        final byGenre = sharedGenres(b.$2).compareTo(sharedGenres(a.$2));
+        return byGenre != 0 ? byGenre : a.$1.compareTo(b.$1);
+      });
+
+    return ranked.map((e) => e.$2).take(limit).toList();
+  }
+
   // Get games by genre with caching and pagination
   Future<List<Game>> getGamesByGenre(String genre, {int limit = 20, int page = 1, bool includeAdultContent = false}) async {
     if (!isConfigured) {
@@ -431,7 +483,7 @@ class IGDBService {
 
     try {
       final currentYear = DateTime.now().year;
-      final cacheKey = 'igdb_genre_${genre}_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
+      final cacheKey = 'igdb_genre_v3_${genre}_${currentYear}_${includeAdultContent ? 'adult' : 'safe'}';
       
       // For page 1, try to get from cache first
       if (page == 1) {
@@ -442,6 +494,23 @@ class IGDBService {
         }
       }
 
+      // Well-known original releases only. Sorting by raw rating used to put
+      // one-review games rated 100 and duplicate editions at the top.
+      // IGDB tags many action games as Shooter, so that list is limited to
+      // first-person games and ranked by how many people rated them.
+      final isShooter = genre == 'Shooter';
+      final genreWhere = [
+        'genres.name = "$genre"',
+        'game_type = 0',
+        'version_parent = null',
+        'total_rating_count >= 150',
+        if (isShooter) 'player_perspectives = (1)',
+        // Open-world games (theme 38) like GTA have shooting but aren't shooters.
+        if (isShooter) 'themes != (38)',
+        if (isShooter) 'total_rating >= 80',
+      ].join(' & ');
+      final genreSort = isShooter ? 'total_rating_count' : 'total_rating';
+
       final offset = (page - 1) * limit;
 
       String igdbQuery = '''
@@ -450,8 +519,8 @@ class IGDBService {
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where genres.name = "$genre";
-        sort rating desc;
+        where $genreWhere;
+        sort $genreSort desc;
       ''';
 
       if (kDebugMode) {
@@ -630,7 +699,7 @@ class IGDBService {
 
     try {
       final currentYear = DateTime.now().year;
-      final cacheKey = 'igdb_highly_rated_games_$currentYear';
+      final cacheKey = 'igdb_highly_rated_games_v2_$currentYear';
       
       // For page 1, try to get from cache first
       if (page == 1) {
@@ -649,8 +718,9 @@ class IGDBService {
                genres.name, platforms.name, screenshots.url;
         limit $limit;
         offset $offset;
-        where rating >= 70;
-        sort rating desc;
+        where game_type = 0 & version_parent = null
+          & total_rating >= 85 & total_rating_count >= 200;
+        sort total_rating desc;
       ''';
 
       final response = await http.post(
@@ -1084,12 +1154,15 @@ class IGDBService {
         limit $limit;
       ''';
 
-      // Add search if query is provided
+      // Add search if query is provided. Escape quotes/backslashes so a title
+      // like 'The "Hero"' can't break out of the search string.
       if (query.isNotEmpty) {
-        igdbQuery += 'search "$query"; ';
+        final escaped = query.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+        igdbQuery += 'search "$escaped"; ';
       }
 
-      // Build where clause components
+      // Build where clause components. IGDB honours only ONE where clause per
+      // query (a second one replaces the first), so every filter goes here.
       List<String> whereConditions = [];
 
       if (genre != null && genre != 'all') {
@@ -1108,6 +1181,22 @@ class IGDBService {
         }
       }
 
+      if (releasedAfter != null && releasedAfter.isNotEmpty) {
+        try {
+          final afterDate = DateTime.parse('$releasedAfter-01-01');
+          final afterTimestamp = (afterDate.millisecondsSinceEpoch / 1000).round();
+          whereConditions.add('first_release_date >= $afterTimestamp');
+
+          if (releasedBefore != null && releasedBefore.isNotEmpty) {
+            final beforeDate = DateTime.parse('$releasedBefore-12-31');
+            final beforeTimestamp = (beforeDate.millisecondsSinceEpoch / 1000).round();
+            whereConditions.add('first_release_date <= $beforeTimestamp');
+          }
+        } catch (e) {
+          // Invalid date format, ignore
+        }
+      }
+
       // Combine where conditions
       if (whereConditions.isNotEmpty) {
         igdbQuery += 'where ${whereConditions.join(' & ')}; ';
@@ -1117,23 +1206,6 @@ class IGDBService {
       if (query.isEmpty) {
         String finalOrdering = ordering ?? 'rating desc';
         igdbQuery += 'sort $finalOrdering; ';
-      }
-
-      if (releasedAfter != null && releasedAfter.isNotEmpty) {
-        try {
-          final afterDate = DateTime.parse('$releasedAfter-01-01');
-          final afterTimestamp = (afterDate.millisecondsSinceEpoch / 1000).round();
-          
-          if (releasedBefore != null && releasedBefore.isNotEmpty) {
-            final beforeDate = DateTime.parse('$releasedBefore-12-31');
-            final beforeTimestamp = (beforeDate.millisecondsSinceEpoch / 1000).round();
-            igdbQuery += 'where first_release_date >= $afterTimestamp & first_release_date <= $beforeTimestamp; ';
-          } else {
-            igdbQuery += 'where first_release_date >= $afterTimestamp; ';
-          }
-        } catch (e) {
-          // Invalid date format, ignore
-        }
       }
 
       final response = await http.post(
@@ -1254,7 +1326,7 @@ class IGDBService {
 
     try {
       final targetYear = year ?? DateTime.now().year - 1; // Default to last year
-      final cacheKey = 'igdb_goty_candidates_$targetYear';
+      final cacheKey = 'igdb_goty_candidates_v2_$targetYear';
       
       // Try to get from cache first
       final cachedGames = await CacheService.getCachedGameList(cacheKey);
@@ -1268,13 +1340,18 @@ class IGDBService {
       final timestampStart = (yearStart.millisecondsSinceEpoch / 1000).round();
       final timestampEnd = (yearEnd.millisecondsSinceEpoch / 1000).round();
       
+      // Original releases only (game_type 0, no version_parent) so ports and
+      // "Enhanced"/console editions of older games don't crowd the list, and
+      // enough ratings that the score means something.
       String igdbQuery = '''
-        fields name, summary, cover.url, first_release_date, rating, rating_count, 
+        fields name, summary, cover.url, first_release_date, rating, rating_count,
                involved_companies.company.name, involved_companies.developer, involved_companies.publisher,
                genres.name, platforms.name, screenshots.url;
         limit $limit;
-        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd & rating >= 85 & rating_count >= 10;
-        sort rating desc;
+        where first_release_date >= $timestampStart & first_release_date <= $timestampEnd
+          & game_type = 0 & version_parent = null
+          & total_rating >= 80 & total_rating_count >= 75;
+        sort total_rating desc;
       ''';
 
       final response = await http.post(
@@ -1319,7 +1396,7 @@ class IGDBService {
     }
 
     try {
-      final cacheKey = 'igdb_goty_editions';
+      const cacheKey = 'igdb_goty_editions';
       
       // Try to get from cache first
       final cachedGames = await CacheService.getCachedGameList(cacheKey);

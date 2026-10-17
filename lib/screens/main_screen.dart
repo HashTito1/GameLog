@@ -18,7 +18,9 @@ class MainScreen extends StatefulWidget {
 
 class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   int _currentIndex = 0;
-  late PageController _pageController;
+  // Tabs are built the first time they're opened and then kept alive, so
+  // switching back is instant and doesn't reload their data.
+  final Set<int> _openedTabs = {0};
   late AnimationController _animationController;
   String? _libraryPlaylistId;
 
@@ -35,25 +37,18 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
-    _animationController = AnimationController(
+    _animationController= AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
     
-    // Check for updates after a short delay to let the UI settle
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          UpdateService.instance.checkForUpdatesAndShowDialog(context);
-        }
-      });
-    });
+    // Quietly check GitHub for new releases (launch, resume, every few hours).
+    UpdateService.instance.startAutoChecks(() => context);
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    UpdateService.instance.stopAutoChecks();
     _animationController.dispose();
     super.dispose();
   }
@@ -79,12 +74,10 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _libraryPlaylistId = null;
     }
     
-    setState(() => _currentIndex = index);
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-    );
+    setState(() {
+      _currentIndex = index;
+      _openedTabs.add(index);
+    });
     _animationController.forward().then((_) => _animationController.reverse());
   }
 
@@ -100,67 +93,66 @@ class MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         }
       },
       child: Scaffold(
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: (index) => setState(() => _currentIndex = index),
-          physics: const NeverScrollableScrollPhysics(),
-          children: _screens,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            for (var i = 0; i < _screens.length; i++)
+              if (_openedTabs.contains(i))
+                IgnorePointer(
+                  ignoring: i != _currentIndex,
+                  // The fade itself must keep ticking, so only the tab's own
+                  // content is paused (TickerMode) while it's hidden.
+                  child: AnimatedOpacity(
+                    opacity: i == _currentIndex ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    child: AnimatedSlide(
+                      offset: i == _currentIndex ? Offset.zero : const Offset(0, 0.015),
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      child: TickerMode(
+                        enabled: i == _currentIndex,
+                        child: _screens[i],
+                      ),
+                    ),
+                  ),
+                ),
+          ],
         ),
-        bottomNavigationBar: Container(
-          height: 58, // Reduced from 65
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 10, // Reduced from 12
-                offset: const Offset(0, -2),
+        bottomNavigationBar: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            height: 64,
+            backgroundColor: theme.colorScheme.surface,
+            indicatorColor: theme.colorScheme.primary.withValues(alpha: 0.2),
+            labelTextStyle: WidgetStateProperty.resolveWith(
+              (states) => TextStyle(
+                fontSize: 11,
+                fontWeight: states.contains(WidgetState.selected) ? FontWeight.w600 : FontWeight.w500,
+                color: states.contains(WidgetState.selected)
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
+            ),
+            iconTheme: WidgetStateProperty.resolveWith(
+              (states) => IconThemeData(
+                size: 22,
+                color: states.contains(WidgetState.selected)
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+          child: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: _onTabTapped,
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_filled), label: 'Home'),
+              NavigationDestination(icon: Icon(Icons.explore_outlined), selectedIcon: Icon(Icons.explore), label: 'Discover'),
+              NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
+              NavigationDestination(icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'Library'),
+              NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
             ],
           ),
-          child: SafeArea(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildNavItem(Icons.home_filled, 'Home', 0, theme),
-                _buildNavItem(Icons.explore, 'Discover', 1, theme),
-                _buildNavItem(Icons.search, 'Search', 2, theme),
-                // Forum removed from navigation
-                // _buildNavItem(Icons.forum, 'Forum', 3, theme),
-                _buildNavItem(Icons.bookmark, 'Library', 3, theme), // Now index 3
-                _buildNavItem(Icons.person, 'Profile', 4, theme), // Now index 4
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, int index, ThemeData theme) {
-    final isActive = _currentIndex == index;
-    
-    return GestureDetector(
-      onTap: () => _onTabTapped(index),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 44, // Reduced from 50
-        height: 44, // Reduced from 50
-        decoration: BoxDecoration(
-          color: isActive ? theme.colorScheme.primary : Colors.transparent,
-          shape: BoxShape.circle,
-          boxShadow: isActive ? [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.3),
-              blurRadius: 4, // Reduced from 6
-              offset: const Offset(0, 1), // Reduced from 2
-            ),
-          ] : null,
-        ),
-        child: Icon(
-          icon,
-          color: isActive ? Colors.white : theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          size: 20, // Reduced from 22
         ),
       ),
     );

@@ -1,3 +1,6 @@
+// Command-line helper: printing to stdout is the point.
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -7,8 +10,12 @@ Future<void> main() async {
   print('🎮 Checking actual genres used in IGDB games...');
   
   const String baseUrl = 'https://api.igdb.com/v4';
-  const String clientId = 'g02kfdnlja8rywkbbf28o9ckdkta08';
-  const String accessToken = 'zj6yugrrn92j3ftza3h4z2xx7xsx88';
+  final clientId = Platform.environment['IGDB_CLIENT_ID'] ?? '';
+  final accessToken = Platform.environment['IGDB_ACCESS_TOKEN'] ?? '';
+  if (clientId.isEmpty || accessToken.isEmpty) {
+    print('Set IGDB_CLIENT_ID and IGDB_ACCESS_TOKEN environment variables first.');
+    exit(1);
+  }
   
   final headers = {
     'Client-ID': clientId,

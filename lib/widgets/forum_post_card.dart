@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'app_network_image.dart';
+import '../utils/date_format.dart';
 import '../models/forum_post.dart';
 import '../screens/forum_post_detail_screen.dart';
 import '../screens/user_profile_screen.dart';
@@ -234,7 +235,7 @@ class ForumPostCard extends StatelessWidget {
         radius: 16,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: post.authorProfileImage!,
             width: 32,
             height: 32,
@@ -289,7 +290,7 @@ class ForumPostCard extends StatelessWidget {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

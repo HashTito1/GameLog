@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/app_network_image.dart';
+import '../utils/date_format.dart';
 import '../models/forum_post.dart';
 import '../services/forum_service.dart';
 import '../services/admin_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/report_service.dart';
+import '../widgets/report_dialog.dart';
 import 'user_profile_screen.dart';
 
 class ForumPostDetailScreen extends StatefulWidget {
@@ -205,7 +208,8 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
     if (confirmed == true) {
       try {
         await AdminService.instance.deleteForumPost(post.id);
-        
+        if (!mounted) return;
+
         if (post.id == _post?.id) {
           // Main post was deleted, go back
           Navigator.of(context).pop(true);
@@ -337,28 +341,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
                   ),
                 ),
               const Spacer(),
-              if (_isAdmin)
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'delete':
-                        _deletePost(post);
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, color: Colors.red),
-                          SizedBox(width: 8),
-                          Text('Delete Post', style: TextStyle(color: Colors.red)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              _buildPostMenu(post, deleteLabel: 'Delete Post'),
             ],
           ),
           if (post.isPinned || post.isLocked) const SizedBox(height: 12),
@@ -488,7 +471,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        ..._replies.map((reply) => _buildReplyItem(reply, theme)).toList(),
+        ..._replies.map((reply) => _buildReplyItem(reply, theme)),
       ],
     );
   }
@@ -560,26 +543,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
-                  if (_isAdmin)
-                    PopupMenuButton<String>(
-                      onSelected: (value) {
-                        if (value == 'delete') {
-                          _deletePost(reply);
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete, color: Colors.red, size: 16),
-                              SizedBox(width: 8),
-                              Text('Delete', style: TextStyle(color: Colors.red)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                  _buildPostMenu(reply, deleteLabel: 'Delete'),
                 ],
               ),
             ],
@@ -595,6 +559,56 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Overflow menu: anyone can report someone else's post; admins can delete.
+  Widget _buildPostMenu(ForumPost post, {required String deleteLabel}) {
+    final isOwnPost = post.authorId == FirebaseAuthService().currentUser?.uid;
+    if (isOwnPost && !_isAdmin) return const SizedBox.shrink();
+
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        switch (value) {
+          case 'report':
+            showReportDialog(
+              context,
+              type: ReportType.forumPost,
+              targetId: post.id,
+              targetOwnerId: post.authorId,
+              targetPreview: post.title.isNotEmpty ? '${post.title}: ${post.content}' : post.content,
+              title: 'Report post',
+            );
+            break;
+          case 'delete':
+            _deletePost(post);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        if (!isOwnPost)
+          const PopupMenuItem(
+            value: 'report',
+            child: Row(
+              children: [
+                Icon(Icons.flag_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Report'),
+              ],
+            ),
+          ),
+        if (_isAdmin)
+          PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                const Icon(Icons.delete, color: Colors.red, size: 18),
+                const SizedBox(width: 8),
+                Text(deleteLabel, style: const TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -665,7 +679,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
         radius: size,
         backgroundColor: theme.colorScheme.primary,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: post.authorProfileImage!,
             width: size * 2,
             height: size * 2,
@@ -765,7 +779,7 @@ class _ForumPostDetailScreenState extends State<ForumPostDetailScreen> {
     final difference = now.difference(date);
 
     if (difference.inDays > 30) {
-      return '${date.day}/${date.month}/${date.year}';
+      return formatShortDate(date);
     } else if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

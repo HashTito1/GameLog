@@ -66,10 +66,18 @@ class RatingService {
         ratingData['gameTitle'] = gameTitle;
       }
 
-      await _firestore
-          .collection(_ratingsCollection)
-          .doc(ratingId)
-          .set(ratingData, SetOptions(merge: true));
+      final ratingRef = _firestore.collection(_ratingsCollection).doc(ratingId);
+      final existing = await ratingRef.get();
+      if (existing.exists) {
+        // Editing a rating must keep its original date, likes and comments.
+        ratingData
+          ..remove('createdAt')
+          ..remove('likeCount')
+          ..remove('likedBy')
+          ..remove('commentCount');
+      }
+
+      await ratingRef.set(ratingData, SetOptions(merge: true));
       
       // Clear cache for this game to ensure fresh data on next load
       _clearGameCache(gameId);
@@ -146,6 +154,29 @@ class RatingService {
     }
   }
   
+  /// Every user's rating for [gameId] from the per-user ratings
+  /// (users/{userId}/ratings), in one collection-group query instead of one
+  /// query per user. Needs the `ratings.gameId` collection-group index in
+  /// firestore.indexes.json.
+  static Future<List<UserRating>> getUserRatingsForGame(String gameId) async {
+    final snapshot = await _firestore
+        .collectionGroup('ratings')
+        .where('gameId', isEqualTo: gameId)
+        .get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final userId = data['userId'] ?? doc.reference.parent.parent?.id ?? '';
+      return UserRating.fromMap({
+        ...data,
+        'id': data['id'] ?? '${userId}_$gameId',
+        'gameId': data['gameId'] ?? gameId,
+        'userId': userId,
+        'username': data['username'] ?? 'user',
+      });
+    }).toList();
+  }
+
   // Get user's rating for a specific game (fast method using document ID)
   Future<UserRating?> getUserRating(String userId, String gameId) async {
     try {
@@ -201,7 +232,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
     } catch (e) {
       return [];
@@ -288,7 +319,7 @@ class RatingService {
           .get();
 
       return querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
     } catch (e) {
       return [];
@@ -355,7 +386,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} total ratings in database');
@@ -377,7 +408,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} community ratings (limited for performance)');
@@ -401,7 +432,7 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} top rated reviews');
@@ -425,13 +456,37 @@ class RatingService {
           .get();
 
       final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) => UserRating.fromMap(doc.data()))
           .toList();
       
       debugPrint('Found ${ratings.length} popular reviews');
       return ratings;
     } catch (e) {
       debugPrint('Error in getPopularReviewsOptimized: $e');
+      return [];
+    }
+  }
+
+  /// Newest ratings written by any of [userIds].
+  static Future<List<UserRating>> getRecentRatingsByUsers(Iterable<String> userIds, {int limit = 20}) async {
+    final ids = userIds.toList();
+    if (ids.isEmpty) return [];
+    try {
+      // whereIn takes at most 30 values, so query in chunks. Sorting happens
+      // here: whereIn + orderBy would need a composite index.
+      final chunks = [
+        for (var i = 0; i < ids.length; i += 30) ids.sublist(i, (i + 30).clamp(0, ids.length)),
+      ];
+      final snapshots = await Future.wait(chunks.map(
+        (chunk) => _firestore.collection(_ratingsCollection).where('userId', whereIn: chunk).get(),
+      ));
+      final ratings = [
+        for (final snapshot in snapshots)
+          for (final doc in snapshot.docs) UserRating.fromMap(doc.data()),
+      ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      return ratings.take(limit).toList();
+    } catch (e) {
+      debugPrint('Error loading ratings by users: $e');
       return [];
     }
   }
@@ -451,26 +506,8 @@ class RatingService {
         return [];
       }
 
-      // Get friend IDs
       final friendIds = friends.map((friend) => friend['id'] as String).toList();
-      debugPrint('📋 Friend IDs: $friendIds');
-
-      // Get recent reviews from friends
-      final querySnapshot = await _firestore
-          .collection(_ratingsCollection)
-          .where('userId', whereIn: friendIds.take(10).toList()) // Firestore limit for whereIn
-          .orderBy('updatedAt', descending: true)
-          .limit(limit)
-          .get();
-
-      debugPrint('📊 Found ${querySnapshot.docs.length} friend ratings in database');
-
-      final ratings = querySnapshot.docs
-          .map((doc) => UserRating.fromMap(doc.data()))
-          .toList();
-      
-      debugPrint('✅ Processed ${ratings.length} friend ratings');
-      return ratings;
+      return await getRecentRatingsByUsers(friendIds, limit: limit);
     } catch (e) {
       debugPrint('❌ Error in getFriendRecentRatings: $e');
       return [];
@@ -501,10 +538,10 @@ class RatingService {
       debugPrint('Total ratings: ${querySnapshot.docs.length}');
       debugPrint('Unique games: ${gameRatingCounts.length}');
       
-      gameRatingCounts.forEach((gameId, count) {
+      gameRatingCounts.forEach((gameId, ratingCount) {
         final ratings = gameRatings[gameId]!;
         final average = ratings.reduce((a, b) => a + b) / ratings.length;
-        debugPrint('Game $gameId: $count ratings, avg: ${average.toStringAsFixed(2)}');
+        debugPrint('Game $gameId: $ratingCount ratings, avg: ${average.toStringAsFixed(2)}');
       });
 
       return {

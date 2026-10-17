@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../widgets/report_dialog.dart';
+import '../forum_screen.dart';
+import 'user_guide_screen.dart';
 
 class HelpSupportScreen extends StatelessWidget {
   const HelpSupportScreen({super.key});
@@ -42,7 +47,7 @@ class HelpSupportScreen extends StatelessWidget {
               ),
               _buildFAQItem(
                 question: 'How do I change themes?',
-                answer: 'Go to Settings > Theme Settings to choose from 7 different themes including dark and light modes.',
+                answer: 'Go to Settings > Theme to choose from 7 themes, including a light mode.',
                 theme: theme,
               ),
             ],
@@ -55,22 +60,22 @@ class HelpSupportScreen extends StatelessWidget {
               _buildContactItem(
                 icon: Icons.email,
                 title: 'Email Support',
-                subtitle: 'Get help via email',
-                onTap: () => _showComingSoonDialog(context, 'Email Support'),
+                subtitle: supportEmail,
+                onTap: () => _emailSupport(context),
                 theme: theme,
               ),
               _buildContactItem(
                 icon: Icons.chat,
-                title: 'Live Chat',
-                subtitle: 'Chat with our support team',
-                onTap: () => _showComingSoonDialog(context, 'Live Chat'),
+                title: 'Ask the Community',
+                subtitle: 'Get quick answers from other players in the forum',
+                onTap: () => _openForum(context),
                 theme: theme,
               ),
               _buildContactItem(
                 icon: Icons.bug_report,
                 title: 'Report a Bug',
                 subtitle: 'Help us improve the app',
-                onTap: () => _showComingSoonDialog(context, 'Bug Report'),
+                onTap: () => showBugReportDialog(context),
                 theme: theme,
               ),
             ],
@@ -83,28 +88,54 @@ class HelpSupportScreen extends StatelessWidget {
               _buildContactItem(
                 icon: Icons.book,
                 title: 'User Guide',
-                subtitle: 'Learn how to use GameLog',
-                onTap: () => _showComingSoonDialog(context, 'User Guide'),
-                theme: theme,
-              ),
-              _buildContactItem(
-                icon: Icons.video_library,
-                title: 'Video Tutorials',
-                subtitle: 'Watch helpful tutorials',
-                onTap: () => _showComingSoonDialog(context, 'Video Tutorials'),
+                subtitle: 'Step-by-step guides to every feature',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const UserGuideScreen()),
+                ),
                 theme: theme,
               ),
               _buildContactItem(
                 icon: Icons.forum,
                 title: 'Community Forum',
                 subtitle: 'Connect with other users',
-                onTap: () => _showComingSoonDialog(context, 'Community Forum'),
+                onTap: () => _openForum(context),
                 theme: theme,
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  static const supportEmail = 'nebilmesfin22@gmail.com';
+
+  static Future<void> _emailSupport(BuildContext context) async {
+    final info = await PackageInfo.fromPlatform();
+    final uri = Uri(
+      scheme: 'mailto',
+      path: supportEmail,
+      query: _encodeQuery({
+        'subject': 'GameLog support',
+        'body': '\n\n---\nApp version: ${info.version} (${info.buildNumber})',
+      }),
+    );
+    final opened = await launchUrl(uri);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No email app found. Write to $supportEmail')),
+      );
+    }
+  }
+
+  // Uri's queryParameters encodes spaces as '+', which mail apps show literally.
+  static String _encodeQuery(Map<String, String> params) => params.entries
+      .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+      .join('&');
+
+  static void _openForum(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const ForumScreen()),
     );
   }
 
@@ -158,6 +189,8 @@ class HelpSupportScreen extends StatelessWidget {
           color: theme.colorScheme.onSurface,
         ),
       ),
+      iconColor: theme.colorScheme.primary,
+      collapsedIconColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -171,8 +204,6 @@ class HelpSupportScreen extends StatelessWidget {
           ),
         ),
       ],
-      iconColor: theme.colorScheme.primary,
-      collapsedIconColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
     );
   }
 
@@ -214,28 +245,6 @@ class HelpSupportScreen extends StatelessWidget {
       ),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    );
-  }
-
-  static void _showComingSoonDialog(BuildContext context, String feature) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: theme.colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Coming Soon', style: TextStyle(color: theme.colorScheme.onSurface)),
-        content: Text(
-          'This feature is currently under development and will be available in a future update.',
-          style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('OK', style: TextStyle(color: theme.colorScheme.primary)),
-          ),
-        ],
-      ),
     );
   }
 }

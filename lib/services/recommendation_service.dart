@@ -56,14 +56,23 @@ class RecommendationService {
         return [];
       }
 
-      // Search for games with similar genres
+      // IGDB's curated list is the best signal; fall back to genres if it's short.
       List<Game> similarGames = [];
-      
+      try {
+        similarGames.addAll(await IGDBService.instance.getSimilarGames(gameId, limit: limit));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error fetching IGDB similar games: $e');
+        }
+      }
+
       // Try to find games with matching genres
       for (final genre in originalGame.genres.take(2)) { // Use top 2 genres
+        if (similarGames.length >= limit) break;
         try {
+          // getGamesByGenre matches IGDB genre names exactly (e.g. "Racing").
           final genreGames = await IGDBService.instance.getGamesByGenre(
-            genre.toLowerCase().replaceAll(' ', '-').replaceAll('(', '').replaceAll(')', ''),
+            genre,
             limit: 10,
           );
           
@@ -120,8 +129,18 @@ class RecommendationService {
     }
   }
 
+  /// Whether the last [getPersonalizedRecommendations] result was based on the
+  /// user's own ratings (false = generic popular/trending picks).
+  bool lastWasPersonalized = false;
+
+  /// Titles of the highly rated games the last personalized result was built
+  /// from (shown as "Because you rated …").
+  List<String> lastSeedTitles = [];
+
   /// Get personalized game recommendations for the current user
   Future<List<Game>> getPersonalizedRecommendations({int limit = 10}) async {
+    lastWasPersonalized = false;
+    lastSeedTitles = [];
     try {
       final currentUser = FirebaseAuthService().currentUser;
       if (currentUser == null) {
@@ -138,18 +157,44 @@ class RecommendationService {
 
       // Analyze user preferences from library
       final preferences = _analyzeUserPreferences(libraryData);
-      
-      // Get recommendations based on preferences
-      final recommendations = await _getRecommendationsFromPreferences(preferences, limit);
-      
+
+      // Never recommend games the user already has, including other editions
+      // of them ("Grand Theft Auto V" vs "... V: Special Edition").
+      final ownedIds = libraryData
+          .map((entry) => (entry['gameId'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final ownedTitles = libraryData
+          .map((entry) => _normalizeTitle((entry['gameTitle'] ?? '').toString()))
+          .where((t) => t.length >= 4)
+          .toList();
+      bool isOwned(Game game) {
+        if (ownedIds.contains(game.id)) return true;
+        final title = _normalizeTitle(game.title);
+        return ownedTitles.any((owned) => title.startsWith(owned) || owned.startsWith(title));
+      }
+
+      // 1. Games IGDB lists as similar to the ones you rated highest.
+      final recommendations = await _getSimilarToFavorites(libraryData, limit, isOwned);
+      lastWasPersonalized = recommendations.isNotEmpty || (preferences['ratedGames'] ?? 0) > 0;
+
+      // 2. Then well-rated games from your favourite genres.
+      if (recommendations.length < limit) {
+        final seen = recommendations.map((g) => g.id).toSet();
+        final genrePicks = await _getRecommendationsFromPreferences(preferences, limit, ownedIds);
+        recommendations.addAll(genrePicks.where((g) => !isOwned(g) && seen.add(g.id)));
+      }
+
       // If we don't have enough recommendations, fill with popular games
       if (recommendations.length < limit) {
-        final fallbackGames = await _getFallbackRecommendations(limit - recommendations.length);
-        
-        // Filter out games already in recommendations
-        final existingIds = recommendations.map((g) => g.id).toSet();
-        final filteredFallback = fallbackGames.where((g) => !existingIds.contains(g.id)).toList();
-        
+        final fallbackGames = await _getFallbackRecommendations(limit - recommendations.length + ownedIds.length.clamp(0, 10));
+
+        // Filter out games already recommended or owned
+        final existingIds = {...recommendations.map((g) => g.id), ...ownedIds};
+        final filteredFallback = fallbackGames
+            .where((g) => !existingIds.contains(g.id) && !isOwned(g))
+            .toList();
+
         recommendations.addAll(filteredFallback);
       }
 
@@ -161,6 +206,53 @@ class RecommendationService {
       return await _getFallbackRecommendations(limit);
     }
   }
+
+  /// Up to [limit] games drawn from IGDB's similar_games lists of the user's
+  /// highest-rated games. A game similar to several favourites ranks higher.
+  Future<List<Game>> _getSimilarToFavorites(
+    List<Map<String, dynamic>> library,
+    int limit,
+    bool Function(Game) isOwned,
+  ) async {
+    double ratingOf(Map<String, dynamic> e) => ((e['userRating'] ?? 0) as num).toDouble();
+    final favorites = library.where((e) => ratingOf(e) >= 4).toList()
+      ..sort((a, b) => ratingOf(b).compareTo(ratingOf(a)));
+    final seeds = favorites.take(6).toList();
+    if (seeds.isEmpty) return [];
+
+    Future<List<Game>> similarTo(String gameId) async {
+      try {
+        return await IGDBService.instance.getSimilarGames(gameId, limit: 10);
+      } catch (e) {
+        return <Game>[];
+      }
+    }
+
+    final lists = await Future.wait(seeds.map((s) => similarTo(s['gameId'].toString())));
+    final scores = <String, double>{};
+    final games = <String, Game>{};
+    for (var i = 0; i < seeds.length; i++) {
+      final weight = ratingOf(seeds[i]);
+      for (final (rank, game) in lists[i].indexed) {
+        if (isOwned(game)) continue;
+        scores[game.id] = (scores[game.id] ?? 0) + weight - rank * 0.05;
+        games[game.id] = game;
+      }
+    }
+
+    if (games.isNotEmpty) {
+      lastSeedTitles = seeds
+          .map((s) => (s['gameTitle'] ?? '').toString())
+          .where((t) => t.isNotEmpty)
+          .take(3)
+          .toList();
+    }
+    final ranked = scores.keys.toList()..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+    return ranked.take(limit).map((id) => games[id]!).toList();
+  }
+
+  static String _normalizeTitle(String title) =>
+      title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
   /// Analyze user preferences from their library
   Map<String, dynamic> _analyzeUserPreferences(List<Map<String, dynamic>> libraryData) {
@@ -224,9 +316,13 @@ class RecommendationService {
   }
 
   /// Get recommendations based on user preferences
-  Future<List<Game>> _getRecommendationsFromPreferences(Map<String, dynamic> preferences, int limit) async {
+  Future<List<Game>> _getRecommendationsFromPreferences(
+    Map<String, dynamic> preferences,
+    int limit,
+    Set<String> ownedIds,
+  ) async {
     final recommendations = <Game>[];
-    final seenGameIds = <String>{};
+    final seenGameIds = <String>{...ownedIds};
     
     final favoriteGenres = List<String>.from(preferences['favoriteGenres'] ?? []);
     

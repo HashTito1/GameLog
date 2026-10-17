@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/update_service.dart';
 
 class AboutScreen extends StatefulWidget {
@@ -29,311 +30,33 @@ class _AboutScreenState extends State<AboutScreen> {
 
   Future<void> _checkForUpdates() async {
     if (_isCheckingForUpdates) return;
-    
-    setState(() {
-      _isCheckingForUpdates = true;
-    });
+    setState(() => _isCheckingForUpdates = true);
 
-    try {
-      final updateInfo = await UpdateService.instance.checkForUpdates();
-      
-      if (mounted) {
-        if (updateInfo != null) {
-          if (updateInfo.isUpdateAvailable) {
-            _showUpdateAvailableDialog(updateInfo);
-          } else {
-            // Check if this is a demo response (repository not configured)
-            if (updateInfo.releaseNotes.contains('Repository not configured')) {
-              _showRepositoryNotConfiguredDialog();
-            } else {
-              _showNoUpdateDialog();
-            }
-          }
-        } else {
-          _showUpdateCheckFailedDialog();
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        _showUpdateCheckFailedDialog();
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCheckingForUpdates = false;
-        });
-      }
-    }
-  }
+    final updateInfo = await UpdateService.instance.checkForUpdates();
+    if (!mounted) return;
+    setState(() => _isCheckingForUpdates = false);
 
-  void _showUpdateAvailableDialog(UpdateInfo updateInfo) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.system_update,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Update Available',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Version ${updateInfo.version} (${updateInfo.buildNumber}) is now available!',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Current version: ${_versionInfo['version']} (${_versionInfo['buildNumber']})',
-              style: const TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Release Notes:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              constraints: const BoxConstraints(maxHeight: 150),
-              child: SingleChildScrollView(
-                child: Text(
-                  updateInfo.releaseNotes,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'Later',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              UpdateService.instance.openReleasesPage();
-            },
-            child: const Text(
-              'View on GitHub',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _downloadAndInstallUpdate(updateInfo);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text('Update Now'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showNoUpdateDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6366F1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.check_circle,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'You\'re Up to Date',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ],
-        ),
-        content: Text(
-          'You have the latest version of GameLog (${_versionInfo['version']}).',
-          style: const TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'OK',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRepositoryNotConfiguredDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF59E0B),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.settings,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Setup Required',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Update checking is not configured yet. To enable automatic updates:\n\n'
-          '1. Set up a GitHub repository\n'
-          '2. Configure repository information in UpdateService\n'
-          '3. Create releases with APK files\n\n'
-          'See UPDATE_SETUP.md for detailed instructions.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'OK',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              UpdateService.instance.openReleasesPage();
-            },
-            child: const Text(
-              'Browse GitHub',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showUpdateCheckFailedDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.error,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Update Check Failed',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Unable to check for updates. This could be due to:\n\n'
-          '• Repository not configured\n'
-          '• No internet connection\n'
-          '• GitHub API unavailable\n\n'
-          'Please check your connection and try again, or visit GitHub manually.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'OK',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              UpdateService.instance.openReleasesPage();
-            },
-            child: const Text(
-              'View on GitHub',
-              style: TextStyle(color: Color(0xFF6366F1)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _downloadAndInstallUpdate(UpdateInfo updateInfo) async {
-    if (updateInfo.downloadUrl.isEmpty) {
+    if (updateInfo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No download link available. Please visit GitHub to download manually.'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
+        const SnackBar(content: Text("Couldn't reach GitHub. Check your connection and try again.")),
       );
-      UpdateService.instance.openReleasesPage();
-      return;
+    } else if (updateInfo.isUpdateAvailable) {
+      await UpdateService.instance.showUpdateDialog(context, updateInfo);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("You're on the latest version (${_versionInfo['version'] ?? ''}).")),
+      );
     }
+  }
 
-    // Use the new instant download dialog with progress tracking
-    await UpdateService.instance.showDownloadDialog(context, updateInfo);
+  Future<void> _open(String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open link')));
+      }
+    }
   }
 
   @override
@@ -364,56 +87,37 @@ class _AboutScreenState extends State<AboutScreen> {
             title: 'App Information',
             theme: theme,
             children: [
-              _buildInfoTile('Version', _versionInfo['version'] ?? '1.0.0', theme),
-              _buildInfoTile('Build Number', _versionInfo['buildNumber'] ?? '1', theme),
-              _buildInfoTile('Release Date', 'January 2025', theme),
-              _buildInfoTile('Platform', 'Flutter', theme),
+              _buildInfoTile('Version', _versionInfo['version'] ?? '', theme),
+              _buildInfoTile('Build Number', _versionInfo['buildNumber'] ?? '', theme),
               _buildUpdateTile(theme),
             ],
           ),
           const SizedBox(height: 24),
           _buildSection(
-            title: 'Legal',
+            title: 'More',
             theme: theme,
             children: [
               _buildActionTile(
-                title: 'Terms of Service',
-                onTap: () => _showComingSoonDialog(context, 'Terms of Service'),
+                title: 'Release notes',
+                subtitle: 'Every version and what changed',
+                onTap: () => UpdateService.instance.openReleasesPage(),
                 theme: theme,
               ),
               _buildActionTile(
-                title: 'Privacy Policy',
-                onTap: () => _showComingSoonDialog(context, 'Privacy Policy'),
+                title: 'Source code',
+                subtitle: 'GameLog on GitHub',
+                onTap: () => _open('https://github.com/HashTito1/GameLog'),
                 theme: theme,
               ),
               _buildActionTile(
-                title: 'Open Source Licenses',
+                title: 'Send feedback',
+                subtitle: 'Report a bug or suggest a feature',
+                onTap: () => _open('mailto:nebilmesfin22@gmail.com?subject=GameLog%20feedback'),
+                theme: theme,
+              ),
+              _buildActionTile(
+                title: 'Open source licenses',
                 onTap: () => _showLicensePage(context),
-                theme: theme,
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _buildSection(
-            title: 'Connect',
-            theme: theme,
-            children: [
-              _buildActionTile(
-                title: 'Website',
-                subtitle: 'Visit our website',
-                onTap: () => _showComingSoonDialog(context, 'Website'),
-                theme: theme,
-              ),
-              _buildActionTile(
-                title: 'Social Media',
-                subtitle: 'Follow us for updates',
-                onTap: () => _showComingSoonDialog(context, 'Social Media'),
-                theme: theme,
-              ),
-              _buildActionTile(
-                title: 'Rate the App',
-                subtitle: 'Help us improve',
-                onTap: () => _showComingSoonDialog(context, 'App Rating'),
                 theme: theme,
               ),
             ],
@@ -572,7 +276,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Check GitHub test branch for updates',
+                    'Look for a newer version of GameLog',
                     style: TextStyle(
                       fontSize: 12,
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -631,7 +335,7 @@ class _AboutScreenState extends State<AboutScreen> {
     return Column(
       children: [
         Text(
-          '© 2025 GameLog. All rights reserved.',
+          '© ${DateTime.now().year} GameLog',
           style: TextStyle(
             fontSize: 12,
             color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
@@ -655,7 +359,7 @@ class _AboutScreenState extends State<AboutScreen> {
     showLicensePage(
       context: context,
       applicationName: 'GameLog',
-      applicationVersion: '1.0.0',
+      applicationVersion: _versionInfo['version'],
       applicationIcon: Container(
         width: 48,
         height: 48,
@@ -667,27 +371,6 @@ class _AboutScreenState extends State<AboutScreen> {
           color: Colors.white,
           size: 24,
         ),
-      ),
-    );
-  }
-
-  static void _showComingSoonDialog(BuildContext context, String feature) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Coming Soon', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'This feature is currently under development and will be available in a future update.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF6366F1))),
-          ),
-        ],
       ),
     );
   }

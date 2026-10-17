@@ -70,3 +70,12 @@ android/local.properties
 # IGDB/API credentials (never commit these!)
 **/igdb_credentials.dart
 **/api_keys.dart
+dart_defines.json
+
+# Android release signing
+android/key.properties
+*.jks
+*.keystore
+
+# Gradle output under android/
+android/build/

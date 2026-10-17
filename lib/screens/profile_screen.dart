@@ -1,15 +1,19 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../widgets/app_network_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:share_plus/share_plus.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/user_data_service.dart';
 import '../services/igdb_service.dart';
 import '../services/library_service.dart';
-import '../services/image_picker_service.dart';
+import '../services/event_bus.dart';
 import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
 import 'favorite_game_selection_screen.dart';
-import 'friends_screen.dart';
+import 'social_screen.dart';
+import 'follow_list_screen.dart';
+import '../widgets/profile_media_picker.dart';
 import 'main_screen.dart';
 import 'settings_screen.dart';
 import 'game_detail_screen.dart';
@@ -33,16 +37,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _userBacklogCount = 0;
   
   // Track expanded playlists
-  Set<String> _expandedPlaylists = <String>{};
+  final Set<String> _expandedPlaylists = <String>{};
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // The Profile tab is kept alive, so pick up new ratings and library
+    // changes without showing the full-screen loader again.
+    _eventSubscriptions = [
+      EventBus().on<RatingSubmittedEvent>().listen((_) => _loadData(silent: true)),
+      EventBus().on<LibraryUpdatedEvent>().listen((_) => _loadData(silent: true)),
+    ];
   }
 
-  void _loadData() async {
-    setState(() => _isLoading = true);
+  List<StreamSubscription> _eventSubscriptions = [];
+
+  @override
+  void dispose() {
+    for (final subscription in _eventSubscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+
+  void _loadData({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     
     try {
       final currentUser = FirebaseAuthService.instance.currentUser;
@@ -72,8 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (userData != null && userData['displayName'] == null) {
           // Special case: if displayName is specifically null, set it from username or email
           debugPrint('Setting displayName from username or email...');
-          final email = currentUser.email!;
-          final displayName = currentUser.displayName ?? userData['username'] ?? email.split('@')[0];
+          final displayName = currentUser.displayName;
           
           await UserDataService.saveUserProfile(currentUser.uid, {
             'displayName': displayName,
@@ -165,123 +184,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _changeProfilePicture() async {
     try {
-      String? imagePath;
       final theme = Theme.of(context);
-      
-      // Show bottom sheet to select image source
-      final source = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: theme.colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (BuildContext context) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Select Image Source',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'gallery'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.photo_library,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Gallery',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'camera'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.camera_alt,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Camera',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+      final imageBytes = await pickProfileMedia(context, ProfileMediaKind.avatar);
 
-      if (source != null) {
-        if (source == 'gallery') {
-          imagePath = await ImagePickerService.pickImage(context);
-        } else if (source == 'camera') {
-          imagePath = await ImagePickerService.takePhoto(context);
-        }
-      }
-
-      if (imagePath != null) {
+      if (imageBytes != null) {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -303,9 +209,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        // Read image bytes
-        final file = File(imagePath);
-        final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
@@ -383,123 +286,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _changeBannerImage() async {
     try {
-      String? imagePath;
-      final theme = Theme.of(context);
-      
-      // Show bottom sheet to select image source
-      final source = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: theme.colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (BuildContext context) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Select Banner Image Source',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'gallery'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.photo_library,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Gallery',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'camera'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.camera_alt,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Camera',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+      final imageBytes = await pickProfileMedia(context, ProfileMediaKind.banner);
 
-      if (source != null) {
-        if (source == 'gallery') {
-          imagePath = await ImagePickerService.pickImage(context);
-        } else if (source == 'camera') {
-          imagePath = await ImagePickerService.takePhoto(context);
-        }
-      }
-
-      if (imagePath != null) {
+      if (imageBytes != null) {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -521,9 +310,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        // Read image bytes
-        final file = File(imagePath);
-        final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
@@ -663,7 +449,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Navigator.pop(context);
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => SettingsScreen(),
+                        builder: (context) => const SettingsScreen(),
                       ),
                     );
                   },
@@ -673,7 +459,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icons.share,
                   () {
                     Navigator.pop(context);
-                    // Implement share functionality
+                    _shareProfile();
                   },
                 ),
                 const SizedBox(height: 10),
@@ -1069,11 +855,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _shareProfile() {
+    final displayName = _userData?['displayName'] ?? _userData?['username'] ?? 'Me';
+    final username = _userData?['username'];
+    final favorite = (_userData?['favoriteGame'] as Map<String, dynamic>?)?['gameName'];
+    final lines = [
+      '$displayName${username != null ? ' (@$username)' : ''} on GameLog',
+      if (_userRatingsCount > 0)
+        '$_userRatingsCount games rated · ${_userAverageRating.toStringAsFixed(1)}★ average',
+      if (favorite != null) 'Favorite game: $favorite',
+    ];
+    SharePlus.instance.share(ShareParams(text: lines.join('\n'), subject: '$displayName on GameLog'));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentUser = FirebaseAuthService.instance.currentUser;
-    
+
     if (currentUser == null) {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -1159,7 +958,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           colors: [
                             theme.colorScheme.primary,
                             theme.colorScheme.secondary,
-                            theme.colorScheme.tertiary ?? theme.colorScheme.primary,
+                            theme.colorScheme.tertiary,
                             theme.colorScheme.primary.withValues(alpha: 0.8),
                           ],
                         )
@@ -1236,13 +1035,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           child: ClipOval(
                             child: profileImage.isNotEmpty
-                                ? CachedNetworkImage(
+                                ? AppNetworkImage(
                                     imageUrl: profileImage,
                                     fit: BoxFit.cover,
-                                    placeholder: (context, url) => Center(
+                                    placeholder: (context, url) => const Center(
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
                                       ),
                                     ),
                                     errorWidget: (context, url, error) => _buildDefaultAvatar(displayName),
@@ -1800,7 +1599,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(4),
                               child: game['gameCoverImage']?.isNotEmpty == true
-                                  ? CachedNetworkImage(
+                                  ? AppNetworkImage(
                                       imageUrl: game['gameCoverImage'],
                                       fit: BoxFit.cover,
                                       width: double.infinity,
@@ -1919,7 +1718,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: gameCoverImage.isNotEmpty
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: gameCoverImage,
                       width: 35,
                       height: 50,
@@ -1992,47 +1791,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildActionButtons() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  'Set Favorite',
-                  Icons.star,
-                  const Color(0xFFFBBF24),
-                  _selectFavoriteGame,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildActionButton(
-                  'Create Playlist',
-                  Icons.playlist_add,
-                  const Color(0xFF10B981),
-                  _createPlaylist,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: _buildActionButton(
-              'Friends',
-              Icons.people,
-              const Color(0xFF6366F1),
-              () {
-                // Navigate to friends screen
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const FriendsScreen(),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+      // Favorite game is changed from its own card and Friends lives in the
+      // Social card, so only playlist creation needs a button here.
+      child: SizedBox(
+        width: double.infinity,
+        child: _buildActionButton(
+          'Create Playlist',
+          Icons.playlist_add,
+          const Color(0xFF10B981),
+          _createPlaylist,
+        ),
       ),
     );
   }
@@ -2092,13 +1860,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: theme.colorScheme.onSurface,
                 ),
               ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const SocialScreen()),
+                ),
+                icon: const Icon(Icons.forum_outlined, size: 18),
+                label: const Text('Friends & chats'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: _buildSocialStat('Followers', followers),
+                child: _buildSocialStat('Followers', followers, onTap: () => _openFollowList(0)),
               ),
               Container(
                 height: 32,
@@ -2106,7 +1882,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: theme.colorScheme.outline.withValues(alpha: 0.3),
               ),
               Expanded(
-                child: _buildSocialStat('Following', following),
+                child: _buildSocialStat('Following', following, onTap: () => _openFollowList(1)),
               ),
             ],
           ),
@@ -2115,28 +1891,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSocialStat(String label, int count) {
+  void _openFollowList(int tab) {
+    final me = FirebaseAuthService.instance.currentUser?.uid;
+    if (me == null) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (context) => FollowListScreen(userId: me, initialTab: tab)))
+        .then((_) => _loadData(silent: true));
+  }
+
+  /// Follower / following counts open the full lists.
+  Widget _buildSocialStat(String label, int count, {VoidCallback? onTap}) {
     final theme = Theme.of(context);
     
-    return Column(
-      children: [
-        Text(
-          count.toString(),
-          style: TextStyle(
-            fontSize: 18, // Reduced from 20
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          children: [
+            Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
