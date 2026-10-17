@@ -12,6 +12,7 @@ import '../models/rating_comment.dart';
 import '../services/igdb_service.dart';
 import '../services/rating_service.dart';
 import '../services/library_service.dart';
+import '../models/library_status.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/user_data_service.dart';
@@ -874,30 +875,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         await _loadGameData();
         
         if (mounted) {
-          // Create proper notification message
-          String statusMessage;
-          switch (status) {
-            case 'backlog':
-              statusMessage = 'Added to backlog';
-              break;
-            case 'playing':
-              statusMessage = 'Added to playing';
-              break;
-            case 'completed':
-              statusMessage = 'Added to completed';
-              break;
-            case 'dropped':
-              statusMessage = 'Added to dropped';
-              break;
-            default:
-              statusMessage = 'Added to library as ${status.replaceAll('_', ' ')}';
-          }
-          
+          final label = LibraryStatus.fromValue(status)?.label ?? 'your library';
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(statusMessage),
-              backgroundColor: Colors.green,
-            ),
+            SnackBar(content: Text('Saved to $label')),
           );
         }
       }
@@ -1040,169 +1020,152 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   void _showLibraryPopup() {
+    final theme = Theme.of(context);
+    final current = LibraryStatus.fromValue(_currentLibraryStatus);
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1F2937),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Handle bar
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[600],
-                  borderRadius: BorderRadius.circular(2),
+      showDragHandle: true,
+      // Let the sheet grow to fit all five options (the default cap is ~56%
+      // of the screen); it scrolls if a small screen still can't fit it.
+      isScrollControlled: true,
+      backgroundColor: theme.colorScheme.surface,
+      builder: (sheet) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                current == null ? 'Add to library' : 'Move in your library',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              if (_game != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  _game!.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
                 ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Add to Library',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildLibraryOption(
-              'Backlog',
-              'Games you want to play in the future',
-              Icons.bookmark_border,
-              'backlog',
-              const Color(0xFF6366F1),
-            ),
-            _buildLibraryOption(
-              'Playing',
-              'Games you are currently playing',
-              Icons.play_circle_outline,
-              'playing',
-              const Color(0xFF10B981),
-            ),
-            _buildLibraryOption(
-              'Completed',
-              'Games you have finished',
-              Icons.check_circle_outline,
-              'completed',
-              const Color(0xFFFBBF24),
-            ),
-            _buildLibraryOption(
-              'Dropped',
-              'Games you stopped playing',
-              Icons.cancel_outlined,
-              'dropped',
-              const Color(0xFFEF4444),
-            ),
-            const SizedBox(height: 10),
-          ],
+              ],
+              const SizedBox(height: 16),
+              for (final status in LibraryStatus.pickerOrder)
+                _buildLibraryOption(sheet, status, selected: status == current),
+              if (current != null) ...[
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheet).pop();
+                    _confirmRemoveFromLibrary();
+                  },
+                  icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
+                  label: Text('Remove from library', style: TextStyle(color: theme.colorScheme.error)),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLibraryOption(String title, String description, IconData icon, String status, Color color) {
-    final isCurrentStatus = _currentLibraryStatus == status;
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+  Widget _buildLibraryOption(BuildContext sheet, LibraryStatus status, {required bool selected}) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: Colors.transparent,
+        color: selected ? status.color.withValues(alpha: 0.14) : theme.colorScheme.onSurface.withValues(alpha: 0.05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: selected ? status.color : Colors.transparent, width: 1.5),
+        ),
         child: InkWell(
+          borderRadius: BorderRadius.circular(16),
           onTap: () {
-            Navigator.of(context).pop();
-            _addToLibrary(status);
+            Navigator.of(sheet).pop();
+            if (!selected) _addToLibrary(status.value);
           },
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isCurrentStatus ? color.withValues(alpha: 0.1) : const Color(0xFF374151),
-              borderRadius: BorderRadius.circular(12),
-              border: isCurrentStatus ? Border.all(color: color, width: 2) : null,
-            ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    color: status.color.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 20,
-                  ),
+                  child: Icon(status.icon, color: status.color, size: 22),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                          if (isCurrentStatus) ...[
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.check_circle,
-                              color: color,
-                              size: 16,
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 4),
+                      Text(status.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
                       Text(
-                        description,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
+                        status.description,
+                        style: TextStyle(fontSize: 12.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
                       ),
                     ],
                   ),
                 ),
-                if (status == 'playing' && isCurrentStatus)
+                if (selected && status == LibraryStatus.playing)
                   TextButton(
                     onPressed: () {
-                      Navigator.of(context).pop();
+                      Navigator.of(sheet).pop();
                       _markAsCompleted();
                     },
-                    child: const Text(
-                      'Mark Complete',
-                      style: TextStyle(
-                        color: Color(0xFF10B981),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+                    child: Text('Finished it?', style: TextStyle(color: LibraryStatus.completed.color)),
+                  )
+                else if (selected)
+                  Icon(Icons.check_circle_rounded, color: status.color),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _confirmRemoveFromLibrary() async {
+    final rated = _userRating != null;
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove from library?'),
+        content: Text(rated
+            ? 'This also deletes your rating and review of ${_game?.title ?? 'this game'}.'
+            : '${_game?.title ?? 'This game'} will be removed from your library.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(dialog).colorScheme.error),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    final me = FirebaseAuthService().currentUser;
+    if (remove != true || me == null) return;
+    try {
+      await LibraryService.instance.removeGameFromLibrary(me.uid, widget.gameId);
+      if (!mounted) return;
+      setState(() {
+        _currentLibraryStatus = null;
+        _userRating = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Removed from your library')));
+      _refreshAllRatingData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not remove it. Try again.')));
+      }
+    }
   }
 
   @override
@@ -1420,13 +1383,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       if (_game?.developer.isNotEmpty ?? false) _game!.developer,
     ].join('  ·  ');
     final inLibrary = _currentLibraryStatus != null;
-    final statusLabel = switch (_currentLibraryStatus) {
-      'backlog' => 'Backlog',
-      'playing' => 'Playing',
-      'completed' => 'Completed',
-      'dropped' => 'Dropped',
-      _ => 'In library',
-    };
+    final statusLabel = LibraryStatus.fromValue(_currentLibraryStatus)?.label ?? 'In library';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1481,7 +1438,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                         color: inLibrary ? accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.2),
                       ),
                       child: Icon(
-                        inLibrary ? Icons.bookmark_added_rounded : Icons.add_rounded,
+                        inLibrary ? (LibraryStatus.fromValue(_currentLibraryStatus)?.icon ?? Icons.bookmark_added_rounded) : Icons.add_rounded,
                         color: inLibrary ? accent : Colors.white,
                         size: 24,
                       ),
@@ -1501,7 +1458,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            inLibrary ? '$statusLabel · tap to change' : 'Track it as playing, completed or backlog',
+                            inLibrary ? '$statusLabel · tap to change' : 'Want it, playing it or finished it',
                             style: TextStyle(
                               fontSize: 13,
                               color: inLibrary ? accent : Colors.white.withValues(alpha: 0.85),
