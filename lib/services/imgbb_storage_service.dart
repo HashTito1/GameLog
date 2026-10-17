@@ -105,7 +105,7 @@ class ImgBBStorageService {
       }
       
       // Send request
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 90));
       final response = await http.Response.fromStream(streamedResponse);
       
       if (kDebugMode) {

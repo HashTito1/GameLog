@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../widgets/app_network_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,12 +8,12 @@ import '../services/user_data_service.dart';
 import '../services/igdb_service.dart';
 import '../services/library_service.dart';
 import '../services/event_bus.dart';
-import '../services/image_picker_service.dart';
 import '../services/hybrid_image_storage_service.dart';
 import '../models/game.dart';
 import 'favorite_game_selection_screen.dart';
 import 'social_screen.dart';
 import 'follow_list_screen.dart';
+import '../widgets/profile_media_picker.dart';
 import 'main_screen.dart';
 import 'settings_screen.dart';
 import 'game_detail_screen.dart';
@@ -185,123 +184,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _changeProfilePicture() async {
     try {
-      String? imagePath;
       final theme = Theme.of(context);
-      
-      // Show bottom sheet to select image source
-      final source = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: theme.colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (BuildContext context) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Select Image Source',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'gallery'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.photo_library,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Gallery',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'camera'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.camera_alt,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Camera',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+      final imageBytes = await pickProfileMedia(context, ProfileMediaKind.avatar);
 
-      if (source != null && mounted) {
-        if (source == 'gallery') {
-          imagePath = await ImagePickerService.pickImage(context);
-        } else if (source == 'camera') {
-          imagePath = await ImagePickerService.takePhoto(context);
-        }
-      }
-
-      if (imagePath != null) {
+      if (imageBytes != null) {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -323,9 +209,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        // Read image bytes
-        final file = File(imagePath);
-        final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
@@ -403,123 +286,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _changeBannerImage() async {
     try {
-      String? imagePath;
-      final theme = Theme.of(context);
-      
-      // Show bottom sheet to select image source
-      final source = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: theme.colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (BuildContext context) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Select Banner Image Source',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'gallery'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.photo_library,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Gallery',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context, 'camera'),
-                        child: Container(
-                          width: 120,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4B5563)),
-                          ),
-                          child: const Column(
-                            children: [
-                              Icon(
-                                Icons.camera_alt,
-                                color: Color(0xFF6366F1),
-                                size: 32,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Camera',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+      final imageBytes = await pickProfileMedia(context, ProfileMediaKind.banner);
 
-      if (source != null && mounted) {
-        if (source == 'gallery') {
-          imagePath = await ImagePickerService.pickImage(context);
-        } else if (source == 'camera') {
-          imagePath = await ImagePickerService.takePhoto(context);
-        }
-      }
-
-      if (imagePath != null) {
+      if (imageBytes != null) {
         // Show loading indicator
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -541,9 +310,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        // Read image bytes
-        final file = File(imagePath);
-        final imageBytes = await file.readAsBytes();
         
         final currentUser = FirebaseAuthService.instance.currentUser;
         if (currentUser != null) {
